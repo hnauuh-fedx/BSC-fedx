@@ -1,0 +1,11 @@
+import React from 'react';
+export const PageHeader: React.FC<React.PropsWithChildren<{ title: string; action?: React.ReactNode }>> = ({ title, action, children }) => <header><h1>{title}</h1>{children}<div>{action}</div></header>;
+export const StatusBadge: React.FC<{ status: string }> = ({ status }) => <span aria-label={`Trạng thái ${status}`}>{status === 'ACTIVE' ? 'Đang hoạt động' : status === 'LOCKED' ? 'Đã khóa' : 'Ngừng hoạt động'}</span>;
+export const LoadingState = () => <p aria-live="polite">Đang tải…</p>;
+export const EmptyState: React.FC<{ message?: string }> = ({ message = 'Không có dữ liệu.' }) => <p>{message}</p>;
+export const ErrorState: React.FC<{ error: string }> = ({ error }) => <p role="alert">{error}</p>;
+export const SearchInput: React.FC<{ value: string; onChange: (value: string) => void }> = ({ value, onChange }) => <input aria-label="Tìm kiếm" value={value} onChange={e => onChange(e.target.value)} placeholder="Tìm kiếm" />;
+export const Pagination: React.FC<{ page: number; total: number; limit: number; onChange: (page: number) => void }> = ({ page, total, limit, onChange }) => <nav aria-label="Phân trang"><button disabled={page <= 1} onClick={() => onChange(page - 1)}>Trước</button><span>Trang {page} / {Math.max(1, Math.ceil(total / limit))}</span><button disabled={page * limit >= total} onClick={() => onChange(page + 1)}>Sau</button></nav>;
+export const ConfirmButton: React.FC<{ message: string; onConfirm: () => void; children: React.ReactNode }> = ({ message, onConfirm, children }) => <button type="button" onClick={() => { if (window.confirm(message)) onConfirm(); }}>{children}</button>;
+export const FormField: React.FC<React.PropsWithChildren<{ label: string; error?: string }>> = ({ label, error, children }) => <label>{label}{children}{error && <small role="alert">{error}</small>}</label>;
+export const DataTable: React.FC<React.PropsWithChildren> = ({ children }) => <table><tbody>{children}</tbody></table>;

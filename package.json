@@ -1,0 +1,32 @@
+{
+  "name": "bsc-management",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=apps/web",
+    "dev:api": "npm run dev --workspace=apps/api",
+    "build:web": "npm run build --workspace=apps/web",
+    "build:api": "npm run build --workspace=apps/api",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "prisma:validate": "dotenv -e .env -- npm run prisma:validate --workspace=apps/api",
+    "prisma:generate": "dotenv -e .env -- npm run prisma:generate --workspace=apps/api",
+    "prisma:test:deploy": "dotenv -e .env -- npm run prisma:test:deploy --workspace=apps/api",
+    "prisma:pull": "dotenv -e .env -- npm run prisma:pull --workspace=apps/api",
+    "prisma:migrate": "npm run prisma:migrate --workspace=apps/api",
+    "prisma:studio": "dotenv -e .env -- npm run prisma:studio --workspace=apps/api",
+    "seed": "dotenv -e .env -- npm run seed --workspace=apps/api"
+  },
+  "devDependencies": {
+    "dotenv-cli": "^11.0.0",
+    "typescript": "5.6.3"
+  },
+  "overrides": {
+    "typescript": "5.6.3"
+  }
+}

@@ -1,0 +1,446 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model audit_logs {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String?  @db.Uuid
+  module      String   @db.VarChar(100)
+  entity_type String   @db.VarChar(100)
+  entity_id   String?  @db.Uuid
+  action      String   @db.VarChar(100)
+  old_data    Json?
+  new_data    Json?
+  ip_address  String?  @db.VarChar(50)
+  user_agent  String?
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  users       users?   @relation(fields: [user_id], references: [id], onUpdate: NoAction, map: "audit_logs_user_fk")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model bsc_approval_steps {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employee_bsc_id String       @db.Uuid
+  step_order      Int
+  approver_id     String       @db.Uuid
+  approver_role   String       @db.VarChar(30)
+  status          String       @default("PENDING") @db.VarChar(20)
+  comment         String?
+  acted_at        DateTime?    @db.Timestamptz(6)
+  created_at      DateTime     @default(now()) @db.Timestamptz(6)
+  users           users        @relation(fields: [approver_id], references: [id], onUpdate: NoAction, map: "bsc_approval_steps_approver_fk")
+  employee_bsc    employee_bsc @relation(fields: [employee_bsc_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "bsc_approval_steps_bsc_fk")
+
+  @@unique([employee_bsc_id, step_order], map: "bsc_approval_steps_order_uq")
+}
+
+model bsc_attachments {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employee_bsc_id    String              @db.Uuid
+  bsc_item_id        String?             @db.Uuid
+  file_name          String              @db.VarChar(255)
+  file_path          String
+  mime_type          String              @db.VarChar(100)
+  file_size          BigInt
+  uploaded_by        String              @db.Uuid
+  uploaded_at        DateTime            @default(now()) @db.Timestamptz(6)
+  deleted_at         DateTime?           @db.Timestamptz(6)
+  employee_bsc       employee_bsc        @relation(fields: [employee_bsc_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "bsc_attachments_bsc_fk")
+  employee_bsc_items employee_bsc_items? @relation(fields: [bsc_item_id], references: [id], onUpdate: NoAction, map: "bsc_attachments_item_fk")
+  users              users               @relation(fields: [uploaded_by], references: [id], onUpdate: NoAction, map: "bsc_attachments_uploaded_by_fk")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model bsc_cycles {
+  id                  String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                String         @unique @db.VarChar(50)
+  name                String         @db.VarChar(255)
+  cycle_type          String         @db.VarChar(20)
+  year                Int
+  month               Int?
+  quarter             Int?
+  start_date          DateTime       @db.Date
+  end_date            DateTime       @db.Date
+  submission_deadline DateTime       @db.Timestamptz(6)
+  review_deadline     DateTime?      @db.Timestamptz(6)
+  status              String         @default("DRAFT") @db.VarChar(20)
+  created_by          String         @db.Uuid
+  created_at          DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime       @default(now()) @db.Timestamptz(6)
+  users               users          @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "bsc_cycles_created_by_fk")
+  employee_bsc        employee_bsc[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model bsc_grade_rules {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  grade_code     String    @db.VarChar(10)
+  grade_name     String    @db.VarChar(100)
+  min_score      Decimal   @db.Decimal(7, 2)
+  max_score      Decimal?  @db.Decimal(7, 2)
+  sort_order     Int
+  status         String    @default("ACTIVE") @db.VarChar(20)
+  effective_from DateTime  @db.Date
+  effective_to   DateTime? @db.Date
+  created_by     String?   @db.Uuid
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @default(now()) @db.Timestamptz(6)
+  users          users?    @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "bsc_grade_rules_created_by_fk")
+
+  @@unique([grade_code, effective_from], map: "bsc_grade_rules_code_from_uq")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model bsc_reviews {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employee_bsc_id String       @db.Uuid
+  reviewer_id     String       @db.Uuid
+  reviewer_role   String       @db.VarChar(30)
+  review_level    Int
+  action          String       @db.VarChar(30)
+  score_before    Decimal?     @db.Decimal(7, 2)
+  score_after     Decimal?     @db.Decimal(7, 2)
+  comment         String?
+  reviewed_at     DateTime     @default(now()) @db.Timestamptz(6)
+  employee_bsc    employee_bsc @relation(fields: [employee_bsc_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "bsc_reviews_bsc_fk")
+  users           users        @relation(fields: [reviewer_id], references: [id], onUpdate: NoAction, map: "bsc_reviews_reviewer_fk")
+}
+
+model bsc_status_histories {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employee_bsc_id String       @db.Uuid
+  from_status     String?      @db.VarChar(30)
+  to_status       String       @db.VarChar(30)
+  action          String       @db.VarChar(50)
+  comment         String?
+  changed_by      String       @db.Uuid
+  changed_at      DateTime     @default(now()) @db.Timestamptz(6)
+  ip_address      String?      @db.VarChar(50)
+  user_agent      String?
+  employee_bsc    employee_bsc @relation(fields: [employee_bsc_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "bsc_status_histories_bsc_fk")
+  users           users        @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "bsc_status_histories_changed_by_fk")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model bsc_template_items {
+  id                    String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  section_id            String                @db.Uuid
+  code                  String                @db.VarChar(50)
+  name                  String                @db.VarChar(500)
+  description           String?
+  measurement_unit      String?               @db.VarChar(50)
+  target_type           String                @db.VarChar(30)
+  default_target        Decimal?              @db.Decimal(18, 4)
+  default_target_text   String?
+  default_weight        Decimal               @db.Decimal(5, 2)
+  calculation_method    String                @default("ACTUAL_DIV_TARGET") @db.VarChar(50)
+  max_score_percent     Decimal?              @db.Decimal(7, 2)
+  is_required           Boolean               @default(true)
+  sort_order            Int                   @default(0)
+  bsc_template_sections bsc_template_sections @relation(fields: [section_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "bsc_template_items_section_fk")
+  employee_bsc_items    employee_bsc_items[]
+
+  @@unique([section_id, code], map: "bsc_template_items_code_uq")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model bsc_template_sections {
+  id                 String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  template_id        String               @db.Uuid
+  code               String               @db.VarChar(50)
+  name               String               @db.VarChar(255)
+  description        String?
+  weight             Decimal              @db.Decimal(5, 2)
+  sort_order         Int                  @default(0)
+  created_at         DateTime             @default(now()) @db.Timestamptz(6)
+  bsc_template_items bsc_template_items[]
+  bsc_templates      bsc_templates        @relation(fields: [template_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "bsc_template_sections_template_fk")
+  employee_bsc_items employee_bsc_items[]
+
+  @@unique([template_id, code], map: "bsc_template_sections_code_uq")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model bsc_templates {
+  id                                     String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                                   String                  @db.VarChar(50)
+  name                                   String                  @db.VarChar(255)
+  description                            String?
+  department_id                          String?                 @db.Uuid
+  position_id                            String?                 @db.Uuid
+  version                                Int                     @default(1)
+  status                                 String                  @default("DRAFT") @db.VarChar(20)
+  created_by                             String                  @db.Uuid
+  approved_by                            String?                 @db.Uuid
+  created_at                             DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at                             DateTime                @default(now()) @db.Timestamptz(6)
+  bsc_template_sections                  bsc_template_sections[]
+  users_bsc_templates_approved_byTousers users?                  @relation("bsc_templates_approved_byTousers", fields: [approved_by], references: [id], onUpdate: NoAction, map: "bsc_templates_approved_by_fk")
+  users_bsc_templates_created_byTousers  users                   @relation("bsc_templates_created_byTousers", fields: [created_by], references: [id], onUpdate: NoAction, map: "bsc_templates_created_by_fk")
+  departments                            departments?            @relation(fields: [department_id], references: [id], onUpdate: NoAction, map: "bsc_templates_department_fk")
+  positions                              positions?              @relation(fields: [position_id], references: [id], onUpdate: NoAction, map: "bsc_templates_position_fk")
+  employee_bsc                           employee_bsc[]
+
+  @@unique([code, version], map: "bsc_templates_code_version_uq")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model bsc_unlock_requests {
+  id                                            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employee_bsc_id                               String       @db.Uuid
+  requested_by                                  String       @db.Uuid
+  request_reason                                String
+  requested_at                                  DateTime     @default(now()) @db.Timestamptz(6)
+  status                                        String       @default("PENDING") @db.VarChar(20)
+  reviewed_by                                   String?      @db.Uuid
+  review_comment                                String?
+  reviewed_at                                   DateTime?    @db.Timestamptz(6)
+  unlock_until                                  DateTime?    @db.Timestamptz(6)
+  allowed_fields                                Json?
+  created_at                                    DateTime     @default(now()) @db.Timestamptz(6)
+  employee_bsc                                  employee_bsc @relation(fields: [employee_bsc_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "bsc_unlock_requests_bsc_fk")
+  users_bsc_unlock_requests_requested_byTousers users        @relation("bsc_unlock_requests_requested_byTousers", fields: [requested_by], references: [id], onUpdate: NoAction, map: "bsc_unlock_requests_requested_by_fk")
+  users_bsc_unlock_requests_reviewed_byTousers  users?       @relation("bsc_unlock_requests_reviewed_byTousers", fields: [reviewed_by], references: [id], onUpdate: NoAction, map: "bsc_unlock_requests_reviewed_by_fk")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model departments {
+  id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code              String          @unique @db.VarChar(50)
+  name              String          @db.VarChar(255)
+  parent_id         String?         @db.Uuid
+  status            String          @default("ACTIVE") @db.VarChar(20)
+  created_at        DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime        @default(now()) @db.Timestamptz(6)
+  bsc_templates     bsc_templates[]
+  departments       departments?    @relation("departmentsTodepartments", fields: [parent_id], references: [id], onUpdate: NoAction, map: "departments_parent_fk")
+  other_departments departments[]   @relation("departmentsTodepartments")
+  employee_bsc      employee_bsc[]
+  users             users[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model employee_bsc {
+  id                                          String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bsc_code                                    String                 @unique @db.VarChar(50)
+  cycle_id                                    String                 @db.Uuid
+  employee_id                                 String                 @db.Uuid
+  department_id                               String                 @db.Uuid
+  position_id                                 String                 @db.Uuid
+  direct_manager_id                           String                 @db.Uuid
+  template_id                                 String?                @db.Uuid
+  template_version                            Int?
+  source_bsc_id                               String?                @db.Uuid
+  status                                      String                 @default("DRAFT") @db.VarChar(30)
+  employee_total_score                        Decimal                @default(0) @db.Decimal(7, 2)
+  manager_total_score                         Decimal?               @db.Decimal(7, 2)
+  final_score                                 Decimal?               @db.Decimal(7, 2)
+  final_grade                                 String?                @db.VarChar(10)
+  employee_comment                            String?
+  manager_comment                             String?
+  submitted_at                                DateTime?              @db.Timestamptz(6)
+  approved_at                                 DateTime?              @db.Timestamptz(6)
+  approved_by                                 String?                @db.Uuid
+  locked_at                                   DateTime?              @db.Timestamptz(6)
+  created_by                                  String                 @db.Uuid
+  created_at                                  DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at                                  DateTime               @default(now()) @db.Timestamptz(6)
+  bsc_approval_steps                          bsc_approval_steps[]
+  bsc_attachments                             bsc_attachments[]
+  bsc_reviews                                 bsc_reviews[]
+  bsc_status_histories                        bsc_status_histories[]
+  bsc_unlock_requests                         bsc_unlock_requests[]
+  users_employee_bsc_approved_byTousers       users?                 @relation("employee_bsc_approved_byTousers", fields: [approved_by], references: [id], onUpdate: NoAction, map: "employee_bsc_approved_by_fk")
+  users_employee_bsc_created_byTousers        users                  @relation("employee_bsc_created_byTousers", fields: [created_by], references: [id], onUpdate: NoAction, map: "employee_bsc_created_by_fk")
+  bsc_cycles                                  bsc_cycles             @relation(fields: [cycle_id], references: [id], onUpdate: NoAction, map: "employee_bsc_cycle_fk")
+  departments                                 departments            @relation(fields: [department_id], references: [id], onUpdate: NoAction, map: "employee_bsc_department_fk")
+  users_employee_bsc_employee_idTousers       users                  @relation("employee_bsc_employee_idTousers", fields: [employee_id], references: [id], onUpdate: NoAction, map: "employee_bsc_employee_fk")
+  users_employee_bsc_direct_manager_idTousers users                  @relation("employee_bsc_direct_manager_idTousers", fields: [direct_manager_id], references: [id], onUpdate: NoAction, map: "employee_bsc_manager_fk")
+  positions                                   positions              @relation(fields: [position_id], references: [id], onUpdate: NoAction, map: "employee_bsc_position_fk")
+  employee_bsc                                employee_bsc?          @relation("employee_bscToemployee_bsc", fields: [source_bsc_id], references: [id], onUpdate: NoAction, map: "employee_bsc_source_fk")
+  other_employee_bsc                          employee_bsc[]         @relation("employee_bscToemployee_bsc")
+  bsc_templates                               bsc_templates?         @relation(fields: [template_id], references: [id], onUpdate: NoAction, map: "employee_bsc_template_fk")
+  employee_bsc_items                          employee_bsc_items[]
+
+  @@unique([cycle_id, employee_id], map: "employee_bsc_cycle_employee_uq")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model employee_bsc_items {
+  id                    String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employee_bsc_id       String                 @db.Uuid
+  template_item_id      String?                @db.Uuid
+  section_id            String?                @db.Uuid
+  kpi_code              String                 @db.VarChar(50)
+  kpi_name              String                 @db.VarChar(500)
+  description           String?
+  measurement_unit      String?                @db.VarChar(50)
+  target_value          Decimal?               @db.Decimal(18, 4)
+  target_text           String?
+  actual_value          Decimal?               @db.Decimal(18, 4)
+  actual_text           String?
+  weight                Decimal                @db.Decimal(5, 2)
+  achievement_percent   Decimal                @default(0) @db.Decimal(7, 2)
+  employee_score        Decimal                @default(0) @db.Decimal(7, 2)
+  manager_score         Decimal?               @db.Decimal(7, 2)
+  final_score           Decimal?               @db.Decimal(7, 2)
+  calculation_method    String                 @default("ACTUAL_DIV_TARGET") @db.VarChar(50)
+  assigned_by           String                 @db.Uuid
+  assigned_at           DateTime               @default(now()) @db.Timestamptz(6)
+  employee_note         String?
+  manager_note          String?
+  sort_order            Int                    @default(0)
+  created_at            DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime               @default(now()) @db.Timestamptz(6)
+  bsc_attachments       bsc_attachments[]
+  users                 users                  @relation(fields: [assigned_by], references: [id], onUpdate: NoAction, map: "employee_bsc_items_assigned_by_fk")
+  employee_bsc          employee_bsc           @relation(fields: [employee_bsc_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "employee_bsc_items_bsc_fk")
+  bsc_template_sections bsc_template_sections? @relation(fields: [section_id], references: [id], onUpdate: NoAction, map: "employee_bsc_items_section_fk")
+  bsc_template_items    bsc_template_items?    @relation(fields: [template_item_id], references: [id], onUpdate: NoAction, map: "employee_bsc_items_template_item_fk")
+
+  @@unique([employee_bsc_id, kpi_code], map: "employee_bsc_items_code_uq")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model manager_relationships {
+  id                                             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employee_id                                    String    @db.Uuid
+  manager_id                                     String    @db.Uuid
+  start_date                                     DateTime  @db.Date
+  end_date                                       DateTime? @db.Date
+  is_primary                                     Boolean   @default(true)
+  created_at                                     DateTime  @default(now()) @db.Timestamptz(6)
+  users_manager_relationships_employee_idTousers users     @relation("manager_relationships_employee_idTousers", fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "manager_relationships_employee_fk")
+  users_manager_relationships_manager_idTousers  users     @relation("manager_relationships_manager_idTousers", fields: [manager_id], references: [id], onUpdate: NoAction, map: "manager_relationships_manager_fk")
+}
+
+model permissions {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code             String             @unique @db.VarChar(100)
+  name             String             @db.VarChar(255)
+  module           String             @db.VarChar(100)
+  description      String?
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  role_permissions role_permissions[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model positions {
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code          String          @unique @db.VarChar(50)
+  name          String          @db.VarChar(255)
+  level         Int             @default(1)
+  status        String          @default("ACTIVE") @db.VarChar(20)
+  created_at    DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime        @default(now()) @db.Timestamptz(6)
+  bsc_templates bsc_templates[]
+  employee_bsc  employee_bsc[]
+  users         users[]
+}
+
+model role_permissions {
+  role_id       String      @db.Uuid
+  permission_id String      @db.Uuid
+  created_at    DateTime    @default(now()) @db.Timestamptz(6)
+  permissions   permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "role_permissions_permission_fk")
+  roles         roles       @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "role_permissions_role_fk")
+
+  @@id([role_id, permission_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model roles {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code             String             @unique @db.VarChar(50)
+  name             String             @db.VarChar(255)
+  hierarchy_level  Int
+  description      String?
+  is_system        Boolean            @default(true)
+  status           String             @default("ACTIVE") @db.VarChar(20)
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime           @default(now()) @db.Timestamptz(6)
+  role_permissions role_permissions[]
+  user_roles       user_roles[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model user_roles {
+  id                                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                             String    @db.Uuid
+  role_id                             String    @db.Uuid
+  scope_type                          String    @db.VarChar(20)
+  scope_id                            String?   @db.Uuid
+  assigned_by                         String?   @db.Uuid
+  assigned_at                         DateTime  @default(now()) @db.Timestamptz(6)
+  expires_at                          DateTime? @db.Timestamptz(6)
+  users_user_roles_assigned_byTousers users?    @relation("user_roles_assigned_byTousers", fields: [assigned_by], references: [id], onUpdate: NoAction, map: "user_roles_assigned_by_fk")
+  roles                               roles     @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "user_roles_role_fk")
+  users_user_roles_user_idTousers     users     @relation("user_roles_user_idTousers", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "user_roles_user_fk")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model users {
+  id                                                             String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employee_code                                                  String                  @unique @db.VarChar(50)
+  full_name                                                      String                  @db.VarChar(255)
+  email                                                          String                  @unique @db.VarChar(255)
+  password_hash                                                  String
+  department_id                                                  String                  @db.Uuid
+  position_id                                                    String                  @db.Uuid
+  direct_manager_id                                              String?                 @db.Uuid
+  status                                                         String                  @default("ACTIVE") @db.VarChar(20)
+  last_login_at                                                  DateTime?               @db.Timestamptz(6)
+  created_at                                                     DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at                                                     DateTime                @default(now()) @db.Timestamptz(6)
+  deleted_at                                                     DateTime?               @db.Timestamptz(6)
+  audit_logs                                                     audit_logs[]
+  bsc_approval_steps                                             bsc_approval_steps[]
+  bsc_attachments                                                bsc_attachments[]
+  bsc_cycles                                                     bsc_cycles[]
+  bsc_grade_rules                                                bsc_grade_rules[]
+  bsc_reviews                                                    bsc_reviews[]
+  bsc_status_histories                                           bsc_status_histories[]
+  bsc_templates_bsc_templates_approved_byTousers                 bsc_templates[]         @relation("bsc_templates_approved_byTousers")
+  bsc_templates_bsc_templates_created_byTousers                  bsc_templates[]         @relation("bsc_templates_created_byTousers")
+  bsc_unlock_requests_bsc_unlock_requests_requested_byTousers    bsc_unlock_requests[]   @relation("bsc_unlock_requests_requested_byTousers")
+  bsc_unlock_requests_bsc_unlock_requests_reviewed_byTousers     bsc_unlock_requests[]   @relation("bsc_unlock_requests_reviewed_byTousers")
+  employee_bsc_employee_bsc_approved_byTousers                   employee_bsc[]          @relation("employee_bsc_approved_byTousers")
+  employee_bsc_employee_bsc_created_byTousers                    employee_bsc[]          @relation("employee_bsc_created_byTousers")
+  employee_bsc_employee_bsc_employee_idTousers                   employee_bsc[]          @relation("employee_bsc_employee_idTousers")
+  employee_bsc_employee_bsc_direct_manager_idTousers             employee_bsc[]          @relation("employee_bsc_direct_manager_idTousers")
+  employee_bsc_items                                             employee_bsc_items[]
+  manager_relationships_manager_relationships_employee_idTousers manager_relationships[] @relation("manager_relationships_employee_idTousers")
+  manager_relationships_manager_relationships_manager_idTousers  manager_relationships[] @relation("manager_relationships_manager_idTousers")
+  user_roles_user_roles_assigned_byTousers                       user_roles[]            @relation("user_roles_assigned_byTousers")
+  user_roles_user_roles_user_idTousers                           user_roles[]            @relation("user_roles_user_idTousers")
+  departments                                                    departments             @relation(fields: [department_id], references: [id], onUpdate: NoAction, map: "users_department_fk")
+  users                                                          users?                  @relation("usersTousers", fields: [direct_manager_id], references: [id], onUpdate: NoAction, map: "users_direct_manager_fk")
+  other_users                                                    users[]                 @relation("usersTousers")
+  positions                                                      positions               @relation(fields: [position_id], references: [id], onUpdate: NoAction, map: "users_position_fk")
+
+  auth_refresh_tokens auth_refresh_tokens[]
+
+  @@index([department_id], map: "users_department_idx")
+  @@index([direct_manager_id], map: "users_direct_manager_idx")
+}
+
+model auth_refresh_tokens {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String    @db.Uuid
+  token_hash  String
+  jti         String    @unique @db.VarChar(255)
+  expires_at  DateTime  @db.Timestamptz(6)
+  revoked_at  DateTime? @db.Timestamptz(6)
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  user_agent  String?
+  ip_address  String?   @db.VarChar(50)
+  users       users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id], map: "auth_refresh_tokens_user_id_idx")
+  @@index([expires_at], map: "auth_refresh_tokens_expires_at_idx")
+}
