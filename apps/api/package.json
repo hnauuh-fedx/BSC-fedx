@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node ./test/run-tests.js",
     "prisma:test:deploy": "node ./test/run-organization-integration.js --deploy-only",
-    "test:integration:organization": "node ./test/run-organization-integration.js"
+    "test:integration:organization": "node ./test/run-organization-integration.js",
+    "test:integration:bsc-draft": "node ./test/run-bsc-draft-integration.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.28",

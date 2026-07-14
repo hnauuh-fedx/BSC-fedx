@@ -1,1 +1,4 @@
-export interface EmployeeBscType {}
+export interface AuditRequestMetadata {
+  ipAddress?: string;
+  userAgent?: string;
+}

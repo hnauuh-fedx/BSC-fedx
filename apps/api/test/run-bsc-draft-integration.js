@@ -22,10 +22,7 @@ function run(command, args, env) {
 
 let config;
 try { config = safeTestUrl(); } catch (error) { console.error(error.message); process.exit(1); }
-console.log(`Organization integration database: ${config.database}`);
+console.log(`BSC draft integration database: ${config.database}`);
 const env = { ...process.env, DATABASE_URL: config.raw, TEST_DATABASE_URL: config.raw, NODE_ENV: 'test' };
 run('npx', ['prisma', 'migrate', 'deploy'], env);
-if (process.argv.includes('--deploy-only')) process.exit(0);
-run('node', ['-r', 'ts-node/register/transpile-only', 'test/prepare-organization-test.ts'], env);
-run('npm', ['run', 'seed'], env);
-run('node', ['-r', 'ts-node/register/transpile-only', '--test', '--test-concurrency=1', 'test/organization.integration.test.ts'], env);
+run('node', ['-r', 'ts-node/register/transpile-only', '--test', '--test-concurrency=1', 'test/bsc-draft.integration.test.ts'], env);

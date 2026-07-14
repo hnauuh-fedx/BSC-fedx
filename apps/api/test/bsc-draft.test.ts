@@ -1,0 +1,91 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { ValidationPipe } from '@nestjs/common';
+import { ResourceScopePolicy } from '../src/common/policies/resource-scope.policy';
+import { AuthUser } from '../src/common/types/auth-user.type';
+import {
+  BSC_PERMISSIONS,
+  BscAccessPolicy,
+} from '../src/modules/employee-bsc/policies/bsc-access.policy';
+import {
+  assertTotalWeight,
+  assertTargetCompatible,
+  assertValidWeight,
+} from '../src/modules/employee-bsc/validators/bsc-item.validator';
+import { UpdateBscActualDto } from '../src/modules/employee-bsc/dto/bsc-item.dto';
+import { QueryEmployeeBscDto } from '../src/modules/employee-bsc/dto/query-employee-bsc.dto';
+
+const user = (overrides: Partial<AuthUser> = {}): AuthUser => ({
+  id: '00000000-0000-4000-8000-000000000001',
+  employeeCode: 'E001',
+  fullName: 'Employee',
+  email: 'employee@example.test',
+  departmentId: '00000000-0000-4000-8000-000000000010',
+  status: 'ACTIVE',
+  roles: [{ code: 'EMPLOYEE', scopeType: 'SELF', scopeId: null }],
+  permissions: [BSC_PERMISSIONS.CREATE_OWN, BSC_PERMISSIONS.VIEW_OWN, BSC_PERMISSIONS.EDIT_OWN],
+  ...overrides,
+});
+
+const draft = {
+  id: '00000000-0000-4000-8000-000000000100',
+  employee_id: '00000000-0000-4000-8000-000000000001',
+  department_id: '00000000-0000-4000-8000-000000000010',
+  direct_manager_id: '00000000-0000-4000-8000-000000000002',
+  status: 'DRAFT',
+};
+
+test('BSC policy enforces owner, direct manager, scope, permission and DRAFT state', () => {
+  const policy = new BscAccessPolicy(new ResourceScopePolicy());
+  const employee = user();
+  policy.assertCanCreateOwn(employee);
+  policy.assertCanView(employee, draft);
+  policy.assertCanUpdateActual(employee, draft);
+
+  const manager = user({
+    id: draft.direct_manager_id,
+    roles: [{ code: 'MANAGER', scopeType: 'DEPARTMENT', scopeId: draft.department_id }],
+    permissions: [BSC_PERMISSIONS.VIEW_SUBORDINATE, BSC_PERMISSIONS.MANAGE_KPI],
+  });
+  policy.assertCanView(manager, draft);
+  policy.assertCanManageKpi(manager, draft);
+
+  assert.throws(() => policy.assertCanManageKpi(employee, draft), (error: any) => error.response.code === 'BSC_ACCESS_DENIED');
+  assert.throws(() => policy.assertCanManageKpi({ ...manager, id: '00000000-0000-4000-8000-000000000099' }, draft));
+  assert.throws(() => policy.assertCanView({ ...manager, id: '00000000-0000-4000-8000-000000000099' }, draft));
+  policy.assertCanView(user({ roles: [{ code: 'DIRECTOR', scopeType: 'GLOBAL', scopeId: null }], permissions: [BSC_PERMISSIONS.VIEW_UNIT] }), draft);
+  assert.throws(() => policy.assertCanUpdateActual(employee, { ...draft, status: 'SUBMITTED' }), (error: any) => error.response.code === 'BSC_NOT_DRAFT');
+});
+
+test('BSC policy rejects DIRECTOR and ADMIN personal BSC creation', () => {
+  const policy = new BscAccessPolicy(new ResourceScopePolicy());
+  for (const code of ['DIRECTOR', 'ADMIN']) {
+    assert.throws(
+      () => policy.assertCanCreateOwn(user({ roles: [{ code, scopeType: 'GLOBAL', scopeId: null }] })),
+      (error: any) => error.response.code === (code === 'DIRECTOR' ? 'BSC_DIRECTOR_NOT_ELIGIBLE' : 'BSC_OWNER_NOT_ELIGIBLE'),
+    );
+  }
+});
+
+test('BSC weight accepts partial and exact drafts but rejects invalid or excessive totals', () => {
+  assert.doesNotThrow(() => assertValidWeight(0.01));
+  assert.doesNotThrow(() => assertValidWeight(100));
+  for (const value of [0, -1, 100.01, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.throws(() => assertValidWeight(value), (error: any) => error.response.code === 'BSC_WEIGHT_INVALID');
+  }
+  assert.doesNotThrow(() => assertTotalWeight(75));
+  assert.doesNotThrow(() => assertTotalWeight(100));
+  assert.throws(() => assertTotalWeight(100.01), (error: any) => error.response.code === 'BSC_TOTAL_WEIGHT_EXCEEDED');
+  assert.throws(() => assertTargetCompatible('ACTUAL_DIV_TARGET', 0), (error: any) => error.response.code === 'BSC_TARGET_INVALID');
+  assert.doesNotThrow(() => assertTargetCompatible('TARGET_DIV_ACTUAL', 0));
+});
+
+test('BSC DTOs reject cross-field mass assignment and non-allowlisted sort keys', async () => {
+  const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true });
+  await assert.rejects(
+    pipe.transform({ actualValue: 10, targetValue: 999 }, { type: 'body', metatype: UpdateBscActualDto, data: '' }),
+  );
+  await assert.rejects(
+    pipe.transform({ sortBy: 'status' }, { type: 'query', metatype: QueryEmployeeBscDto, data: '' }),
+  );
+});

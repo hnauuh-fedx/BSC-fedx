@@ -10,6 +10,7 @@ import { UserFormPage } from '../../features/organization/pages/user-form-page';
 import { UserDetailPage } from '../../features/organization/pages/user-detail-page';
 import { DepartmentEditPage } from '../../features/organization/pages/department-edit-page';
 import { PositionEditPage } from '../../features/organization/pages/position-edit-page';
+import { BscCreatePage, BscDetailPage, BscEditPage, BscListPage } from '../../features/employee-bsc';
 
 /**
  * ProtectedRoute — redirect về /login nếu chưa xác thực.
@@ -69,6 +70,10 @@ export const AppRouter: React.FC = () => {
         <Route path="/management/users/new" element={<ProtectedRoute><UserFormPage /></ProtectedRoute>} />
         <Route path="/management/users/:id" element={<ProtectedRoute><UserDetailPage /></ProtectedRoute>} />
         <Route path="/management/users/:id/edit" element={<ProtectedRoute><UserFormPage /></ProtectedRoute>} />
+        <Route path="/employee-bsc" element={<ProtectedRoute><BscListPage /></ProtectedRoute>} />
+        <Route path="/employee-bsc/new" element={<ProtectedRoute><BscCreatePage /></ProtectedRoute>} />
+        <Route path="/employee-bsc/:id" element={<ProtectedRoute><BscDetailPage /></ProtectedRoute>} />
+        <Route path="/employee-bsc/:id/edit" element={<ProtectedRoute><BscEditPage /></ProtectedRoute>} />
         <Route
           path="*"
           element={
