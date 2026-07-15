@@ -13,7 +13,9 @@ export const CANONICAL_BSC_DRAFT_PERMISSIONS = [
 ] as const;
 
 export const CANONICAL_BSC_WORKFLOW_PERMISSIONS = [
-  'bsc.submit.own', 'bsc.approve.subordinate', 'bsc.return.subordinate',
+  'bsc.plan.submit.own', 'bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate',
+  'bsc.evaluation.submit.own', 'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate',
+  'bsc.plan.history.view', 'bsc.evaluation.history.view',
 ] as const;
 
 const legacyCode = (...segments: string[]) => ['system', ...segments].join('.');
@@ -43,9 +45,9 @@ export async function seedPermissions(client: Prisma.TransactionClient): Promise
     await client.role_permissions.upsert({ where: { role_id_permission_id: { role_id: admin.id, permission_id: permission.id } }, create: { role_id: admin.id, permission_id: permission.id }, update: {} });
   }
   const roleMappings: Record<string, readonly string[]> = {
-    EMPLOYEE: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.submit.own'],
-    MANAGER: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.submit.own', 'bsc.view.subordinate', 'bsc.kpi.manage.subordinate', 'bsc.approve.subordinate', 'bsc.return.subordinate'],
-    DIRECTOR: ['bsc.view.unit', 'bsc.approve.subordinate', 'bsc.return.subordinate'],
+    EMPLOYEE: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own', 'bsc.plan.history.view', 'bsc.evaluation.history.view'],
+    MANAGER: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own', 'bsc.view.subordinate', 'bsc.kpi.manage.subordinate', 'bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate', 'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate', 'bsc.plan.history.view', 'bsc.evaluation.history.view'],
+    DIRECTOR: ['bsc.view.unit', 'bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate', 'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate', 'bsc.plan.history.view', 'bsc.evaluation.history.view'],
   };
   for (const [roleCode, codes] of Object.entries(roleMappings)) {
     const role = await client.roles.findUnique({ where: { code: roleCode } });

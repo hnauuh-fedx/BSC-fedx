@@ -65,7 +65,8 @@ export class EmployeeBscService {
     if (query.cycleId) filters.push({ cycle_id: query.cycleId });
     if (query.employeeId) filters.push({ employee_id: query.employeeId });
     if (query.departmentId) filters.push({ department_id: query.departmentId });
-    if (query.status) filters.push({ status: query.status });
+    if (query.planStatus) filters.push({ plan_status: query.planStatus });
+    if (query.evaluationStatus) filters.push({ evaluation_status: query.evaluationStatus });
     if (query.search) filters.push({ OR: [
       { bsc_code: { contains: query.search, mode: 'insensitive' } },
       { users_employee_bsc_employee_idTousers: { full_name: { contains: query.search, mode: 'insensitive' } } },
@@ -75,8 +76,10 @@ export class EmployeeBscService {
   }
 
   async pendingReview(actor: AuthUser, query: QueryEmployeeBscDto) {
-    if (!actor.permissions.includes(BSC_PERMISSIONS.APPROVE_SUBORDINATE)
-      && !actor.permissions.includes(BSC_PERMISSIONS.RETURN_SUBORDINATE)) {
+    if (!query.stage) throw new BadRequestException({ code: 'BSC_REVIEW_STAGE_REQUIRED', message: 'Phải chọn giai đoạn PLAN hoặc EVALUATION.' });
+    const approvePermission = query.stage === 'PLAN' ? BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE : BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE;
+    const returnPermission = query.stage === 'PLAN' ? BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE : BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE;
+    if (!actor.permissions.includes(approvePermission) && !actor.permissions.includes(returnPermission)) {
       throw new BadRequestException({ code: 'BSC_ACCESS_DENIED', message: 'Không có quyền xử lý BSC chờ duyệt.' });
     }
     if (query.departmentId && !this.canUseDepartmentFilter(actor, query.departmentId)) {
@@ -85,10 +88,13 @@ export class EmployeeBscService {
     const scopedDepartments = actor.roles
       .filter((role) => role.scopeType === 'DEPARTMENT' && role.scopeId)
       .map((role) => role.scopeId!);
+    const pendingStatus: Prisma.employee_bscWhereInput = query.stage === 'PLAN'
+      ? { plan_status: 'SUBMITTED' }
+      : { evaluation_status: 'SUBMITTED', plan_status: 'APPROVED' };
     const access: Prisma.employee_bscWhereInput = actor.roles.some((role) => role.scopeType === 'GLOBAL')
-      ? { direct_manager_id: actor.id, status: 'SUBMITTED' }
+      ? { direct_manager_id: actor.id, ...pendingStatus }
       : scopedDepartments.length
-        ? { direct_manager_id: actor.id, department_id: { in: scopedDepartments }, status: 'SUBMITTED' }
+        ? { direct_manager_id: actor.id, department_id: { in: scopedDepartments }, ...pendingStatus }
         : { id: { equals: '00000000-0000-0000-0000-000000000000' } };
     const filters: Prisma.employee_bscWhereInput[] = [access];
     if (query.cycleId) filters.push({ cycle_id: query.cycleId });
@@ -108,7 +114,10 @@ export class EmployeeBscService {
   async findOne(actor: AuthUser, id: string) {
     const bsc = await this.requireBsc(id);
     this.policy.assertCanView(actor, bsc);
-    return bsc;
+    const visibleStages = new Set<string>();
+    if (actor.permissions.includes(BSC_PERMISSIONS.VIEW_PLAN_HISTORY)) visibleStages.add('PLAN');
+    if (actor.permissions.includes(BSC_PERMISSIONS.VIEW_EVALUATION_HISTORY)) visibleStages.add('EVALUATION');
+    return { ...bsc, bsc_status_histories: bsc.bsc_status_histories.filter((history) => visibleStages.has(history.stage)) };
   }
 
   async scoringPreview(actor: AuthUser, id: string) {
@@ -121,39 +130,37 @@ export class EmployeeBscService {
       actualValue: item.actual_value,
       weight: item.weight,
     })));
-    return { bscId: bsc.id, status: bsc.status, ...result };
+    return { bscId: bsc.id, planStatus: bsc.plan_status, evaluationStatus: bsc.evaluation_status, ...result };
   }
 
-  submit(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
-    return this.repository.submitWorkflow(actor, id, metadata, (snapshot) => {
-      const scoring = this.scoring.scoreBsc(snapshot.items.map((item) => ({
-        itemId: item.id,
-        calculationMethod: item.calculation_method,
-        targetValue: item.target_value,
-        actualValue: item.actual_value,
-        weight: item.weight,
-      })));
-      this.workflow.assertCanSubmit(actor, {
-        employeeId: snapshot.employee_id,
-        directManagerId: snapshot.direct_manager_id,
-        departmentId: snapshot.department_id,
-        status: snapshot.status,
-        cycleStatus: snapshot.cycle_status,
-        submissionDeadline: snapshot.submission_deadline,
-        ownerActive: snapshot.owner_status === 'ACTIVE' && snapshot.owner_deleted_at === null,
-        ownerOrganizationActive: snapshot.department_status === 'ACTIVE' && snapshot.position_status === 'ACTIVE',
-        reviewerActive: snapshot.reviewer_status === 'ACTIVE' && snapshot.reviewer_deleted_at === null && snapshot.reviewer_matches_owner && snapshot.reviewer_organization_active,
-      }, scoring);
-      return scoring;
+  submitPlan(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
+    return this.repository.submitPlanWorkflow(actor, id, metadata, (snapshot) => {
+      this.workflow.assertCanSubmitPlan(actor, this.workflowContext(snapshot), this.planDefinition(snapshot));
     });
   }
 
-  approve(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
-    return this.review(actor, id, 'APPROVE', undefined, metadata);
+  approvePlan(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
+    return this.reviewPlan(actor, id, 'APPROVE_PLAN', undefined, metadata);
   }
 
-  returnBsc(actor: AuthUser, id: string, reason: string, metadata: AuditRequestMetadata) {
-    return this.review(actor, id, 'RETURN', reason, metadata);
+  returnPlan(actor: AuthUser, id: string, reason: string, metadata: AuditRequestMetadata) {
+    return this.reviewPlan(actor, id, 'RETURN_PLAN', reason, metadata);
+  }
+
+  submitEvaluation(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
+    return this.repository.submitEvaluationWorkflow(actor, id, metadata, (snapshot) => {
+      const result = this.scoreSnapshot(snapshot);
+      this.workflow.assertCanSubmitEvaluation(actor, this.workflowContext(snapshot), result);
+      return result;
+    });
+  }
+
+  approveEvaluation(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
+    return this.reviewEvaluation(actor, id, 'APPROVE_EVALUATION', undefined, metadata);
+  }
+
+  returnEvaluation(actor: AuthUser, id: string, reason: string, metadata: AuditRequestMetadata) {
+    return this.reviewEvaluation(actor, id, 'RETURN_EVALUATION', reason, metadata);
   }
 
   async update(actor: AuthUser, id: string, dto: UpdateEmployeeBscDto, metadata: AuditRequestMetadata) {
@@ -224,29 +231,43 @@ export class EmployeeBscService {
     return item;
   }
 
-  private review(actor: AuthUser, id: string, action: 'APPROVE' | 'RETURN', reason: string | undefined, metadata: AuditRequestMetadata) {
-    return this.repository.reviewWorkflow(actor, id, action, metadata, (snapshot) => {
-      const scoring = this.scoring.scoreBsc(snapshot.items.map((item) => ({
-        itemId: item.id,
-        calculationMethod: item.calculation_method,
-        targetValue: item.target_value,
-        actualValue: item.actual_value,
-        weight: item.weight,
-      })));
-      const normalizedReason = this.workflow.assertCanReview(actor, {
-        employeeId: snapshot.employee_id,
-        directManagerId: snapshot.direct_manager_id,
-        departmentId: snapshot.department_id,
-        status: snapshot.status,
-        cycleStatus: snapshot.cycle_status,
-        submissionDeadline: snapshot.submission_deadline,
-        ownerActive: snapshot.owner_status === 'ACTIVE' && snapshot.owner_deleted_at === null,
-        ownerOrganizationActive: snapshot.department_status === 'ACTIVE' && snapshot.position_status === 'ACTIVE',
-        reviewerActive: snapshot.reviewer_status === 'ACTIVE' && snapshot.reviewer_deleted_at === null && snapshot.reviewer_matches_owner && snapshot.reviewer_organization_active,
-      }, action, reason);
-      this.workflow.assertScoringComplete(scoring);
-      return { scoring, reason: normalizedReason };
+  private reviewPlan(actor: AuthUser, id: string, action: 'APPROVE_PLAN' | 'RETURN_PLAN', reason: string | undefined, metadata: AuditRequestMetadata) {
+    return this.repository.reviewPlanWorkflow(actor, id, action, metadata, (snapshot) => {
+      const normalizedReason = this.workflow.assertCanReviewPlan(actor, this.workflowContext(snapshot), action, reason);
+      if (action === 'APPROVE_PLAN') this.workflow.assertPlanDefinitionComplete(this.planDefinition(snapshot));
+      return normalizedReason;
     });
+  }
+
+  private reviewEvaluation(actor: AuthUser, id: string, action: 'APPROVE_EVALUATION' | 'RETURN_EVALUATION', reason: string | undefined, metadata: AuditRequestMetadata) {
+    return this.repository.reviewEvaluationWorkflow(actor, id, action, metadata, (snapshot) => {
+      const result = this.scoreSnapshot(snapshot);
+      const normalizedReason = this.workflow.assertCanReviewEvaluation(actor, this.workflowContext(snapshot), action, reason);
+      this.workflow.assertEvaluationScoringComplete(result);
+      return { scoring: result, reason: normalizedReason };
+    });
+  }
+
+  private scoreSnapshot(snapshot: { items: Array<{ id: string; calculation_method: string; target_value: Prisma.Decimal | null; actual_value: Prisma.Decimal | null; weight: Prisma.Decimal }> }) {
+    return this.scoring.scoreBsc(snapshot.items.map((item) => ({ itemId: item.id, calculationMethod: item.calculation_method,
+      targetValue: item.target_value, actualValue: item.actual_value, weight: item.weight })));
+  }
+
+  private planDefinition(snapshot: { items: Array<{ kpi_name: string; target_value: Prisma.Decimal | null; target_text: string | null; weight: Prisma.Decimal; calculation_method: string }> }) {
+    return { items: snapshot.items.map((item) => ({ kpiName: item.kpi_name, targetValue: item.target_value,
+      targetText: item.target_text, weight: Number(item.weight), calculationMethod: item.calculation_method })) };
+  }
+
+  private workflowContext(snapshot: any) {
+    return {
+      employeeId: snapshot.employee_id, directManagerId: snapshot.direct_manager_id, departmentId: snapshot.department_id,
+      planStatus: snapshot.plan_status, evaluationStatus: snapshot.evaluation_status, cycleStatus: snapshot.cycle_status,
+      submissionDeadline: snapshot.submission_deadline,
+      ownerActive: snapshot.owner_status === 'ACTIVE' && snapshot.owner_deleted_at === null,
+      ownerOrganizationActive: snapshot.department_status === 'ACTIVE' && snapshot.position_status === 'ACTIVE',
+      reviewerActive: snapshot.reviewer_status === 'ACTIVE' && snapshot.reviewer_deleted_at === null
+        && snapshot.reviewer_matches_owner && snapshot.reviewer_organization_active,
+    };
   }
 
   private listAccessWhere(actor: AuthUser): Prisma.employee_bscWhereInput {

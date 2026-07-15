@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsNumber, IsOptional, IsString, Length, MaxLength, Min } from 'class-validator';
 
-const METHODS = ['ACTUAL_DIV_TARGET', 'TARGET_DIV_ACTUAL', 'BINARY', 'THRESHOLD'] as const;
+const METHODS = ['ACTUAL_DIV_TARGET', 'TARGET_DIV_ACTUAL', 'BINARY'] as const;
 
 export class CreateBscItemDto {
   @IsString() @Length(1, 50) kpiCode!: string;

@@ -17,7 +17,7 @@
     "test:integration:organization": "node ./test/run-organization-integration.js",
     "test:integration:bsc-draft": "node ./test/run-bsc-draft-integration.js",
     "test:integration:bsc-scoring": "node ./test/run-bsc-scoring-integration.js",
-    "test:integration:bsc-workflow": "node ./test/run-bsc-workflow-integration.js"
+    "test:integration:bsc-dual-stage-workflow": "node ./test/run-bsc-dual-stage-workflow-integration.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.28",

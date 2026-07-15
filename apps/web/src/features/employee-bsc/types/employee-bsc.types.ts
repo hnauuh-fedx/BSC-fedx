@@ -7,6 +7,10 @@ export type BscItem = {
 export type EmployeeBsc = {
   id: string; bsc_code: string; cycle_id: string; employee_id: string; department_id: string; position_id: string;
   direct_manager_id: string; status: string; employee_comment: string | null; created_at: string; updated_at: string;
+  plan_status: 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED';
+  evaluation_status: 'NOT_STARTED' | 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED';
+  plan_submitted_at?: string | null; plan_approved_at?: string | null; plan_approved_by?: string | null;
+  evaluation_submitted_at?: string | null; evaluation_approved_at?: string | null; evaluation_approved_by?: string | null;
   submitted_at?: string | null; approved_at?: string | null; approved_by?: string | null; locked_at?: string | null;
   final_score?: string | null; final_grade?: string | null;
   bsc_cycles: { id: string; code: string; name: string; year: number; month: number | null; status: string };
@@ -19,7 +23,7 @@ export type EmployeeBsc = {
   _count?: { employee_bsc_items: number };
 };
 export type BscStatusHistory = {
-  id: string; from_status: string | null; to_status: string; action: string; comment: string | null;
+  id: string; stage: 'PLAN' | 'EVALUATION'; from_status: string | null; to_status: string; action: string; comment: string | null;
   changed_by: string; changed_at: string; users: { id: string; employee_code: string; full_name: string };
 };
 export type BscPage = { items: EmployeeBsc[]; page: number; limit: number; total: number; filterOptions?: BscFilterOptions };
@@ -34,6 +38,6 @@ export type BscScoringItem = {
 };
 
 export type BscScoringPreview = {
-  bscId: string; status: string; totalWeight: number; scoredWeight: number; totalWeightedScore: number;
+  bscId: string; planStatus: string; evaluationStatus: string; totalWeight: number; scoredWeight: number; totalWeightedScore: number;
   isComplete: boolean; classification: 'C' | 'B' | 'A' | 'A+' | 'A++' | null; items: BscScoringItem[];
 };

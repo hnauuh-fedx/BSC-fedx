@@ -34,6 +34,8 @@ const draft = {
   department_id: '00000000-0000-4000-8000-000000000010',
   direct_manager_id: '00000000-0000-4000-8000-000000000002',
   status: 'DRAFT',
+  plan_status: 'DRAFT',
+  evaluation_status: 'NOT_STARTED',
 };
 
 test('BSC policy enforces owner, direct manager, scope, permission and DRAFT state', () => {
@@ -41,7 +43,7 @@ test('BSC policy enforces owner, direct manager, scope, permission and DRAFT sta
   const employee = user();
   policy.assertCanCreateOwn(employee);
   policy.assertCanView(employee, draft);
-  policy.assertCanUpdateActual(employee, draft);
+  policy.assertCanUpdateActual(employee, { ...draft, plan_status: 'APPROVED', evaluation_status: 'DRAFT' });
 
   const manager = user({
     id: draft.direct_manager_id,
@@ -55,7 +57,7 @@ test('BSC policy enforces owner, direct manager, scope, permission and DRAFT sta
   assert.throws(() => policy.assertCanManageKpi({ ...manager, id: '00000000-0000-4000-8000-000000000099' }, draft));
   assert.throws(() => policy.assertCanView({ ...manager, id: '00000000-0000-4000-8000-000000000099' }, draft));
   policy.assertCanView(user({ roles: [{ code: 'DIRECTOR', scopeType: 'GLOBAL', scopeId: null }], permissions: [BSC_PERMISSIONS.VIEW_UNIT] }), draft);
-  assert.throws(() => policy.assertCanUpdateActual(employee, { ...draft, status: 'SUBMITTED' }), (error: any) => error.response.code === 'BSC_NOT_DRAFT');
+  assert.throws(() => policy.assertCanUpdateActual(employee, { ...draft, plan_status: 'SUBMITTED' }), (error: any) => error.response.code === 'BSC_FIELD_NOT_EDITABLE_IN_CURRENT_STAGE');
 });
 
 test('BSC policy rejects DIRECTOR and ADMIN personal BSC creation', () => {

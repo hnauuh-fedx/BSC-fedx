@@ -128,7 +128,7 @@ test('Phase 3B.1 BSC Draft Core integration', { skip: safeDatabase() ? false : '
       await request(server).get(`/employee-bsc/${firstBscId}`).set(auth(tokens.outsider)).expect(403);
       await request(server).get(`/employee-bsc/${firstBscId}`).set(auth(tokens.otherManager)).expect(403);
       const missing = await request(server).get(`/employee-bsc/${randomUUID()}`).set(auth(tokens.employee)).expect(404); assert.equal(missing.body.code, 'BSC_NOT_FOUND');
-      const selfList = await request(server).get(`/employee-bsc?cycleId=${cycle.id}&employeeId=${employee.id}&status=DRAFT&page=1&limit=1&sortBy=created_at&sortOrder=desc`).set(auth(tokens.employee)).expect(200); assert.deepEqual(selfList.body.items.map((item: { employee_id: string }) => item.employee_id), [employee.id]);
+      const selfList = await request(server).get(`/employee-bsc?cycleId=${cycle.id}&employeeId=${employee.id}&planStatus=DRAFT&evaluationStatus=NOT_STARTED&page=1&limit=1&sortBy=created_at&sortOrder=desc`).set(auth(tokens.employee)).expect(200); assert.deepEqual(selfList.body.items.map((item: { employee_id: string }) => item.employee_id), [employee.id]);
       const departmentPage1 = await request(server).get(`/employee-bsc?departmentId=${departmentA.id}&cycleId=${cycle.id}&page=1&limit=1&sortBy=bsc_code&sortOrder=asc`).set(auth(tokens.manager)).expect(200);
       const departmentPage2 = await request(server).get(`/employee-bsc?departmentId=${departmentA.id}&cycleId=${cycle.id}&page=2&limit=1&sortBy=bsc_code&sortOrder=asc`).set(auth(tokens.manager)).expect(200);
       assert.equal(departmentPage1.body.total, 2); assert.equal(departmentPage2.body.total, 2); assert.notEqual(departmentPage1.body.items[0].id, departmentPage2.body.items[0].id);
@@ -156,28 +156,33 @@ test('Phase 3B.1 BSC Draft Core integration', { skip: safeDatabase() ? false : '
       const concurrentItem = concurrent.find((response) => response.status === 201)?.body.id as string;
       await request(server).patch(`/employee-bsc/${firstBscId}/items/${firstItemId}`).set(auth(tokens.manager)).send({ targetValue: 120, weight: 55 }).expect(200);
       await request(server).patch(`/employee-bsc/${firstBscId}/items/${firstItemId}`).set(auth(tokens.employee)).send({ targetValue: 999 }).expect(403);
+      await request(server).delete(`/employee-bsc/${firstBscId}/items/${concurrentItem}`).set(auth(tokens.manager)).expect(200);
+      const secondItem = await request(server).post(`/employee-bsc/${secondBscId}/items`).set(auth(tokens.manager)).send({ ...baseItem, kpiCode: `${marker}_SECOND`, weight: 20 }).expect(201);
+      await prisma.employee_bsc.updateMany({
+        where: { id: { in: [firstBscId, secondBscId] } },
+        data: { plan_status: 'APPROVED', evaluation_status: 'DRAFT' },
+      });
       const actual = await request(server).patch(`/employee-bsc/${firstBscId}/items/${firstItemId}/actual`).set(auth(tokens.employee)).send({ actualValue: 95, actualText: '95', employeeNote: 'Evidence note' }).expect(200); assert.equal(Number(actual.body.actual_value), 95); assert.equal(actual.body.target_value, '120');
       await request(server).patch(`/employee-bsc/${firstBscId}/items/${firstItemId}/actual`).set(auth(tokens.employee)).send({ actualValue: 96, targetValue: 999 }).expect(400);
       await request(server).patch(`/employee-bsc/${firstBscId}/items/${firstItemId}/actual`).set(auth(tokens.manager)).send({ actualValue: 96 }).expect(403);
-      await request(server).delete(`/employee-bsc/${firstBscId}/items/${concurrentItem}`).set(auth(tokens.manager)).expect(200);
 
       const mismatch = await request(server).patch(`/employee-bsc/${secondBscId}/items/${firstItemId}/actual`).set(auth(tokens.employee2)).send({ actualValue: 1 }).expect(404); assert.equal(mismatch.body.code, 'BSC_ITEM_NOT_IN_BSC');
-      const secondItem = await request(server).post(`/employee-bsc/${secondBscId}/items`).set(auth(tokens.manager)).send({ ...baseItem, kpiCode: `${marker}_SECOND`, weight: 20 }).expect(201);
       await request(server).patch(`/employee-bsc/${secondBscId}/items/${secondItem.body.id}/actual`).set(auth(tokens.employee)).send({ actualValue: 1 }).expect(403);
-      await prisma.employee_bsc.update({ where: { id: firstBscId }, data: { status: 'SUBMITTED' } });
-      const locked = await request(server).patch(`/employee-bsc/${firstBscId}/items/${firstItemId}/actual`).set(auth(tokens.employee)).send({ actualValue: 99 }).expect(403); assert.equal(locked.body.code, 'BSC_NOT_DRAFT');
+      await prisma.employee_bsc.update({ where: { id: firstBscId }, data: { evaluation_status: 'SUBMITTED' } });
+      const locked = await request(server).patch(`/employee-bsc/${firstBscId}/items/${firstItemId}/actual`).set(auth(tokens.employee)).send({ actualValue: 99 }).expect(403); assert.equal(locked.body.code, 'BSC_FIELD_NOT_EDITABLE_IN_CURRENT_STAGE');
       await request(server).post(`/employee-bsc/${firstBscId}/items`).set(auth(tokens.manager)).send({ ...baseItem, kpiCode: `${marker}_LOCKED` }).expect(403);
       await request(server).patch(`/employee-bsc/${firstBscId}/items/${firstItemId}`).set(auth(tokens.manager)).send({ weight: 40 }).expect(403);
-      await prisma.employee_bsc.update({ where: { id: firstBscId }, data: { status: 'DRAFT' } });
+      await prisma.employee_bsc.update({ where: { id: firstBscId }, data: { plan_status: 'DRAFT', evaluation_status: 'NOT_STARTED' } });
+      await prisma.employee_bsc.update({ where: { id: secondBscId }, data: { plan_status: 'DRAFT', evaluation_status: 'NOT_STARTED' } });
       await request(server).delete(`/employee-bsc/${secondBscId}`).set(auth(tokens.employee2)).expect(200);
       assert.equal(await prisma.employee_bsc_items.count({ where: { id: secondItem.body.id } }), 0);
       tracked.bscs = tracked.bscs.filter((id) => id !== secondBscId);
     });
 
     await t.test('draft delete/state rules and sanitized audit are preserved', async () => {
-      await prisma.employee_bsc.update({ where: { id: firstBscId }, data: { status: 'APPROVED' } });
-      const lockedDelete = await request(server).delete(`/employee-bsc/${firstBscId}`).set(auth(tokens.employee)).expect(403); assert.equal(lockedDelete.body.code, 'BSC_NOT_DRAFT');
-      await prisma.employee_bsc.update({ where: { id: firstBscId }, data: { status: 'DRAFT' } });
+      await prisma.employee_bsc.update({ where: { id: firstBscId }, data: { plan_status: 'APPROVED' } });
+      const lockedDelete = await request(server).delete(`/employee-bsc/${firstBscId}`).set(auth(tokens.employee)).expect(403); assert.equal(lockedDelete.body.code, 'BSC_FIELD_NOT_EDITABLE_IN_CURRENT_STAGE');
+      await prisma.employee_bsc.update({ where: { id: firstBscId }, data: { plan_status: 'DRAFT', evaluation_status: 'NOT_STARTED' } });
       const audits = await prisma.audit_logs.findMany({ where: { module: 'employee-bsc', OR: [{ entity_id: firstBscId }, { new_data: { path: ['bscId'], equals: firstBscId } }, { old_data: { path: ['bscId'], equals: firstBscId } }] }, orderBy: { created_at: 'asc' } });
       const actions = audits.map((audit) => audit.action);
       for (const action of ['BSC_CREATED', 'BSC_UPDATED', 'BSC_ITEM_CREATED', 'BSC_ITEM_UPDATED', 'BSC_ITEM_DELETED', 'BSC_ACTUAL_UPDATED']) assert.ok(actions.includes(action), `Missing audit ${action}`);

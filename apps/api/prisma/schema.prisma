@@ -26,6 +26,7 @@ model audit_logs {
 model bsc_approval_steps {
   id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employee_bsc_id String       @db.Uuid
+  stage           String       @db.VarChar(20)
   step_order      Int
   approver_id     String       @db.Uuid
   approver_role   String       @db.VarChar(30)
@@ -36,7 +37,7 @@ model bsc_approval_steps {
   users           users        @relation(fields: [approver_id], references: [id], onUpdate: NoAction, map: "bsc_approval_steps_approver_fk")
   employee_bsc    employee_bsc @relation(fields: [employee_bsc_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "bsc_approval_steps_bsc_fk")
 
-  @@unique([employee_bsc_id, step_order], map: "bsc_approval_steps_order_uq")
+  @@unique([employee_bsc_id, stage, step_order], map: "bsc_approval_steps_stage_order_uq")
 }
 
 model bsc_attachments {
@@ -100,6 +101,7 @@ model bsc_reviews {
   id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employee_bsc_id String       @db.Uuid
   reviewer_id     String       @db.Uuid
+  stage           String       @db.VarChar(20)
   reviewer_role   String       @db.VarChar(30)
   review_level    Int
   action          String       @db.VarChar(30)
@@ -114,6 +116,7 @@ model bsc_reviews {
 model bsc_status_histories {
   id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employee_bsc_id String       @db.Uuid
+  stage           String       @db.VarChar(20)
   from_status     String?      @db.VarChar(30)
   to_status       String       @db.VarChar(30)
   action          String       @db.VarChar(50)
@@ -124,6 +127,14 @@ model bsc_status_histories {
   user_agent      String?
   employee_bsc    employee_bsc @relation(fields: [employee_bsc_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "bsc_status_histories_bsc_fk")
   users           users        @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "bsc_status_histories_changed_by_fk")
+}
+
+model bsc_workflow_backfill_issues {
+  employee_bsc_id String       @id @db.Uuid
+  legacy_status   String       @db.VarChar(30)
+  reason          String
+  created_at      DateTime     @default(now()) @db.Timestamptz(6)
+  employee_bsc    employee_bsc @relation(fields: [employee_bsc_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "bsc_workflow_backfill_issues_bsc_fk")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -237,6 +248,14 @@ model employee_bsc {
   template_version                            Int?
   source_bsc_id                               String?                @db.Uuid
   status                                      String                 @default("DRAFT") @db.VarChar(30)
+  plan_status                                 String                 @default("DRAFT") @db.VarChar(20)
+  plan_submitted_at                           DateTime?              @db.Timestamptz(6)
+  plan_approved_at                            DateTime?              @db.Timestamptz(6)
+  plan_approved_by                            String?                @db.Uuid
+  evaluation_status                           String                 @default("NOT_STARTED") @db.VarChar(20)
+  evaluation_submitted_at                     DateTime?              @db.Timestamptz(6)
+  evaluation_approved_at                      DateTime?              @db.Timestamptz(6)
+  evaluation_approved_by                      String?                @db.Uuid
   employee_total_score                        Decimal                @default(0) @db.Decimal(7, 2)
   manager_total_score                         Decimal?               @db.Decimal(7, 2)
   final_score                                 Decimal?               @db.Decimal(7, 2)
@@ -254,8 +273,11 @@ model employee_bsc {
   bsc_attachments                             bsc_attachments[]
   bsc_reviews                                 bsc_reviews[]
   bsc_status_histories                        bsc_status_histories[]
+  bsc_workflow_backfill_issues                bsc_workflow_backfill_issues?
   bsc_unlock_requests                         bsc_unlock_requests[]
   users_employee_bsc_approved_byTousers       users?                 @relation("employee_bsc_approved_byTousers", fields: [approved_by], references: [id], onUpdate: NoAction, map: "employee_bsc_approved_by_fk")
+  users_employee_bsc_plan_approved_byTousers  users?                 @relation("employee_bsc_plan_approved_byTousers", fields: [plan_approved_by], references: [id], onUpdate: NoAction, map: "employee_bsc_plan_approved_by_fk")
+  users_employee_bsc_evaluation_approved_byTousers users?            @relation("employee_bsc_evaluation_approved_byTousers", fields: [evaluation_approved_by], references: [id], onUpdate: NoAction, map: "employee_bsc_evaluation_approved_by_fk")
   users_employee_bsc_created_byTousers        users                  @relation("employee_bsc_created_byTousers", fields: [created_by], references: [id], onUpdate: NoAction, map: "employee_bsc_created_by_fk")
   bsc_cycles                                  bsc_cycles             @relation(fields: [cycle_id], references: [id], onUpdate: NoAction, map: "employee_bsc_cycle_fk")
   departments                                 departments            @relation(fields: [department_id], references: [id], onUpdate: NoAction, map: "employee_bsc_department_fk")
@@ -268,6 +290,8 @@ model employee_bsc {
   employee_bsc_items                          employee_bsc_items[]
 
   @@unique([cycle_id, employee_id], map: "employee_bsc_cycle_employee_uq")
+  @@index([plan_status], map: "employee_bsc_plan_status_idx")
+  @@index([evaluation_status], map: "employee_bsc_evaluation_status_idx")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -410,6 +434,8 @@ model users {
   bsc_unlock_requests_bsc_unlock_requests_requested_byTousers    bsc_unlock_requests[]   @relation("bsc_unlock_requests_requested_byTousers")
   bsc_unlock_requests_bsc_unlock_requests_reviewed_byTousers     bsc_unlock_requests[]   @relation("bsc_unlock_requests_reviewed_byTousers")
   employee_bsc_employee_bsc_approved_byTousers                   employee_bsc[]          @relation("employee_bsc_approved_byTousers")
+  employee_bsc_employee_bsc_plan_approved_byTousers              employee_bsc[]          @relation("employee_bsc_plan_approved_byTousers")
+  employee_bsc_employee_bsc_evaluation_approved_byTousers        employee_bsc[]          @relation("employee_bsc_evaluation_approved_byTousers")
   employee_bsc_employee_bsc_created_byTousers                    employee_bsc[]          @relation("employee_bsc_created_byTousers")
   employee_bsc_employee_bsc_employee_idTousers                   employee_bsc[]          @relation("employee_bsc_employee_idTousers")
   employee_bsc_employee_bsc_direct_manager_idTousers             employee_bsc[]          @relation("employee_bsc_direct_manager_idTousers")

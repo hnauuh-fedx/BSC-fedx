@@ -39,7 +39,7 @@ export const BscItemTable: React.FC<Props> = ({ bscId, items, scoring, canManage
         const score = scoreByItem.get(item.id);
         return <tr key={item.id}>
           <td>{item.kpi_code}</td><td>{item.kpi_name}</td><td>{item.target_value ?? item.target_text ?? '—'} {item.measurement_unit}</td>
-          <td>{item.weight}%</td><td>{item.actual_value ?? item.actual_text ?? '—'}</td>
+          <td>{item.weight}%</td><td>{item.actual_value ?? item.actual_text ?? '—'}{item.employee_note?.trim() && <small>TM KQTH: {item.employee_note}</small>}</td>
           <td>{score?.achievementPercentage === null || score?.achievementPercentage === undefined ? '—' : `${score.achievementPercentage.toFixed(4)}%`}{score?.reason && <small>{reasonMessage[score.reason] ?? score.reason}</small>}</td>
           <td>{score?.weightedScore === null || score?.weightedScore === undefined ? '—' : score.weightedScore.toFixed(4)}</td>
           <td>
@@ -52,7 +52,7 @@ export const BscItemTable: React.FC<Props> = ({ bscId, items, scoring, canManage
             {canUpdateActual && <form onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); void run(() => employeeBscApi.updateActual(bscId, item.id, { actualValue: Number(data.get('actualValue')), employeeNote: String(data.get('employeeNote') ?? '') })); }}>
               <input aria-label={`Kết quả ${item.kpi_code}`} name="actualValue" type="number" step={item.calculation_method === 'BINARY' ? '1' : 'any'} min={item.calculation_method === 'BINARY' ? '0' : undefined} max={item.calculation_method === 'BINARY' ? '1' : undefined} defaultValue={item.actual_value ?? ''} required/>
               {item.calculation_method === 'BINARY' && <small>Nhập 1 nếu đạt, 0 nếu không đạt.</small>}
-              <input aria-label={`Ghi chú ${item.kpi_code}`} name="employeeNote" defaultValue={item.employee_note ?? ''}/>
+              <input aria-label={`TM KQTH ${item.kpi_code}`} name="employeeNote" placeholder="Thuyết minh kết quả thực hiện" defaultValue={item.employee_note ?? ''}/>
               <button type="submit">Lưu kết quả</button>
             </form>}
           </td>
@@ -63,7 +63,7 @@ export const BscItemTable: React.FC<Props> = ({ bscId, items, scoring, canManage
       <h3>Thêm KPI</h3>
       <input name="kpiCode" placeholder="Mã KPI" required/><input name="kpiName" placeholder="Tên KPI" required/><input name="measurementUnit" placeholder="Đơn vị đo"/>
       <input name="targetValue" type="number" step="any" placeholder="Chỉ tiêu" required/><input name="weight" type="number" step="0.01" placeholder="Trọng số" required/>
-      <select name="calculationMethod" defaultValue="ACTUAL_DIV_TARGET"><option value="ACTUAL_DIV_TARGET">Càng cao càng tốt</option><option value="TARGET_DIV_ACTUAL">Càng thấp càng tốt</option><option value="BINARY">Đạt/không đạt</option><option value="THRESHOLD">Theo ngưỡng (chưa hỗ trợ tính điểm)</option></select>
+      <select name="calculationMethod" defaultValue="ACTUAL_DIV_TARGET"><option value="ACTUAL_DIV_TARGET">Càng cao càng tốt</option><option value="TARGET_DIV_ACTUAL">Càng thấp càng tốt</option><option value="BINARY">Đạt/không đạt</option></select>
       <button type="submit">Thêm KPI</button>
     </form>}
   </section>;

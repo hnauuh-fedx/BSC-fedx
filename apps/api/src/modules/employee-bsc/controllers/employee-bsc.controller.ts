@@ -33,7 +33,8 @@ export class EmployeeBscController {
   }
 
   @Get('pending-review')
-  @RequireAnyPermission(BSC_PERMISSIONS.APPROVE_SUBORDINATE, BSC_PERMISSIONS.RETURN_SUBORDINATE)
+  @RequireAnyPermission(BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
+    BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE)
   pendingReview(@CurrentUser() actor: AuthUser, @Query() query: QueryEmployeeBscDto) {
     return this.service.pendingReview(actor, query);
   }
@@ -50,25 +51,46 @@ export class EmployeeBscController {
     return this.service.findOne(actor, id);
   }
 
-  @Post(':id/submit')
+  @Post(':id/plan/submit')
   @HttpCode(200)
-  @RequirePermissions(BSC_PERMISSIONS.SUBMIT_OWN)
-  submit(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() _dto: SubmitBscDto, @Req() request: Request) {
-    return this.service.submit(actor, id, metadata(request));
+  @RequirePermissions(BSC_PERMISSIONS.SUBMIT_PLAN_OWN)
+  submitPlan(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() _dto: SubmitBscDto, @Req() request: Request) {
+    return this.service.submitPlan(actor, id, metadata(request));
   }
 
-  @Post(':id/approve')
+  @Post(':id/plan/approve')
   @HttpCode(200)
-  @RequirePermissions(BSC_PERMISSIONS.APPROVE_SUBORDINATE)
-  approve(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() _dto: SubmitBscDto, @Req() request: Request) {
-    return this.service.approve(actor, id, metadata(request));
+  @RequirePermissions(BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE)
+  approvePlan(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() _dto: SubmitBscDto, @Req() request: Request) {
+    return this.service.approvePlan(actor, id, metadata(request));
   }
 
-  @Post(':id/return')
+  @Post(':id/plan/return')
   @HttpCode(200)
-  @RequirePermissions(BSC_PERMISSIONS.RETURN_SUBORDINATE)
-  returnBsc(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() dto: ReturnBscDto, @Req() request: Request) {
-    return this.service.returnBsc(actor, id, dto.reason, metadata(request));
+  @RequirePermissions(BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE)
+  returnPlan(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() dto: ReturnBscDto, @Req() request: Request) {
+    return this.service.returnPlan(actor, id, dto.reason, metadata(request));
+  }
+
+  @Post(':id/evaluation/submit')
+  @HttpCode(200)
+  @RequirePermissions(BSC_PERMISSIONS.SUBMIT_EVALUATION_OWN)
+  submitEvaluation(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() _dto: SubmitBscDto, @Req() request: Request) {
+    return this.service.submitEvaluation(actor, id, metadata(request));
+  }
+
+  @Post(':id/evaluation/approve')
+  @HttpCode(200)
+  @RequirePermissions(BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE)
+  approveEvaluation(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() _dto: SubmitBscDto, @Req() request: Request) {
+    return this.service.approveEvaluation(actor, id, metadata(request));
+  }
+
+  @Post(':id/evaluation/return')
+  @HttpCode(200)
+  @RequirePermissions(BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE)
+  returnEvaluation(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() dto: ReturnBscDto, @Req() request: Request) {
+    return this.service.returnEvaluation(actor, id, dto.reason, metadata(request));
   }
 
   @Patch(':id')

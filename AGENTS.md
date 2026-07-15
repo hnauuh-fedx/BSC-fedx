@@ -225,10 +225,14 @@ EMPLOYEE không được:
 
 EMPLOYEE tạo BSC
 → Lưu nháp
-→ Nhập kết quả
-→ Xem điểm
-→ Nộp
-→ MANAGER xem xét
+→ Hoàn thiện định nghĩa KPI đủ 100% trọng số
+→ Nộp PLAN
+→ MANAGER duyệt hoặc trả lại PLAN
+→ PLAN được duyệt
+→ Nhập kết quả và TM KQTH
+→ Xem điểm tạm tính
+→ Nộp EVALUATION
+→ MANAGER duyệt hoặc trả lại EVALUATION
 
 MANAGER có hai lựa chọn:
 
@@ -237,16 +241,16 @@ MANAGER có hai lựa chọn:
 
 Nếu trả lại:
 
-MANAGER trả lại
-→ EMPLOYEE sửa
+MANAGER trả lại đúng stage
+→ EMPLOYEE chỉ sửa nhóm trường được mở của stage đó
 → EMPLOYEE lưu
-→ EMPLOYEE nộp lại
+→ EMPLOYEE nộp lại đúng stage
 → MANAGER duyệt lại
 
 Nếu EMPLOYEE không có MANAGER trực tiếp:
 
-EMPLOYEE nộp
-→ DIRECTOR phụ trách duyệt
+EMPLOYEE nộp từng stage
+→ DIRECTOR phụ trách duyệt stage tương ứng
 
 Không được để BSC ở trạng thái chờ duyệt mà không có người duyệt.
 
@@ -256,10 +260,11 @@ Không được để BSC ở trạng thái chờ duyệt mà không có ngườ
 
 MANAGER tạo BSC
 → Lưu nháp
-→ Nhập kết quả
-→ Xem điểm
-→ Nộp
-→ DIRECTOR xem xét
+→ Nộp PLAN cho DIRECTOR
+→ PLAN được duyệt
+→ Nhập kết quả và TM KQTH
+→ Nộp EVALUATION cho DIRECTOR
+→ DIRECTOR xem xét từng stage
 
 DIRECTOR có hai lựa chọn:
 
@@ -270,7 +275,28 @@ MANAGER không được tự duyệt BSC của mình.
 
 ---
 
-## 9. Trạng thái BSC
+## 9. Workflow BSC hai giai đoạn
+
+Mỗi BSC có hai stage duyệt độc lập:
+
+1. PLAN — duyệt nội dung/kế hoạch BSC.
+2. EVALUATION — duyệt kết quả tự đánh giá sau khi nhập kết quả thực hiện.
+
+Trạng thái PLAN gồm DRAFT, SUBMITTED, RETURNED, APPROVED. Trạng thái EVALUATION gồm NOT_STARTED, DRAFT, SUBMITTED, RETURNED, APPROVED.
+
+- Submit PLAN không yêu cầu actual, điểm hoặc xếp loại.
+- Approve PLAN khóa định nghĩa KPI và chuyển EVALUATION từ NOT_STARTED sang DRAFT; không ghi điểm cuối hoặc xếp loại.
+- RETURN PLAN chỉ mở lại nhóm trường định nghĩa KPI.
+- Chỉ khi PLAN đã APPROVED và EVALUATION đang DRAFT/RETURNED, chủ sở hữu mới được sửa actual và TM KQTH.
+- RETURN EVALUATION chỉ mở lại actual, TM KQTH và nhóm trường kết quả; định nghĩa KPI vẫn khóa.
+- Chỉ APPROVE EVALUATION mới ghi final score, final grade và khóa toàn bộ BSC.
+- Không dùng một trạng thái APPROVED chung để biểu diễn cả hai stage.
+
+Mọi approval step, review, status history, audit và pending-review phải chỉ rõ stage PLAN hoặc EVALUATION.
+
+## 9.1. Quy tắc một-stage cũ — không còn canonical
+
+Phần 9.1 đến 15 bên dưới chỉ mô tả workflow một-stage lịch sử và đã được thay thế bởi mục 9. Không dùng các trường `status`, `submitted_at`, `approved_at` cũ để quyết định transition mới. Mọi implementation mới phải dùng `plan_status` và `evaluation_status` độc lập cùng field-locking theo stage.
 
 Các trạng thái bắt buộc:
 
@@ -299,7 +325,7 @@ Chỉ bổ sung PAYROLL_LOCKED khi hệ thống có bước chốt dữ liệu r
 
 ---
 
-## 10. Chuyển trạng thái hợp lệ
+## 10. Chuyển trạng thái one-stage lịch sử (đã thay thế)
 
 Các chuyển trạng thái được phép:
 
@@ -337,7 +363,7 @@ Backend phải kiểm tra và quyết định mọi chuyển trạng thái.
 
 ---
 
-## 11. Quy tắc nút Lưu
+## 11. Quy tắc nút Lưu one-stage lịch sử (đã thay thế)
 
 Nút Lưu chỉ được sử dụng khi BSC đang ở một trong các trạng thái:
 
@@ -361,7 +387,7 @@ Lưu không đồng nghĩa với Nộp.
 
 ---
 
-## 12. Quy tắc nút Nộp
+## 12. Quy tắc nút Nộp one-stage lịch sử (đã thay thế)
 
 Nút Nộp chỉ xuất hiện khi trạng thái là:
 
@@ -403,7 +429,7 @@ Sau khi nộp, người dùng không được:
 
 ---
 
-## 13. Quy tắc duyệt
+## 13. Quy tắc duyệt one-stage lịch sử (đã thay thế)
 
 Chỉ được duyệt BSC ở trạng thái SUBMITTED.
 
@@ -424,7 +450,7 @@ Backend phải kiểm tra quy tắc này, không chỉ ẩn nút ở frontend.
 
 ---
 
-## 14. Quy tắc trả lại
+## 14. Quy tắc trả lại one-stage lịch sử (đã thay thế)
 
 Chỉ được trả lại BSC đang ở trạng thái SUBMITTED.
 
@@ -446,7 +472,7 @@ Nên cho phép người duyệt chỉ rõ:
 
 ---
 
-## 15. Sửa BSC sau khi đã nộp hoặc duyệt
+## 15. Quy tắc reopen lịch sử (ngoài phạm vi phase hiện tại)
 
 Người lập không được tự sửa BSC đã nộp hoặc đã duyệt.
 
@@ -1239,16 +1265,16 @@ Việc ẩn nút ở frontend không thay thế kiểm tra quyền ở backend.
 
 Không tự hard-code các nội dung sau cho đến khi có xác nhận:
 
-1. Có duyệt kế hoạch BSC đầu tháng riêng với duyệt kết quả cuối tháng hay không.
-2. Cột “Duyệt” và “Đánh giá” có phải hai bước nghiệp vụ khác nhau hay không.
-3. Cấp trên có được điều chỉnh trực tiếp điểm hay chỉ duyệt/trả lại.
-4. Điểm phát sinh ±10% do vai trò nào đề xuất và vai trò nào phê duyệt.
-5. Biên bản họp được lập trước hay sau bước duyệt.
-6. BSC được chuyển tự động sang phần mềm lương hay chỉ in/xuất thủ công.
-7. Công thức quy đổi điểm BSC sang tiền lương.
-8. Có trạng thái PAYROLL_LOCKED riêng hay không.
-9. Trình soạn thảo rich text có được giữ nguyên trong hệ thống mới hay chuyển sang dữ liệu có cấu trúc.
-10. Có cho phép sửa chỉ một KPI hay mở lại toàn bộ BSC.
+1. Cấp trên có được điều chỉnh trực tiếp điểm hay chỉ duyệt/trả lại.
+2. Điểm phát sinh ±10% do vai trò nào đề xuất và vai trò nào phê duyệt.
+3. Biên bản họp được lập trước hay sau bước duyệt.
+4. BSC được chuyển tự động sang phần mềm lương hay chỉ in/xuất thủ công.
+5. Công thức quy đổi điểm BSC sang tiền lương.
+6. Có trạng thái PAYROLL_LOCKED riêng hay không.
+7. Trình soạn thảo rich text có được giữ nguyên trong hệ thống mới hay chuyển sang dữ liệu có cấu trúc.
+8. Có cho phép sửa chỉ một KPI hay mở lại toàn bộ BSC.
+9. Kỳ BSC có deadline riêng cho PLAN và EVALUATION hay không. Cho đến khi xác nhận, `submission_deadline` legacy chỉ áp dụng cho nộp EVALUATION; PLAN chỉ yêu cầu kỳ đang OPEN.
+10. Measurement unit và frequency có bắt buộc theo loại KPI nào hay không. Không từ chối submit chỉ vì thiếu hai trường này cho đến khi có cấu hình canonical; schema hiện chưa có frequency.
 
 Khi gặp những nội dung chưa xác nhận, Codex phải:
 
