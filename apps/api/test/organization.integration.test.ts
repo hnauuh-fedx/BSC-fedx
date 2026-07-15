@@ -7,7 +7,7 @@ import { PrismaClient } from '@prisma/client';
 import { createApp } from '../src/main';
 
 const prisma = new PrismaClient();
-const integrationEnabled = (() => { try { const raw = process.env.TEST_DATABASE_URL; if (!raw) return false; const name = new URL(raw).pathname.replace(/^\//, '').toLowerCase(); return name.includes('test') && !['bsc_db', 'postgres', 'template0', 'template1'].includes(name); } catch { return false; } })();
+const integrationEnabled = (() => { try { const raw = process.env.TEST_DATABASE_URL; if (!raw) return false; const name = new URL(raw).pathname.replace(/^\//, '').toLowerCase(); return name === 'bsc_organization_test'; } catch { return false; } })();
 const marker = `ORGIT_${Date.now()}_${randomUUID().slice(0, 6)}`.toUpperCase();
 const password = 'Organization!Test#1';
 const ids = { users: [] as string[], departments: [] as string[], positions: [] as string[], roles: [] as string[] };

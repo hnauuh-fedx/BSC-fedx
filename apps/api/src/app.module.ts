@@ -6,6 +6,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { DepartmentsModule } from './modules/departments/departments.module';
 import { PositionsModule } from './modules/positions/positions.module';
 import { UsersModule } from './modules/users/users.module';
+import { BscCyclesModule } from './modules/bsc-cycles/bsc-cycles.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { UsersModule } from './modules/users/users.module';
     DepartmentsModule,
     PositionsModule,
     UsersModule,
+    BscCyclesModule,
   ],
 })
 export class AppModule {}

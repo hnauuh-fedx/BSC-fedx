@@ -15,3 +15,13 @@ export type EmployeeBsc = {
   _count?: { employee_bsc_items: number };
 };
 export type BscPage = { items: EmployeeBsc[]; page: number; limit: number; total: number };
+
+export type BscScoringItem = {
+  itemId: string; calculationMethod: string; target: number | null; actual: number | null; weight: number;
+  isScorable: boolean; achievementPercentage: number | null; weightedScore: number | null; reason: string | null;
+};
+
+export type BscScoringPreview = {
+  bscId: string; status: string; totalWeight: number; scoredWeight: number; totalWeightedScore: number;
+  isComplete: boolean; classification: 'C' | 'B' | 'A' | 'A+' | 'A++' | null; items: BscScoringItem[];
+};

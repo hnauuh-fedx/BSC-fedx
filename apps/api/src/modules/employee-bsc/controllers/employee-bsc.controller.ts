@@ -30,6 +30,12 @@ export class EmployeeBscController {
     return this.service.findAll(actor, query);
   }
 
+  @Get(':id/scoring-preview')
+  @RequireAnyPermission(BSC_PERMISSIONS.VIEW_OWN, BSC_PERMISSIONS.VIEW_SUBORDINATE, BSC_PERMISSIONS.VIEW_UNIT)
+  scoringPreview(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.service.scoringPreview(actor, id);
+  }
+
   @Get(':id')
   @RequireAnyPermission(BSC_PERMISSIONS.VIEW_OWN, BSC_PERMISSIONS.VIEW_SUBORDINATE, BSC_PERMISSIONS.VIEW_UNIT)
   findOne(@CurrentUser() actor: AuthUser, @Param('id') id: string) {

@@ -4,10 +4,12 @@ import { EmployeeBscService } from './services/employee-bsc.service';
 import { EmployeeBscRepository } from './repositories/employee-bsc.repository';
 import { AuthModule } from '../auth/auth.module';
 import { BscAccessPolicy } from './policies/bsc-access.policy';
+import { BscClassificationService } from './services/bsc-classification.service';
+import { BscScoringService } from './services/bsc-scoring.service';
 
 @Module({
   imports: [AuthModule],
   controllers: [EmployeeBscController],
-  providers: [EmployeeBscService, EmployeeBscRepository, BscAccessPolicy],
+  providers: [EmployeeBscService, EmployeeBscRepository, BscAccessPolicy, BscClassificationService, BscScoringService],
 })
 export class EmployeeBscModule {}

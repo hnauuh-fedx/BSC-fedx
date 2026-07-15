@@ -11,6 +11,24 @@ scripts. They load the root `.env` and invoke Prisma in the `apps/api` workspace
 - Run `npm run prisma:pull` only when intentionally synchronizing `schema.prisma`
   from PostgreSQL, because it can modify the schema file.
 
+## Integration tests on PowerShell
+
+Integration runners require a dedicated test database and fail closed when
+`TEST_DATABASE_URL` is missing or points to a non-test database. They log only
+the database name, never the full connection string.
+
+```powershell
+$env:TEST_DATABASE_URL = 'postgresql://USER:PASSWORD@localhost:5432/bsc_organization_test?schema=public'
+npm run prisma:test:deploy
+npm run test:integration:organization --workspace=apps/api
+npm run test:integration:bsc-draft --workspace=apps/api
+npm run test:integration:bsc-scoring --workspace=apps/api
+Remove-Item Env:TEST_DATABASE_URL
+```
+
+For local use, the same value may be placed in the git-ignored
+`.env.test.local` file. Never reuse the main `bsc_db` database.
+
 ## Mô tả dự án
 Hệ thống quản lý thẻ điểm cân bằng (BSC) nội bộ. Cho phép giao KPI, lập kế hoạch, nộp, duyệt và báo cáo BSC.
 

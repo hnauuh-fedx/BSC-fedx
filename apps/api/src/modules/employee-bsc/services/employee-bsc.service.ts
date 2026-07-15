@@ -9,12 +9,14 @@ import { AuditRequestMetadata } from '../employee-bsc.types';
 import { BSC_PERMISSIONS, BscAccessPolicy } from '../policies/bsc-access.policy';
 import { EmployeeBscRepository } from '../repositories/employee-bsc.repository';
 import { assertTargetCompatible, assertValidWeight } from '../validators/bsc-item.validator';
+import { BscScoringService } from './bsc-scoring.service';
 
 @Injectable()
 export class EmployeeBscService {
   constructor(
     private readonly repository: EmployeeBscRepository,
     private readonly policy: BscAccessPolicy,
+    private readonly scoring: BscScoringService,
   ) {}
 
   async create(actor: AuthUser, dto: CreateEmployeeBscDto, metadata: AuditRequestMetadata) {
@@ -74,6 +76,19 @@ export class EmployeeBscService {
     const bsc = await this.requireBsc(id);
     this.policy.assertCanView(actor, bsc);
     return bsc;
+  }
+
+  async scoringPreview(actor: AuthUser, id: string) {
+    const bsc = await this.requireBsc(id);
+    this.policy.assertCanView(actor, bsc);
+    const result = this.scoring.scoreBsc(bsc.employee_bsc_items.map((item) => ({
+      itemId: item.id,
+      calculationMethod: item.calculation_method,
+      targetValue: item.target_value,
+      actualValue: item.actual_value,
+      weight: item.weight,
+    })));
+    return { bscId: bsc.id, status: bsc.status, ...result };
   }
 
   async update(actor: AuthUser, id: string, dto: UpdateEmployeeBscDto, metadata: AuditRequestMetadata) {

@@ -17,7 +17,7 @@ function safeDatabase(): boolean {
     const raw = process.env.TEST_DATABASE_URL;
     if (!raw) return false;
     const database = decodeURIComponent(new URL(raw).pathname.replace(/^\//, '')).toLowerCase();
-    return database.includes('test') && !['bsc_db', 'postgres', 'template0', 'template1'].includes(database);
+    return database === 'bsc_organization_test';
   } catch { return false; }
 }
 
