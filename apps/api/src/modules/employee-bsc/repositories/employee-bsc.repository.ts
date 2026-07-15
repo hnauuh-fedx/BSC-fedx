@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { AuthUser } from '../../../common/types/auth-user.type';
@@ -6,6 +6,7 @@ import { AuditRequestMetadata } from '../employee-bsc.types';
 import { CreateBscItemDto, UpdateBscActualDto, UpdateBscItemDto } from '../dto/bsc-item.dto';
 import { QueryEmployeeBscDto } from '../dto/query-employee-bsc.dto';
 import { assertTotalWeight } from '../validators/bsc-item.validator';
+import { BscScoringResult } from '../services/bsc-scoring.service';
 
 const bscAccessSelect = {
   id: true,
@@ -22,6 +23,12 @@ const bscDetailSelect = {
   position_id: true,
   employee_comment: true,
   manager_comment: true,
+  submitted_at: true,
+  approved_at: true,
+  approved_by: true,
+  locked_at: true,
+  final_score: true,
+  final_grade: true,
   created_at: true,
   updated_at: true,
   bsc_cycles: { select: { id: true, code: true, name: true, cycle_type: true, year: true, month: true, quarter: true, status: true } },
@@ -30,6 +37,14 @@ const bscDetailSelect = {
   positions: { select: { id: true, code: true, name: true, level: true } },
   users_employee_bsc_direct_manager_idTousers: { select: { id: true, employee_code: true, full_name: true, email: true } },
   employee_bsc_items: { orderBy: [{ sort_order: 'asc' }, { created_at: 'asc' }] },
+  bsc_status_histories: {
+    select: {
+      id: true, from_status: true, to_status: true, action: true, comment: true,
+      changed_by: true, changed_at: true,
+      users: { select: { id: true, employee_code: true, full_name: true } },
+    },
+    orderBy: { changed_at: 'asc' },
+  },
 } satisfies Prisma.employee_bscSelect;
 
 type Transaction = Prisma.TransactionClient;
@@ -70,11 +85,14 @@ export class EmployeeBscRepository {
           cycle_id: true,
           position_id: true,
           employee_comment: true,
+          submitted_at: true,
+          approved_at: true,
           created_at: true,
           updated_at: true,
           bsc_cycles: { select: { id: true, code: true, name: true, year: true, month: true, status: true } },
           users_employee_bsc_employee_idTousers: { select: { id: true, employee_code: true, full_name: true, email: true } },
           departments: { select: { id: true, code: true, name: true } },
+          users_employee_bsc_direct_manager_idTousers: { select: { id: true, employee_code: true, full_name: true } },
           _count: { select: { employee_bsc_items: true } },
         },
         orderBy: { [query.sortBy]: query.sortOrder },
@@ -86,12 +104,109 @@ export class EmployeeBscRepository {
     return { items, page: query.page, limit: query.limit, total };
   }
 
+  async findReviewFilterOptions(where: Prisma.employee_bscWhereInput) {
+    const rows = await this.prisma.employee_bsc.findMany({
+      where,
+      select: {
+        bsc_cycles: { select: { id: true, name: true, status: true } },
+        departments: { select: { id: true, code: true, name: true } },
+      },
+      distinct: ['cycle_id', 'department_id'],
+    });
+    return {
+      cycles: Array.from(new Map(rows.map((row) => [row.bsc_cycles.id, row.bsc_cycles])).values()),
+      departments: Array.from(new Map(rows.map((row) => [row.departments.id, row.departments])).values()),
+    };
+  }
+
   findById(id: string) {
     return this.prisma.employee_bsc.findUnique({ where: { id }, select: bscDetailSelect });
   }
 
   findItemById(id: string) {
     return this.prisma.employee_bsc_items.findUnique({ where: { id } });
+  }
+
+  submitWorkflow(
+    actor: AuthUser,
+    id: string,
+    metadata: AuditRequestMetadata,
+    validate: (snapshot: NonNullable<Awaited<ReturnType<EmployeeBscRepository['workflowSnapshot']>>>) => BscScoringResult,
+  ) {
+    return this.serializable(async (db) => {
+      const snapshot = await this.workflowSnapshot(db, id);
+      if (!snapshot) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC.' });
+      const scoring = validate(snapshot);
+      const now = new Date();
+      const changed = await db.employee_bsc.updateMany({
+        where: { id, status: snapshot.status },
+        data: { status: 'SUBMITTED', submitted_at: now, locked_at: now, approved_at: null, approved_by: null, updated_at: now },
+      });
+      if (changed.count !== 1) this.workflowConflict();
+      await db.bsc_status_histories.create({ data: {
+        employee_bsc_id: id, from_status: snapshot.status, to_status: 'SUBMITTED', action: 'SUBMIT',
+        changed_by: actor.id, changed_at: now, ip_address: metadata.ipAddress, user_agent: metadata.userAgent,
+      } });
+      await db.bsc_approval_steps.upsert({
+        where: { employee_bsc_id_step_order: { employee_bsc_id: id, step_order: 1 } },
+        create: { employee_bsc_id: id, step_order: 1, approver_id: snapshot.direct_manager_id, approver_role: snapshot.reviewer_role, status: 'PENDING' },
+        update: { approver_id: snapshot.direct_manager_id, approver_role: snapshot.reviewer_role, status: 'PENDING', comment: null, acted_at: null },
+      });
+      await this.audit(db, actor, 'BSC_SUBMITTED', 'employee_bsc', id,
+        { bscId: id, employeeId: snapshot.employee_id, status: snapshot.status },
+        { bscId: id, employeeId: snapshot.employee_id, status: 'SUBMITTED', score: scoring.totalWeightedScore, classification: scoring.classification }, metadata);
+      return db.employee_bsc.findUniqueOrThrow({ where: { id }, select: bscDetailSelect });
+    });
+  }
+
+  reviewWorkflow(
+    actor: AuthUser,
+    id: string,
+    action: 'APPROVE' | 'RETURN',
+    metadata: AuditRequestMetadata,
+    validate: (snapshot: NonNullable<Awaited<ReturnType<EmployeeBscRepository['workflowSnapshot']>>>) => { scoring: BscScoringResult; reason: string | null },
+  ) {
+    return this.serializable(async (db) => {
+      const snapshot = await this.workflowSnapshot(db, id);
+      if (!snapshot) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC.' });
+      const { scoring, reason } = validate(snapshot);
+      const now = new Date();
+      const targetStatus = action === 'APPROVE' ? 'APPROVED' : 'RETURNED';
+      const changed = await db.employee_bsc.updateMany({
+        where: { id, status: 'SUBMITTED' },
+        data: action === 'APPROVE'
+          ? {
+              status: targetStatus, approved_at: now, approved_by: actor.id, locked_at: now,
+              manager_total_score: scoring.totalWeightedScore, final_score: scoring.totalWeightedScore,
+              final_grade: scoring.classification, updated_at: now,
+            }
+          : {
+              status: targetStatus, locked_at: null, approved_at: null, approved_by: null,
+              manager_total_score: null, final_score: null, final_grade: null, updated_at: now,
+            },
+      });
+      if (changed.count !== 1) this.workflowConflict();
+      await db.bsc_status_histories.create({ data: {
+        employee_bsc_id: id, from_status: 'SUBMITTED', to_status: targetStatus, action,
+        comment: reason, changed_by: actor.id, changed_at: now,
+        ip_address: metadata.ipAddress, user_agent: metadata.userAgent,
+      } });
+      await db.bsc_approval_steps.update({
+        where: { employee_bsc_id_step_order: { employee_bsc_id: id, step_order: 1 } },
+        data: { status: targetStatus, comment: reason, acted_at: now },
+      });
+      await db.bsc_reviews.create({ data: {
+        employee_bsc_id: id, reviewer_id: actor.id,
+        reviewer_role: snapshot.reviewer_role,
+        review_level: 1, action, score_before: snapshot.final_score,
+        score_after: action === 'APPROVE' ? scoring.totalWeightedScore : null,
+        comment: reason, reviewed_at: now,
+      } });
+      await this.audit(db, actor, action === 'APPROVE' ? 'BSC_APPROVED' : 'BSC_RETURNED', 'employee_bsc', id,
+        { bscId: id, employeeId: snapshot.employee_id, status: 'SUBMITTED' },
+        { bscId: id, employeeId: snapshot.employee_id, status: targetStatus, reason, score: scoring.totalWeightedScore, classification: scoring.classification }, metadata);
+      return db.employee_bsc.findUniqueOrThrow({ where: { id }, select: bscDetailSelect });
+    });
   }
 
   async createDraft(data: {
@@ -133,7 +248,7 @@ export class EmployeeBscRepository {
   async updateDraftComment(actor: AuthUser, id: string, comment: string | undefined, metadata: AuditRequestMetadata) {
     return this.prisma.$transaction(async (db) => {
       const current = await db.employee_bsc.findUniqueOrThrow({ where: { id }, select: { employee_comment: true, status: true } });
-      if (current.status !== 'DRAFT') throw new ForbiddenException({ code: 'BSC_NOT_DRAFT', message: 'Chỉ BSC nháp mới được chỉnh sửa.' });
+      if (!['DRAFT', 'RETURNED'].includes(current.status)) throw new ForbiddenException({ code: 'BSC_NOT_DRAFT', message: 'Chỉ BSC nháp hoặc bị trả lại mới được chỉnh sửa.' });
       const bsc = await db.employee_bsc.update({ where: { id }, data: { employee_comment: comment, updated_at: new Date() }, select: bscDetailSelect });
       await this.audit(db, actor, 'BSC_UPDATED', 'employee_bsc', id, { employeeComment: current.employee_comment }, { employeeComment: bsc.employee_comment }, metadata);
       return bsc;
@@ -152,7 +267,7 @@ export class EmployeeBscRepository {
 
   createItem(actor: AuthUser, bscId: string, dto: CreateBscItemDto, metadata: AuditRequestMetadata) {
     return this.serializable(async (db) => {
-      await this.assertDraftInTransaction(db, bscId);
+      await this.assertEditableInTransaction(db, bscId);
       const aggregate = await db.employee_bsc_items.aggregate({ where: { employee_bsc_id: bscId }, _sum: { weight: true } });
       assertTotalWeight(Number(aggregate._sum.weight ?? 0) + dto.weight);
       const item = await db.employee_bsc_items.create({
@@ -177,7 +292,7 @@ export class EmployeeBscRepository {
 
   updateItem(actor: AuthUser, bscId: string, itemId: string, dto: UpdateBscItemDto, metadata: AuditRequestMetadata) {
     return this.serializable(async (db) => {
-      await this.assertDraftInTransaction(db, bscId);
+      await this.assertEditableInTransaction(db, bscId);
       const old = await this.requireItemInBsc(db, bscId, itemId);
       const weight = dto.weight ?? Number(old.weight);
       const aggregate = await db.employee_bsc_items.aggregate({ where: { employee_bsc_id: bscId, id: { not: itemId } }, _sum: { weight: true } });
@@ -204,7 +319,7 @@ export class EmployeeBscRepository {
 
   updateActual(actor: AuthUser, bscId: string, itemId: string, dto: UpdateBscActualDto, metadata: AuditRequestMetadata) {
     return this.prisma.$transaction(async (db) => {
-      await this.assertDraftInTransaction(db, bscId);
+      await this.assertEditableInTransaction(db, bscId);
       const old = await this.requireItemInBsc(db, bscId, itemId);
       const item = await db.employee_bsc_items.update({
         where: { id: itemId },
@@ -224,7 +339,7 @@ export class EmployeeBscRepository {
 
   deleteItem(actor: AuthUser, bscId: string, itemId: string, metadata: AuditRequestMetadata) {
     return this.serializable(async (db) => {
-      await this.assertDraftInTransaction(db, bscId);
+      await this.assertEditableInTransaction(db, bscId);
       const old = await this.requireItemInBsc(db, bscId, itemId);
       await db.employee_bsc_items.delete({ where: { id: itemId } });
       await this.audit(db, actor, 'BSC_ITEM_DELETED', 'employee_bsc_item', itemId, this.itemAudit(old), null, metadata);
@@ -243,9 +358,49 @@ export class EmployeeBscRepository {
     throw new Error('Unreachable transaction retry state');
   }
 
-  private async assertDraftInTransaction(db: Transaction, bscId: string): Promise<void> {
+  private workflowSnapshot(db: Transaction, id: string) {
+    return db.employee_bsc.findUnique({ where: { id }, select: {
+      id: true, employee_id: true, department_id: true, direct_manager_id: true, status: true, final_score: true,
+      bsc_cycles: { select: { status: true, submission_deadline: true } },
+      users_employee_bsc_employee_idTousers: { select: { status: true, deleted_at: true, direct_manager_id: true } },
+      users_employee_bsc_direct_manager_idTousers: { select: {
+        status: true, deleted_at: true,
+        departments: { select: { status: true } }, positions: { select: { status: true } },
+        user_roles_user_roles_user_idTousers: {
+          where: { OR: [{ expires_at: null }, { expires_at: { gt: new Date() } }], roles: { status: 'ACTIVE' } },
+          select: { roles: { select: { code: true } } },
+        },
+      } },
+      departments: { select: { status: true } }, positions: { select: { status: true } },
+      employee_bsc_items: { select: { id: true, calculation_method: true, target_value: true, actual_value: true, weight: true } },
+    } }).then((bsc) => bsc ? ({
+      id: bsc.id, employee_id: bsc.employee_id, department_id: bsc.department_id,
+      direct_manager_id: bsc.direct_manager_id, status: bsc.status, final_score: bsc.final_score,
+      cycle_status: bsc.bsc_cycles.status, submission_deadline: bsc.bsc_cycles.submission_deadline,
+      owner_status: bsc.users_employee_bsc_employee_idTousers.status,
+      owner_deleted_at: bsc.users_employee_bsc_employee_idTousers.deleted_at,
+      reviewer_status: bsc.users_employee_bsc_direct_manager_idTousers.status,
+      reviewer_deleted_at: bsc.users_employee_bsc_direct_manager_idTousers.deleted_at,
+      reviewer_organization_active: bsc.users_employee_bsc_direct_manager_idTousers.departments.status === 'ACTIVE'
+        && bsc.users_employee_bsc_direct_manager_idTousers.positions.status === 'ACTIVE',
+      reviewer_role: bsc.users_employee_bsc_direct_manager_idTousers.user_roles_user_roles_user_idTousers
+        .map((assignment) => assignment.roles.code)
+        .find((code) => code === 'DIRECTOR' || code === 'MANAGER') ?? 'MANAGER',
+      department_status: bsc.departments.status, position_status: bsc.positions.status,
+      items: bsc.employee_bsc_items,
+      reviewer_matches_owner: bsc.users_employee_bsc_employee_idTousers.direct_manager_id === bsc.direct_manager_id,
+    }) : null);
+  }
+
+  private workflowConflict(): never {
+    throw new ConflictException({ code: 'BSC_WORKFLOW_CONFLICT', message: 'Trạng thái BSC vừa được thay đổi bởi yêu cầu khác.' });
+  }
+
+  private async assertEditableInTransaction(db: Transaction, bscId: string): Promise<void> {
     const bsc = await db.employee_bsc.findUniqueOrThrow({ where: { id: bscId }, select: { status: true } });
-    if (bsc.status !== 'DRAFT') throw new ForbiddenException({ code: 'BSC_NOT_DRAFT', message: 'Chỉ BSC nháp mới được chỉnh sửa.' });
+    if (!['DRAFT', 'RETURNED'].includes(bsc.status)) {
+      throw new ForbiddenException({ code: 'BSC_NOT_DRAFT', message: 'Chỉ BSC nháp hoặc bị trả lại mới được chỉnh sửa.' });
+    }
   }
 
   private async requireItemInBsc(db: Transaction, bscId: string, itemId: string) {

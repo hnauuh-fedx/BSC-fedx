@@ -50,7 +50,7 @@ export const BscItemTable: React.FC<Props> = ({ bscId, items, scoring, canManage
               <button type="button" onClick={() => { if (window.confirm('Xóa KPI này?')) void run(() => employeeBscApi.deleteItem(bscId, item.id)); }}>Xóa</button>
             </form>}
             {canUpdateActual && <form onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); void run(() => employeeBscApi.updateActual(bscId, item.id, { actualValue: Number(data.get('actualValue')), employeeNote: String(data.get('employeeNote') ?? '') })); }}>
-              <input aria-label={`Kết quả ${item.kpi_code}`} name="actualValue" type="number" step="any" defaultValue={item.actual_value ?? ''} required/>
+              <input aria-label={`Kết quả ${item.kpi_code}`} name="actualValue" type="number" step={item.calculation_method === 'BINARY' ? '1' : 'any'} min={item.calculation_method === 'BINARY' ? '0' : undefined} max={item.calculation_method === 'BINARY' ? '1' : undefined} defaultValue={item.actual_value ?? ''} required/>
               {item.calculation_method === 'BINARY' && <small>Nhập 1 nếu đạt, 0 nếu không đạt.</small>}
               <input aria-label={`Ghi chú ${item.kpi_code}`} name="employeeNote" defaultValue={item.employee_note ?? ''}/>
               <button type="submit">Lưu kết quả</button>

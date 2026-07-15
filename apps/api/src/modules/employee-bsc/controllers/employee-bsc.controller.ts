@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { RequireAnyPermission, RequirePermissions } from '../../../common/decorators/require-permissions.decorator';
@@ -9,6 +9,8 @@ import { CreateBscItemDto, UpdateBscActualDto, UpdateBscItemDto } from '../dto/b
 import { CreateEmployeeBscDto } from '../dto/create-employee-bsc.dto';
 import { QueryEmployeeBscDto } from '../dto/query-employee-bsc.dto';
 import { UpdateEmployeeBscDto } from '../dto/update-employee-bsc.dto';
+import { SubmitBscDto } from '../dto/submit-bsc.dto';
+import { ReturnBscDto } from '../dto/return-bsc.dto';
 import { AuditRequestMetadata } from '../employee-bsc.types';
 import { BSC_PERMISSIONS } from '../policies/bsc-access.policy';
 import { EmployeeBscService } from '../services/employee-bsc.service';
@@ -30,6 +32,12 @@ export class EmployeeBscController {
     return this.service.findAll(actor, query);
   }
 
+  @Get('pending-review')
+  @RequireAnyPermission(BSC_PERMISSIONS.APPROVE_SUBORDINATE, BSC_PERMISSIONS.RETURN_SUBORDINATE)
+  pendingReview(@CurrentUser() actor: AuthUser, @Query() query: QueryEmployeeBscDto) {
+    return this.service.pendingReview(actor, query);
+  }
+
   @Get(':id/scoring-preview')
   @RequireAnyPermission(BSC_PERMISSIONS.VIEW_OWN, BSC_PERMISSIONS.VIEW_SUBORDINATE, BSC_PERMISSIONS.VIEW_UNIT)
   scoringPreview(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
@@ -40,6 +48,27 @@ export class EmployeeBscController {
   @RequireAnyPermission(BSC_PERMISSIONS.VIEW_OWN, BSC_PERMISSIONS.VIEW_SUBORDINATE, BSC_PERMISSIONS.VIEW_UNIT)
   findOne(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
     return this.service.findOne(actor, id);
+  }
+
+  @Post(':id/submit')
+  @HttpCode(200)
+  @RequirePermissions(BSC_PERMISSIONS.SUBMIT_OWN)
+  submit(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() _dto: SubmitBscDto, @Req() request: Request) {
+    return this.service.submit(actor, id, metadata(request));
+  }
+
+  @Post(':id/approve')
+  @HttpCode(200)
+  @RequirePermissions(BSC_PERMISSIONS.APPROVE_SUBORDINATE)
+  approve(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() _dto: SubmitBscDto, @Req() request: Request) {
+    return this.service.approve(actor, id, metadata(request));
+  }
+
+  @Post(':id/return')
+  @HttpCode(200)
+  @RequirePermissions(BSC_PERMISSIONS.RETURN_SUBORDINATE)
+  returnBsc(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() dto: ReturnBscDto, @Req() request: Request) {
+    return this.service.returnBsc(actor, id, dto.reason, metadata(request));
   }
 
   @Patch(':id')

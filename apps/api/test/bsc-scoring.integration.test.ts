@@ -220,10 +220,12 @@ test('Phase 3B.2 BSC scoring integration', { skip: safeDatabase() ? false : 'TES
       preview = await request(server).get(`/employee-bsc/${edgeBscId}/scoring-preview`).set(auth(tokens.employee2)).expect(200);
       assert.equal(preview.body.items[0].reason, 'CALCULATION_METHOD_UNSUPPORTED');
 
-      await request(server).patch(`/employee-bsc/${edgeBscId}/items/${threshold.body.id}`).set(auth(tokens.manager)).send({ calculationMethod: 'BINARY' }).expect(200);
-      await request(server).patch(`/employee-bsc/${edgeBscId}/items/${threshold.body.id}/actual`).set(auth(tokens.employee2)).send({ actualValue: 2 }).expect(200);
+      await request(server).delete(`/employee-bsc/${edgeBscId}/items/${threshold.body.id}`).set(auth(tokens.manager)).expect(200);
+      const invalidBinary = await request(server).post(`/employee-bsc/${edgeBscId}/items`).set(auth(tokens.manager)).send({ kpiCode: `${marker}_INVALID_BINARY`, kpiName: 'Invalid binary', weight: 100, calculationMethod: 'BINARY' }).expect(201);
+      const invalidActual = await request(server).patch(`/employee-bsc/${edgeBscId}/items/${invalidBinary.body.id}/actual`).set(auth(tokens.employee2)).send({ actualValue: 2 }).expect(400);
+      assert.equal(invalidActual.body.code, 'BSC_BINARY_ACTUAL_INVALID');
       preview = await request(server).get(`/employee-bsc/${edgeBscId}/scoring-preview`).set(auth(tokens.employee2)).expect(200);
-      assert.equal(preview.body.items[0].reason, 'BINARY_ACTUAL_INVALID');
+      assert.equal(preview.body.items[0].reason, 'ACTUAL_NOT_PROVIDED');
     });
   } finally {
     if (app) await app.close();

@@ -1,1 +1,1 @@
-export const checkPermission = (permission: string) => true;
+export const checkPermission = () => true;

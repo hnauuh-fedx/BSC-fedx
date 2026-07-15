@@ -1,1 +1,1 @@
-export const useBscDetail = (id: string) => ({ data: null, isLoading: false });
+export const useBscDetail = () => ({ data: null, isLoading: false });

@@ -9,6 +9,7 @@ import {
 } from '../src/modules/employee-bsc/policies/bsc-access.policy';
 import {
   assertTotalWeight,
+  assertBinaryActual,
   assertTargetCompatible,
   assertValidWeight,
 } from '../src/modules/employee-bsc/validators/bsc-item.validator';
@@ -78,6 +79,11 @@ test('BSC weight accepts partial and exact drafts but rejects invalid or excessi
   assert.throws(() => assertTotalWeight(100.01), (error: any) => error.response.code === 'BSC_TOTAL_WEIGHT_EXCEEDED');
   assert.throws(() => assertTargetCompatible('ACTUAL_DIV_TARGET', 0), (error: any) => error.response.code === 'BSC_TARGET_INVALID');
   assert.doesNotThrow(() => assertTargetCompatible('TARGET_DIV_ACTUAL', 0));
+  assert.doesNotThrow(() => assertBinaryActual('BINARY', 0));
+  assert.doesNotThrow(() => assertBinaryActual('BINARY', 1));
+  for (const value of [-1, 0.5, 2]) {
+    assert.throws(() => assertBinaryActual('BINARY', value), (error: any) => error.response.code === 'BSC_BINARY_ACTUAL_INVALID');
+  }
 });
 
 test('BSC DTOs reject cross-field mass assignment and non-allowlisted sort keys', async () => {

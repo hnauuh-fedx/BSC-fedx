@@ -28,6 +28,7 @@ export class UpdateBscItemDto {
 }
 
 export class UpdateBscActualDto {
+  /** For BINARY KPI definitions, the domain accepts only 1 (pass) or 0 (fail). */
   @IsOptional() @Type(() => Number) @IsNumber({ allowInfinity: false, allowNaN: false }) actualValue?: number;
   @IsOptional() @IsString() @MaxLength(5000) actualText?: string;
   @IsOptional() @IsString() @MaxLength(5000) employeeNote?: string;

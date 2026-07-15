@@ -8,8 +8,9 @@ import { UpdateEmployeeBscDto } from '../dto/update-employee-bsc.dto';
 import { AuditRequestMetadata } from '../employee-bsc.types';
 import { BSC_PERMISSIONS, BscAccessPolicy } from '../policies/bsc-access.policy';
 import { EmployeeBscRepository } from '../repositories/employee-bsc.repository';
-import { assertTargetCompatible, assertValidWeight } from '../validators/bsc-item.validator';
+import { assertBinaryActual, assertTargetCompatible, assertValidWeight } from '../validators/bsc-item.validator';
 import { BscScoringService } from './bsc-scoring.service';
+import { BscWorkflowService } from './bsc-workflow.service';
 
 @Injectable()
 export class EmployeeBscService {
@@ -17,6 +18,7 @@ export class EmployeeBscService {
     private readonly repository: EmployeeBscRepository,
     private readonly policy: BscAccessPolicy,
     private readonly scoring: BscScoringService,
+    private readonly workflow: BscWorkflowService,
   ) {}
 
   async create(actor: AuthUser, dto: CreateEmployeeBscDto, metadata: AuditRequestMetadata) {
@@ -72,6 +74,37 @@ export class EmployeeBscService {
     return this.repository.findAll({ AND: filters }, query);
   }
 
+  async pendingReview(actor: AuthUser, query: QueryEmployeeBscDto) {
+    if (!actor.permissions.includes(BSC_PERMISSIONS.APPROVE_SUBORDINATE)
+      && !actor.permissions.includes(BSC_PERMISSIONS.RETURN_SUBORDINATE)) {
+      throw new BadRequestException({ code: 'BSC_ACCESS_DENIED', message: 'Không có quyền xử lý BSC chờ duyệt.' });
+    }
+    if (query.departmentId && !this.canUseDepartmentFilter(actor, query.departmentId)) {
+      throw new BadRequestException({ code: 'BSC_ACCESS_DENIED', message: 'Không thể lọc ngoài phạm vi được cấp.' });
+    }
+    const scopedDepartments = actor.roles
+      .filter((role) => role.scopeType === 'DEPARTMENT' && role.scopeId)
+      .map((role) => role.scopeId!);
+    const access: Prisma.employee_bscWhereInput = actor.roles.some((role) => role.scopeType === 'GLOBAL')
+      ? { direct_manager_id: actor.id, status: 'SUBMITTED' }
+      : scopedDepartments.length
+        ? { direct_manager_id: actor.id, department_id: { in: scopedDepartments }, status: 'SUBMITTED' }
+        : { id: { equals: '00000000-0000-0000-0000-000000000000' } };
+    const filters: Prisma.employee_bscWhereInput[] = [access];
+    if (query.cycleId) filters.push({ cycle_id: query.cycleId });
+    if (query.departmentId) filters.push({ department_id: query.departmentId });
+    if (query.search) filters.push({ OR: [
+      { bsc_code: { contains: query.search, mode: 'insensitive' } },
+      { users_employee_bsc_employee_idTousers: { full_name: { contains: query.search, mode: 'insensitive' } } },
+      { users_employee_bsc_employee_idTousers: { employee_code: { contains: query.search, mode: 'insensitive' } } },
+    ] });
+    const [result, filterOptions] = await Promise.all([
+      this.repository.findAll({ AND: filters }, query),
+      this.repository.findReviewFilterOptions(access),
+    ]);
+    return { ...result, filterOptions };
+  }
+
   async findOne(actor: AuthUser, id: string) {
     const bsc = await this.requireBsc(id);
     this.policy.assertCanView(actor, bsc);
@@ -89,6 +122,38 @@ export class EmployeeBscService {
       weight: item.weight,
     })));
     return { bscId: bsc.id, status: bsc.status, ...result };
+  }
+
+  submit(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
+    return this.repository.submitWorkflow(actor, id, metadata, (snapshot) => {
+      const scoring = this.scoring.scoreBsc(snapshot.items.map((item) => ({
+        itemId: item.id,
+        calculationMethod: item.calculation_method,
+        targetValue: item.target_value,
+        actualValue: item.actual_value,
+        weight: item.weight,
+      })));
+      this.workflow.assertCanSubmit(actor, {
+        employeeId: snapshot.employee_id,
+        directManagerId: snapshot.direct_manager_id,
+        departmentId: snapshot.department_id,
+        status: snapshot.status,
+        cycleStatus: snapshot.cycle_status,
+        submissionDeadline: snapshot.submission_deadline,
+        ownerActive: snapshot.owner_status === 'ACTIVE' && snapshot.owner_deleted_at === null,
+        ownerOrganizationActive: snapshot.department_status === 'ACTIVE' && snapshot.position_status === 'ACTIVE',
+        reviewerActive: snapshot.reviewer_status === 'ACTIVE' && snapshot.reviewer_deleted_at === null && snapshot.reviewer_matches_owner && snapshot.reviewer_organization_active,
+      }, scoring);
+      return scoring;
+    });
+  }
+
+  approve(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
+    return this.review(actor, id, 'APPROVE', undefined, metadata);
+  }
+
+  returnBsc(actor: AuthUser, id: string, reason: string, metadata: AuditRequestMetadata) {
+    return this.review(actor, id, 'RETURN', reason, metadata);
   }
 
   async update(actor: AuthUser, id: string, dto: UpdateEmployeeBscDto, metadata: AuditRequestMetadata) {
@@ -122,7 +187,9 @@ export class EmployeeBscService {
     if (dto.weight !== undefined) assertValidWeight(dto.weight);
     const [bsc, existingItem] = await Promise.all([this.requireBsc(bscId), this.requireItemInBsc(bscId, itemId)]);
     this.policy.assertCanManageKpi(actor, bsc);
-    assertTargetCompatible(dto.calculationMethod ?? existingItem.calculation_method, dto.targetValue ?? (existingItem.target_value === null ? undefined : Number(existingItem.target_value)));
+    const calculationMethod = dto.calculationMethod ?? existingItem.calculation_method;
+    assertTargetCompatible(calculationMethod, dto.targetValue ?? (existingItem.target_value === null ? undefined : Number(existingItem.target_value)));
+    assertBinaryActual(calculationMethod, existingItem.actual_value === null ? undefined : Number(existingItem.actual_value));
     try {
       return await this.repository.updateItem(actor, bscId, itemId, dto, metadata);
     } catch (error) {
@@ -132,8 +199,9 @@ export class EmployeeBscService {
 
   async updateActual(actor: AuthUser, bscId: string, itemId: string, dto: UpdateBscActualDto, metadata: AuditRequestMetadata) {
     if (!Object.keys(dto).length) this.noEditableFields();
-    const [bsc] = await Promise.all([this.requireBsc(bscId), this.requireItemInBsc(bscId, itemId)]);
+    const [bsc, item] = await Promise.all([this.requireBsc(bscId), this.requireItemInBsc(bscId, itemId)]);
     this.policy.assertCanUpdateActual(actor, bsc);
+    assertBinaryActual(item.calculation_method, dto.actualValue);
     return this.repository.updateActual(actor, bscId, itemId, dto, metadata);
   }
 
@@ -154,6 +222,31 @@ export class EmployeeBscService {
     if (!item) throw new NotFoundException({ code: 'BSC_ITEM_NOT_FOUND', message: 'Không tìm thấy KPI.' });
     if (item.employee_bsc_id !== bscId) throw new NotFoundException({ code: 'BSC_ITEM_NOT_IN_BSC', message: 'KPI không thuộc BSC trên đường dẫn.' });
     return item;
+  }
+
+  private review(actor: AuthUser, id: string, action: 'APPROVE' | 'RETURN', reason: string | undefined, metadata: AuditRequestMetadata) {
+    return this.repository.reviewWorkflow(actor, id, action, metadata, (snapshot) => {
+      const scoring = this.scoring.scoreBsc(snapshot.items.map((item) => ({
+        itemId: item.id,
+        calculationMethod: item.calculation_method,
+        targetValue: item.target_value,
+        actualValue: item.actual_value,
+        weight: item.weight,
+      })));
+      const normalizedReason = this.workflow.assertCanReview(actor, {
+        employeeId: snapshot.employee_id,
+        directManagerId: snapshot.direct_manager_id,
+        departmentId: snapshot.department_id,
+        status: snapshot.status,
+        cycleStatus: snapshot.cycle_status,
+        submissionDeadline: snapshot.submission_deadline,
+        ownerActive: snapshot.owner_status === 'ACTIVE' && snapshot.owner_deleted_at === null,
+        ownerOrganizationActive: snapshot.department_status === 'ACTIVE' && snapshot.position_status === 'ACTIVE',
+        reviewerActive: snapshot.reviewer_status === 'ACTIVE' && snapshot.reviewer_deleted_at === null && snapshot.reviewer_matches_owner && snapshot.reviewer_organization_active,
+      }, action, reason);
+      this.workflow.assertScoringComplete(scoring);
+      return { scoring, reason: normalizedReason };
+    });
   }
 
   private listAccessWhere(actor: AuthUser): Prisma.employee_bscWhereInput {

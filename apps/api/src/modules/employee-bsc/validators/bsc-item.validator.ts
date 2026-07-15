@@ -17,3 +17,10 @@ export function assertTargetCompatible(calculationMethod: string, targetValue: n
     throw new BadRequestException({ code: 'BSC_TARGET_INVALID', message: 'Chỉ tiêu phải khác 0 với phương pháp kết quả chia chỉ tiêu.' });
   }
 }
+
+/** BINARY uses the canonical numeric encoding: 1 = pass, 0 = fail. */
+export function assertBinaryActual(calculationMethod: string, actualValue: number | undefined): void {
+  if (calculationMethod === 'BINARY' && actualValue !== undefined && actualValue !== 0 && actualValue !== 1) {
+    throw new BadRequestException({ code: 'BSC_BINARY_ACTUAL_INVALID', message: 'Kết quả KPI nhị phân chỉ chấp nhận 0 hoặc 1.' });
+  }
+}
