@@ -17,4 +17,6 @@ export const RATE_LIMIT_DEFAULTS = {
 } as const;
 
 export const COOKIE_NAME = 'refresh_token' as const;
-export const COOKIE_PATH = '/auth' as const;
+// Direct API deployments use `/auth`; reverse-proxied web deployments can set
+// REFRESH_COOKIE_PATH=/api/auth without broadening the cookie to the full origin.
+export const COOKIE_PATH = process.env.REFRESH_COOKIE_PATH?.trim() || '/auth';

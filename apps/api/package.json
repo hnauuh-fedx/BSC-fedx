@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "nest start --watch",
+    "start:e2e": "node -r ts-node/register/transpile-only src/main.ts",
     "build": "nest build",
     "prisma:validate": "prisma validate",
     "prisma:generate": "prisma generate",

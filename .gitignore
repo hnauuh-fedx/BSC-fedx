@@ -3,3 +3,7 @@ dist
 .env
 .env.test.local
 apps/api/.env
+*.tsbuildinfo
+test-results/
+playwright-report/
+e2e/.state/

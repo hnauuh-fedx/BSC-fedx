@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuthContext } from '../../../app/store/auth-store';
 import { PermissionGate } from '../../auth/components/permission-gate';
@@ -18,6 +18,7 @@ export const BscDetailPage: React.FC = () => {
   const [bsc, setBsc] = useState<EmployeeBsc | null>(null), [loading, setLoading] = useState(true), [error, setError] = useState('');
   const [scoring, setScoring] = useState<BscScoringPreview | null>(null), [scoringLoading, setScoringLoading] = useState(true), [scoringError, setScoringError] = useState('');
   const [action, setAction] = useState<Action | null>(null), [actionError, setActionError] = useState('');
+  const actionPendingRef = useRef(false);
   const [returnStage, setReturnStage] = useState<'PLAN' | 'EVALUATION' | null>(null), [returnReason, setReturnReason] = useState('');
   const load = useCallback(async () => { setLoading(true); setError(''); try { setBsc(await employeeBscApi.detail(id)); } catch (cause) { setBsc(null); setError(cause instanceof Error ? cause.message : 'Không thể tải BSC.'); } finally { setLoading(false); } }, [id]);
   const loadScoring = useCallback(async () => { setScoringLoading(true); setScoringError(''); setScoring(null); try { setScoring(await employeeBscApi.scoringPreview(id)); } catch (cause) { setScoringError(cause instanceof Error ? cause.message : 'Không thể tải điểm tạm tính.'); } finally { setScoringLoading(false); } }, [id]);
@@ -25,8 +26,10 @@ export const BscDetailPage: React.FC = () => {
   useEffect(() => { void reloadAll(); }, [reloadAll]);
 
   const runAction = async (kind: Action) => {
+    if (actionPendingRef.current) return;
     if (kind.startsWith('return') && !returnReason.trim()) { setActionError('Vui lòng nhập lý do trả lại.'); return; }
     if (!kind.startsWith('return') && !window.confirm(kind.includes('Plan') ? 'Xác nhận xử lý giai đoạn duyệt nội dung BSC?' : 'Xác nhận xử lý giai đoạn duyệt kết quả?')) return;
+    actionPendingRef.current = true;
     setAction(kind); setActionError('');
     try {
       if (kind === 'submitPlan') await employeeBscApi.submitPlan(id);
@@ -35,9 +38,9 @@ export const BscDetailPage: React.FC = () => {
       else if (kind === 'submitEvaluation') await employeeBscApi.submitEvaluation(id);
       else if (kind === 'approveEvaluation') await employeeBscApi.approveEvaluation(id);
       else await employeeBscApi.returnEvaluation(id, returnReason);
-      setReturnStage(null); setReturnReason(''); await reloadAll();
+      setReturnStage(null); setReturnReason(''); setBsc(null); setScoring(null); await reloadAll();
     } catch (cause) { setActionError(cause instanceof Error ? cause.message : 'Không thể xử lý BSC.'); }
-    finally { setAction(null); }
+    finally { actionPendingRef.current = false; setAction(null); }
   };
 
   if (loading) return <main><LoadingState/></main>;
@@ -78,8 +81,8 @@ export const BscDetailPage: React.FC = () => {
     {isOwner && planEditable && <PermissionGate permission={BSC_PERMISSIONS.EDIT_OWN}><Link to={`/employee-bsc/${bsc.id}/edit`}>Sửa ghi chú</Link></PermissionGate>} {' '}
     {isOwner && bsc.plan_status === 'DRAFT' && bsc.evaluation_status === 'NOT_STARTED' && <PermissionGate permission={BSC_PERMISSIONS.DELETE_OWN}><button onClick={() => void remove()}>Xóa BSC</button></PermissionGate>} {' '}
     {canSubmitPlan && <PermissionGate permission={BSC_PERMISSIONS.SUBMIT_PLAN_OWN}><button disabled={Boolean(action) || !planComplete} title={!planComplete ? 'Cần ít nhất một KPI hợp lệ và tổng trọng số đúng 100%.' : undefined} onClick={() => void runAction('submitPlan')}>{action === 'submitPlan' ? 'Đang gửi…' : 'Gửi duyệt BSC'}</button></PermissionGate>} {' '}
-    {canApprovePlan && <PermissionGate permission={BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE}><button disabled={Boolean(action)} onClick={() => void runAction('approvePlan')}>Duyệt nội dung</button></PermissionGate>} {' '}
-    {canReturnPlan && <PermissionGate permission={BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE}><button disabled={Boolean(action)} onClick={() => setReturnStage('PLAN')}>Trả lại nội dung</button></PermissionGate>} {' '}
+    {canApprovePlan && <PermissionGate permission={BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE}><button disabled={Boolean(action)} onClick={() => void runAction('approvePlan')}>Duyệt BSC</button></PermissionGate>} {' '}
+    {canReturnPlan && <PermissionGate permission={BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE}><button disabled={Boolean(action)} onClick={() => setReturnStage('PLAN')}>Trả lại BSC</button></PermissionGate>} {' '}
     {canSubmitEvaluation && <PermissionGate permission={BSC_PERMISSIONS.SUBMIT_EVALUATION_OWN}><button disabled={Boolean(action) || !scoring?.isComplete} onClick={() => void runAction('submitEvaluation')}>{action === 'submitEvaluation' ? 'Đang gửi…' : 'Gửi duyệt kết quả'}</button></PermissionGate>} {' '}
     {canApproveEvaluation && <PermissionGate permission={BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE}><button disabled={Boolean(action)} onClick={() => void runAction('approveEvaluation')}>Duyệt kết quả</button></PermissionGate>} {' '}
     {canReturnEvaluation && <PermissionGate permission={BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE}><button disabled={Boolean(action)} onClick={() => setReturnStage('EVALUATION')}>Trả lại kết quả</button></PermissionGate>}

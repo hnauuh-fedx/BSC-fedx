@@ -1,4 +1,5 @@
 import React, { useState, FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/use-auth';
 
 interface LoginFormState {
@@ -14,6 +15,7 @@ interface LoginFormState {
  */
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
+  const navigate = useNavigate();
   const [form, setForm] = useState<LoginFormState>({
     email: '',
     password: '',
@@ -33,6 +35,7 @@ export const LoginPage: React.FC = () => {
 
     try {
       await login({ email: form.email, password: form.password });
+      navigate('/', { replace: true });
       // Redirect sẽ được handle bởi AppRouter khi auth state thay đổi
     } catch (err: unknown) {
       const message =

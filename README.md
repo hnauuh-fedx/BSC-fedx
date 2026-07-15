@@ -23,11 +23,41 @@ npm run prisma:test:deploy
 npm run test:integration:organization --workspace=apps/api
 npm run test:integration:bsc-draft --workspace=apps/api
 npm run test:integration:bsc-scoring --workspace=apps/api
+npm run test:integration:bsc-dual-stage-workflow --workspace=apps/api
+npm run test:integration:bsc-scoring-alignment --workspace=apps/api
 Remove-Item Env:TEST_DATABASE_URL
 ```
 
 For local use, the same value may be placed in the git-ignored
 `.env.test.local` file. Never reuse the main `bsc_db` database.
+
+## Browser E2E tests
+
+Browser tests use Playwright with Chromium and the same dedicated database
+guard. `TEST_DATABASE_URL` must point to the database named exactly
+`bsc_organization_test`; the suite refuses `bsc_db` and every other database.
+Fixtures use a unique `BSCE2E_<timestamp>_<uuid>` prefix, are removed in global
+teardown, and cleanup is verified without truncating shared data.
+
+Install the browser once, then run E2E from the repository root:
+
+```powershell
+npm run test:e2e:install
+$env:TEST_DATABASE_URL = 'postgresql://USER:PASSWORD@localhost:5432/bsc_organization_test?schema=public'
+npm run prisma:test:deploy
+npm run test:e2e
+npm run test:e2e:headed
+Remove-Item Env:TEST_DATABASE_URL
+```
+
+The API and Vite servers used by E2E are owned by Playwright and are stopped
+automatically after the run. Do not point these commands at production or the
+main development database.
+
+The pending-review performance regression records the former 10-row baseline
+as 21 BSC requests (1 list + 10 detail + 10 scoring). The optimized list must
+make 1 list request and 0 detail/scoring requests; opening one row may then make
+exactly 1 detail and 1 scoring request.
 
 ## Mô tả dự án
 Hệ thống quản lý thẻ điểm cân bằng (BSC) nội bộ. Cho phép giao KPI, lập kế hoạch, nộp, duyệt và báo cáo BSC.

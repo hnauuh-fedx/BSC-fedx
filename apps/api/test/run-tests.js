@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { integrationEnvironment } = require('./integration-runner');
 
 function collectTestFiles(dir) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -26,14 +27,16 @@ if (testFiles.length === 0) {
   console.error('No test files found.');
   process.exit(1);
 }
+const testEnvironment = integrationEnvironment('Workspace test');
+testEnvironment.RUN_LIVE_DB_TESTS = '1';
 
 const result = spawnSync(
   process.execPath,
-  ['-r', 'ts-node/register/transpile-only', '--test', ...testFiles],
+  ['-r', 'ts-node/register/transpile-only', '--test', '--test-concurrency=1', ...testFiles],
   {
     stdio: 'inherit',
     cwd: path.resolve(__dirname, '..'),
-    env: process.env,
+    env: testEnvironment,
   },
 );
 
