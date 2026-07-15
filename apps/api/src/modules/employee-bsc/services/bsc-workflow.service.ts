@@ -4,8 +4,8 @@ import { AuthUser } from '../../../common/types/auth-user.type';
 import { BSC_PERMISSIONS } from '../policies/bsc-access.policy';
 import { BscScoringResult } from './bsc-scoring.service';
 
-export type PlanStatus = 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED';
-export type EvaluationStatus = 'NOT_STARTED' | 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED';
+export type PlanStatus = 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'REOPENED';
+export type EvaluationStatus = 'NOT_STARTED' | 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'REOPENED';
 export type PlanAction = 'SUBMIT_PLAN' | 'APPROVE_PLAN' | 'RETURN_PLAN';
 export type EvaluationAction = 'SUBMIT_EVALUATION' | 'APPROVE_EVALUATION' | 'RETURN_EVALUATION';
 
@@ -33,12 +33,12 @@ export interface PlanDefinitionValidation {
 }
 
 const PLAN_TRANSITIONS: Record<PlanAction, Partial<Record<PlanStatus, PlanStatus>>> = {
-  SUBMIT_PLAN: { DRAFT: 'SUBMITTED', RETURNED: 'SUBMITTED' },
+  SUBMIT_PLAN: { DRAFT: 'SUBMITTED', RETURNED: 'SUBMITTED', REOPENED: 'SUBMITTED' },
   APPROVE_PLAN: { SUBMITTED: 'APPROVED' },
   RETURN_PLAN: { SUBMITTED: 'RETURNED' },
 };
 const EVALUATION_TRANSITIONS: Record<EvaluationAction, Partial<Record<EvaluationStatus, EvaluationStatus>>> = {
-  SUBMIT_EVALUATION: { DRAFT: 'SUBMITTED', RETURNED: 'SUBMITTED' },
+  SUBMIT_EVALUATION: { DRAFT: 'SUBMITTED', RETURNED: 'SUBMITTED', REOPENED: 'SUBMITTED' },
   APPROVE_EVALUATION: { SUBMITTED: 'APPROVED' },
   RETURN_EVALUATION: { SUBMITTED: 'RETURNED' },
 };

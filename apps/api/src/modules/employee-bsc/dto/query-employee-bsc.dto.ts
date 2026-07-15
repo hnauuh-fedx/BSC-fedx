@@ -6,8 +6,8 @@ export class QueryEmployeeBscDto {
   @IsOptional() @IsUUID() cycleId?: string;
   @IsOptional() @IsUUID() employeeId?: string;
   @IsOptional() @IsUUID() departmentId?: string;
-  @IsOptional() @IsIn(['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED']) planStatus?: string;
-  @IsOptional() @IsIn(['NOT_STARTED', 'DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED']) evaluationStatus?: string;
+  @IsOptional() @IsIn(['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REOPENED']) planStatus?: string;
+  @IsOptional() @IsIn(['NOT_STARTED', 'DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REOPENED']) evaluationStatus?: string;
   @IsOptional() @IsIn(['PLAN', 'EVALUATION']) stage?: 'PLAN' | 'EVALUATION';
   @IsOptional() @Type(() => Number) @Min(1) page = 1;
   @IsOptional() @Type(() => Number) @Min(1) @Max(100) limit = 20;

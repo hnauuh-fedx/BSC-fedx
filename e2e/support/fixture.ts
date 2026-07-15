@@ -16,7 +16,8 @@ export type FixtureState = {
   manager: { id: string; email: string };
   employee: { id: string; email: string };
   outsideManager: { id: string; email: string };
-  cycleIds: { flow: string; underweight: string; performance: string[] };
+  cycleIds: { flow: string; underweight: string; performance: string[]; duplicateTargets: string[] };
+  bscIds: { reopenEvaluation: string; reopenPlan: string; duplicateSource: string };
   createdPermissionIds: string[];
 };
 
@@ -54,7 +55,7 @@ export async function cleanupFixture(db: PrismaClient, state: FixtureState) {
   await db.departments.deleteMany({ where: { code: { startsWith: state.marker } } });
   await db.positions.deleteMany({ where: { code: { startsWith: state.marker } } });
 
-  const [users, roles, departments, positions, cycles, bscs, audits, histories, reviews, approvalSteps, items,
+  const [users, roles, departments, positions, cycles, bscs, audits, histories, reviews, approvalSteps, items, versions, reopenRequests,
     relationships, assignments, rolePermissions, refreshTokens, createdPermissions] = await Promise.all([
     db.users.count({ where: { employee_code: { startsWith: state.marker } } }),
     db.roles.count({ where: { code: { startsWith: state.marker } } }),
@@ -67,6 +68,8 @@ export async function cleanupFixture(db: PrismaClient, state: FixtureState) {
     db.bsc_reviews.count({ where: { employee_bsc_id: { in: bscIds } } }),
     db.bsc_approval_steps.count({ where: { employee_bsc_id: { in: bscIds } } }),
     db.employee_bsc_items.count({ where: { employee_bsc_id: { in: bscIds } } }),
+    db.bsc_versions.count({ where: { employee_bsc_id: { in: bscIds } } }),
+    db.bsc_unlock_requests.count({ where: { employee_bsc_id: { in: bscIds } } }),
     db.manager_relationships.count({ where: { OR: [{ employee_id: { in: userIds } }, { manager_id: { in: userIds } }] } }),
     db.user_roles.count({ where: { user_id: { in: userIds } } }),
     db.role_permissions.count({ where: { role_id: { in: roleIds } } }),
@@ -74,7 +77,7 @@ export async function cleanupFixture(db: PrismaClient, state: FixtureState) {
     state.createdPermissionIds.length ? db.permissions.count({ where: { id: { in: state.createdPermissionIds } } }) : Promise.resolve(0),
   ]);
   const remaining = { users, roles, departments, positions, cycles, bscs, audits, histories, reviews, approvalSteps,
-    items, relationships, assignments, rolePermissions, refreshTokens, createdPermissions };
+    items, versions, reopenRequests, relationships, assignments, rolePermissions, refreshTokens, createdPermissions };
   if (Object.values(remaining).some((count) => count !== 0)) {
     throw new Error(`E2E fixture cleanup incomplete: ${JSON.stringify(remaining)}`);
   }

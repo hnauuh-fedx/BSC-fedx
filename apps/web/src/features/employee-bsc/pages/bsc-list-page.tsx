@@ -24,7 +24,7 @@ export const BscListPage: React.FC = () => {
   }, [search, planStatus, evaluationStatus, page, reload]);
 
   return <main>
-    <PageHeader title="BSC cá nhân" action={<><PermissionGate anyOf={REVIEW_PERMISSIONS}><Link to="/management/bsc-reviews">BSC chờ duyệt</Link>{' '}</PermissionGate><PermissionGate permission={BSC_PERMISSIONS.CREATE_OWN}><Link to="/employee-bsc/new">Tạo BSC nháp</Link></PermissionGate></>}/>
+    <PageHeader title="BSC cá nhân" action={<><PermissionGate anyOf={REVIEW_PERMISSIONS}><Link to="/management/bsc-reviews">BSC chờ duyệt</Link>{' '}</PermissionGate><PermissionGate permission={BSC_PERMISSIONS.REVIEW_REOPEN}><Link to="/management/bsc-reopen-requests">Yêu cầu mở lại</Link>{' '}</PermissionGate><PermissionGate permission={BSC_PERMISSIONS.CREATE_OWN}><Link to="/employee-bsc/new">Tạo BSC nháp</Link></PermissionGate></>}/>
     <SearchInput value={search} onChange={value => { setSearch(value); setPage(1); }}/>
     <select aria-label="Duyệt nội dung BSC" value={planStatus} onChange={event => { setPlanStatus(event.target.value); setPage(1); }}>
       <option value="">Tất cả kế hoạch</option><option value="DRAFT">Nháp</option><option value="SUBMITTED">Chờ duyệt</option><option value="RETURNED">Bị trả lại</option><option value="APPROVED">Đã duyệt</option>

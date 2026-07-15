@@ -111,6 +111,7 @@ model bsc_reviews {
   reviewed_at     DateTime     @default(now()) @db.Timestamptz(6)
   employee_bsc    employee_bsc @relation(fields: [employee_bsc_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "bsc_reviews_bsc_fk")
   users           users        @relation(fields: [reviewer_id], references: [id], onUpdate: NoAction, map: "bsc_reviews_reviewer_fk")
+  bsc_versions    bsc_versions[]
 }
 
 model bsc_status_histories {
@@ -204,7 +205,9 @@ model bsc_templates {
 model bsc_unlock_requests {
   id                                            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employee_bsc_id                               String       @db.Uuid
+  stage                                         String       @db.VarChar(20)
   requested_by                                  String       @db.Uuid
+  reviewer_id                                   String?      @db.Uuid
   request_reason                                String
   requested_at                                  DateTime     @default(now()) @db.Timestamptz(6)
   status                                        String       @default("PENDING") @db.VarChar(20)
@@ -213,10 +216,42 @@ model bsc_unlock_requests {
   reviewed_at                                   DateTime?    @db.Timestamptz(6)
   unlock_until                                  DateTime?    @db.Timestamptz(6)
   allowed_fields                                Json?
+  source_version_id                             String?      @db.Uuid
+  resulting_version_id                          String?      @db.Uuid
   created_at                                    DateTime     @default(now()) @db.Timestamptz(6)
   employee_bsc                                  employee_bsc @relation(fields: [employee_bsc_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "bsc_unlock_requests_bsc_fk")
   users_bsc_unlock_requests_requested_byTousers users        @relation("bsc_unlock_requests_requested_byTousers", fields: [requested_by], references: [id], onUpdate: NoAction, map: "bsc_unlock_requests_requested_by_fk")
   users_bsc_unlock_requests_reviewed_byTousers  users?       @relation("bsc_unlock_requests_reviewed_byTousers", fields: [reviewed_by], references: [id], onUpdate: NoAction, map: "bsc_unlock_requests_reviewed_by_fk")
+  users_bsc_unlock_requests_reviewer_idTousers  users?       @relation("bsc_unlock_requests_reviewer_idTousers", fields: [reviewer_id], references: [id], onUpdate: NoAction, map: "bsc_unlock_requests_reviewer_fk")
+  source_version                                bsc_versions? @relation("bsc_unlock_requests_source_version", fields: [source_version_id], references: [id], onUpdate: NoAction, map: "bsc_unlock_requests_source_version_fk")
+  resulting_version                             bsc_versions? @relation("bsc_unlock_requests_resulting_version", fields: [resulting_version_id], references: [id], onUpdate: NoAction, map: "bsc_unlock_requests_resulting_version_fk")
+  bsc_versions                                  bsc_versions[] @relation("bsc_versions_source_reopen_request")
+
+  @@index([reviewer_id, status, stage], map: "bsc_unlock_requests_reviewer_status_stage_idx")
+}
+
+model bsc_versions {
+  id                       String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employee_bsc_id          String               @db.Uuid
+  version_number           Int
+  stage                    String               @db.VarChar(20)
+  version_type             String               @db.VarChar(40)
+  snapshot                 Json
+  created_by               String               @db.Uuid
+  created_at               DateTime             @default(now()) @db.Timestamptz(6)
+  source_review_id         String?              @db.Uuid
+  source_reopen_request_id String?              @db.Uuid
+  employee_bsc             employee_bsc         @relation(fields: [employee_bsc_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "bsc_versions_bsc_fk")
+  users                    users                @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "bsc_versions_created_by_fk")
+  source_review            bsc_reviews?         @relation(fields: [source_review_id], references: [id], onUpdate: NoAction, map: "bsc_versions_source_review_fk")
+  source_reopen_request    bsc_unlock_requests? @relation("bsc_versions_source_reopen_request", fields: [source_reopen_request_id], references: [id], onUpdate: NoAction, map: "bsc_versions_source_reopen_fk")
+  source_for_unlocks       bsc_unlock_requests[] @relation("bsc_unlock_requests_source_version")
+  result_for_unlocks       bsc_unlock_requests[] @relation("bsc_unlock_requests_resulting_version")
+  duplicated_bscs          employee_bsc[]       @relation("employee_bsc_source_version")
+
+  @@unique([employee_bsc_id, version_number], map: "bsc_versions_bsc_number_uq")
+  @@unique([source_review_id, version_type], map: "bsc_versions_review_type_uq")
+  @@index([employee_bsc_id, stage, version_type], map: "bsc_versions_bsc_stage_type_idx")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -247,6 +282,7 @@ model employee_bsc {
   template_id                                 String?                @db.Uuid
   template_version                            Int?
   source_bsc_id                               String?                @db.Uuid
+  source_bsc_version_id                       String?                @db.Uuid
   status                                      String                 @default("DRAFT") @db.VarChar(30)
   plan_status                                 String                 @default("DRAFT") @db.VarChar(20)
   plan_submitted_at                           DateTime?              @db.Timestamptz(6)
@@ -275,6 +311,7 @@ model employee_bsc {
   bsc_status_histories                        bsc_status_histories[]
   bsc_workflow_backfill_issues                bsc_workflow_backfill_issues?
   bsc_unlock_requests                         bsc_unlock_requests[]
+  bsc_versions                                bsc_versions[]
   users_employee_bsc_approved_byTousers       users?                 @relation("employee_bsc_approved_byTousers", fields: [approved_by], references: [id], onUpdate: NoAction, map: "employee_bsc_approved_by_fk")
   users_employee_bsc_plan_approved_byTousers  users?                 @relation("employee_bsc_plan_approved_byTousers", fields: [plan_approved_by], references: [id], onUpdate: NoAction, map: "employee_bsc_plan_approved_by_fk")
   users_employee_bsc_evaluation_approved_byTousers users?            @relation("employee_bsc_evaluation_approved_byTousers", fields: [evaluation_approved_by], references: [id], onUpdate: NoAction, map: "employee_bsc_evaluation_approved_by_fk")
@@ -286,6 +323,7 @@ model employee_bsc {
   positions                                   positions              @relation(fields: [position_id], references: [id], onUpdate: NoAction, map: "employee_bsc_position_fk")
   employee_bsc                                employee_bsc?          @relation("employee_bscToemployee_bsc", fields: [source_bsc_id], references: [id], onUpdate: NoAction, map: "employee_bsc_source_fk")
   other_employee_bsc                          employee_bsc[]         @relation("employee_bscToemployee_bsc")
+  source_bsc_version                          bsc_versions?          @relation("employee_bsc_source_version", fields: [source_bsc_version_id], references: [id], onUpdate: NoAction, map: "employee_bsc_source_version_fk")
   bsc_templates                               bsc_templates?         @relation(fields: [template_id], references: [id], onUpdate: NoAction, map: "employee_bsc_template_fk")
   employee_bsc_items                          employee_bsc_items[]
 
@@ -428,11 +466,13 @@ model users {
   bsc_cycles                                                     bsc_cycles[]
   bsc_grade_rules                                                bsc_grade_rules[]
   bsc_reviews                                                    bsc_reviews[]
+  bsc_versions                                                   bsc_versions[]
   bsc_status_histories                                           bsc_status_histories[]
   bsc_templates_bsc_templates_approved_byTousers                 bsc_templates[]         @relation("bsc_templates_approved_byTousers")
   bsc_templates_bsc_templates_created_byTousers                  bsc_templates[]         @relation("bsc_templates_created_byTousers")
   bsc_unlock_requests_bsc_unlock_requests_requested_byTousers    bsc_unlock_requests[]   @relation("bsc_unlock_requests_requested_byTousers")
   bsc_unlock_requests_bsc_unlock_requests_reviewed_byTousers     bsc_unlock_requests[]   @relation("bsc_unlock_requests_reviewed_byTousers")
+  bsc_unlock_requests_bsc_unlock_requests_reviewer_idTousers     bsc_unlock_requests[]   @relation("bsc_unlock_requests_reviewer_idTousers")
   employee_bsc_employee_bsc_approved_byTousers                   employee_bsc[]          @relation("employee_bsc_approved_byTousers")
   employee_bsc_employee_bsc_plan_approved_byTousers              employee_bsc[]          @relation("employee_bsc_plan_approved_byTousers")
   employee_bsc_employee_bsc_evaluation_approved_byTousers        employee_bsc[]          @relation("employee_bsc_evaluation_approved_byTousers")

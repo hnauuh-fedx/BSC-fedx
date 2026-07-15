@@ -6,12 +6,14 @@ const employeePermissions = [
   'bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own',
   'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own',
   'bsc.plan.history.view', 'bsc.evaluation.history.view',
+  'bsc.reopen.request', 'bsc.version.view', 'bsc.duplicate.own',
 ];
 const managerPermissions = [
   'bsc.view.subordinate', 'bsc.kpi.manage.subordinate',
   'bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate',
   'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate',
   'bsc.plan.history.view', 'bsc.evaluation.history.view',
+  'bsc.reopen.subordinate', 'bsc.version.view',
 ];
 
 export default async function globalSetup() {
@@ -55,8 +57,15 @@ export default async function globalSetup() {
       ] });
       await tx.manager_relationships.create({ data: { employee_id: employee.id, manager_id: manager.id, start_date: new Date(), is_primary: true } });
       const year = 2090 + Math.floor(Math.random() * 9);
-      const cycles = [];
-      for (let index = 0; index < 23; index += 1) {
+      const cycles: Array<{
+        id: string;
+        code: string;
+        name: string;
+        year: number;
+        month: number | null;
+        status: string;
+      }> = [];
+      for (let index = 0; index < 28; index += 1) {
         const cycleYear = year + Math.floor(index / 12);
         const cycleMonth = (index % 12) + 1;
         cycles.push(await tx.bsc_cycles.create({ data: {
@@ -86,12 +95,64 @@ export default async function globalSetup() {
         } });
         performance.push(bsc.id);
       }
+      const approvedFixture = async (index: number, suffix: string, evaluationApproved: boolean) => {
+        const now = new Date();
+        const bsc = await tx.employee_bsc.create({ data: {
+          bsc_code: `${marker}_${suffix}`, cycle_id: cycles[index].id,
+          employee_id: employee.id, department_id: mainDepartment.id, position_id: position.id,
+          direct_manager_id: manager.id, created_by: employee.id,
+          plan_status: 'APPROVED', plan_submitted_at: now, plan_approved_at: now, plan_approved_by: manager.id,
+          evaluation_status: evaluationApproved ? 'APPROVED' : 'DRAFT',
+          evaluation_submitted_at: evaluationApproved ? now : null,
+          evaluation_approved_at: evaluationApproved ? now : null,
+          evaluation_approved_by: evaluationApproved ? manager.id : null,
+          manager_total_score: evaluationApproved ? 90 : null, final_score: evaluationApproved ? 90 : null,
+          final_grade: evaluationApproved ? 'A' : null, locked_at: evaluationApproved ? now : null,
+        } });
+        const item = await tx.employee_bsc_items.create({ data: {
+          employee_bsc_id: bsc.id, kpi_code: `${marker}_${suffix}_KPI`.slice(0, 50), kpi_name: `${suffix} KPI`,
+          measurement_unit: '%', target_value: 100, actual_value: 90, actual_text: 'E2E actual', weight: 100,
+          calculation_method: 'ACTUAL_DIV_TARGET', assigned_by: manager.id, employee_note: 'E2E TM KQTH',
+        } });
+        const definition = { id: item.id, kpiCode: item.kpi_code, kpiName: item.kpi_name, description: null,
+          measurementUnit: '%', targetValue: '100', targetText: null, weight: '100', calculationMethod: 'ACTUAL_DIV_TARGET', sortOrder: 0 };
+        const planSnapshot = {
+          formatVersion: 1, bscId: bsc.id, bscCode: bsc.bsc_code,
+          cycle: { id: cycles[index].id, code: cycles[index].code, name: cycles[index].name, year: cycles[index].year, month: cycles[index].month, status: cycles[index].status },
+          employee: { id: employee.id, employeeCode: employee.employee_code, fullName: employee.full_name },
+          department: { id: mainDepartment.id, code: mainDepartment.code, name: mainDepartment.name },
+          position: { id: position.id, code: position.code, name: position.name, level: position.level },
+          reviewer: { id: manager.id, employeeCode: manager.employee_code, fullName: manager.full_name },
+          planStatus: 'APPROVED', planApprovedAt: now.toISOString(), planApprovedBy: manager.id,
+          evaluationStatus: evaluationApproved ? 'APPROVED' : 'DRAFT', totalWeight: 100, items: [definition],
+          managerTotalScore: evaluationApproved ? '90' : null, totalScore: evaluationApproved ? '90' : null,
+          finalScore: evaluationApproved ? '90' : null, finalGrade: evaluationApproved ? 'A' : null,
+        };
+        const planVersion = await tx.bsc_versions.create({ data: {
+          employee_bsc_id: bsc.id, version_number: 1, stage: 'PLAN', version_type: 'PLAN_APPROVED',
+          snapshot: planSnapshot, created_by: manager.id, created_at: now,
+        } });
+        if (evaluationApproved) await tx.bsc_versions.create({ data: {
+          employee_bsc_id: bsc.id, version_number: 2, stage: 'EVALUATION', version_type: 'EVALUATION_APPROVED',
+          snapshot: { ...planSnapshot, planVersionId: planVersion.id, evaluationStatus: 'APPROVED',
+            evaluationApprovedAt: now.toISOString(), evaluationApprovedBy: manager.id,
+            items: [{ ...definition, actualValue: '90', actualText: 'E2E actual', employeeNote: 'E2E TM KQTH',
+              rawAchievementPercentage: 90, roundedAchievementPercentage: 90, rawWorkScore: 90, roundedWorkScore: 90, weightedScore: 90 }],
+            managerTotalScore: '90', totalScore: '90', finalScore: '90', finalGrade: 'A' },
+          created_by: manager.id, created_at: now,
+        } });
+        return bsc.id;
+      };
+      const reopenEvaluation = await approvedFixture(23, 'REOPEN_EVAL', true);
+      const reopenPlan = await approvedFixture(24, 'REOPEN_PLAN', true);
+      const duplicateSource = await approvedFixture(25, 'DUPLICATE_SOURCE', false);
       return {
         marker, password: PASSWORD, mainDepartmentId: mainDepartment.id, otherDepartmentId: otherDepartment.id,
         positionId: position.id,
         manager: { id: manager.id, email: manager.email }, employee: { id: employee.id, email: employee.email },
         outsideManager: { id: outsideManager.id, email: outsideManager.email },
-        cycleIds: { flow: cycles[0].id, underweight: cycles[1].id, performance }, createdPermissionIds,
+        cycleIds: { flow: cycles[0].id, underweight: cycles[1].id, performance, duplicateTargets: [cycles[26].id, cycles[27].id] },
+        bscIds: { reopenEvaluation, reopenPlan, duplicateSource }, createdPermissionIds,
       } satisfies FixtureState;
     }, { timeout: 30_000 });
     await saveState(state);

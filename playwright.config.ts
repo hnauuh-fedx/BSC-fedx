@@ -19,9 +19,10 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
-  webServer: [
+  webServer: process.env.E2E_EXTERNAL_SERVERS === '1' ? undefined : [
     {
-      command: 'npm run start:e2e --workspace=apps/api',
+      command: 'node -r ts-node/register/transpile-only src/main.ts',
+      cwd: './apps/api',
       url: 'http://127.0.0.1:3100/health',
       reuseExistingServer: false,
       timeout: 120_000,
@@ -36,7 +37,8 @@ export default defineConfig({
       },
     },
     {
-      command: 'npm run preview --workspace=apps/web -- --host 127.0.0.1 --port 5173',
+      command: 'node ../../node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 5173',
+      cwd: './apps/web',
       url: 'http://127.0.0.1:5173/login',
       reuseExistingServer: false,
       timeout: 120_000,

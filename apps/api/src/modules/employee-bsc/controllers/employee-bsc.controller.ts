@@ -11,6 +11,7 @@ import { QueryEmployeeBscDto } from '../dto/query-employee-bsc.dto';
 import { UpdateEmployeeBscDto } from '../dto/update-employee-bsc.dto';
 import { SubmitBscDto } from '../dto/submit-bsc.dto';
 import { ReturnBscDto } from '../dto/return-bsc.dto';
+import { CreateReopenRequestDto, DuplicateBscDto, QueryReopenRequestDto, RejectReopenRequestDto } from '../dto/reopen-bsc.dto';
 import { AuditRequestMetadata } from '../employee-bsc.types';
 import { BSC_PERMISSIONS } from '../policies/bsc-access.policy';
 import { EmployeeBscService } from '../services/employee-bsc.service';
@@ -37,6 +38,71 @@ export class EmployeeBscController {
     BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE)
   pendingReview(@CurrentUser() actor: AuthUser, @Query() query: QueryEmployeeBscDto) {
     return this.service.pendingReview(actor, query);
+  }
+
+  @Get('reopen-requests/pending')
+  @RequirePermissions(BSC_PERMISSIONS.REVIEW_REOPEN)
+  pendingReopenRequests(@CurrentUser() actor: AuthUser, @Query() query: QueryReopenRequestDto) {
+    return this.service.pendingReopenRequests(actor, query);
+  }
+
+  @Get('reopen-requests/:requestId')
+  @RequireAnyPermission(BSC_PERMISSIONS.REQUEST_REOPEN, BSC_PERMISSIONS.REVIEW_REOPEN)
+  reopenRequestDetail(@CurrentUser() actor: AuthUser, @Param('requestId') requestId: string) {
+    return this.service.reopenRequestDetail(actor, requestId);
+  }
+
+  @Post('reopen-requests/:requestId/approve')
+  @HttpCode(200)
+  @RequirePermissions(BSC_PERMISSIONS.REVIEW_REOPEN)
+  approveReopenRequest(@CurrentUser() actor: AuthUser, @Param('requestId') requestId: string, @Req() request: Request) {
+    return this.service.approveReopenRequest(actor, requestId, metadata(request));
+  }
+
+  @Post('reopen-requests/:requestId/reject')
+  @HttpCode(200)
+  @RequirePermissions(BSC_PERMISSIONS.REVIEW_REOPEN)
+  rejectReopenRequest(@CurrentUser() actor: AuthUser, @Param('requestId') requestId: string,
+    @Body() dto: RejectReopenRequestDto, @Req() request: Request) {
+    return this.service.rejectReopenRequest(actor, requestId, dto.reason, metadata(request));
+  }
+
+  @Get(':id/versions')
+  @RequirePermissions(BSC_PERMISSIONS.VIEW_VERSION)
+  versions(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.service.versions(actor, id);
+  }
+
+  @Get(':id/versions/:versionId')
+  @RequirePermissions(BSC_PERMISSIONS.VIEW_VERSION)
+  versionDetail(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Param('versionId') versionId: string) {
+    return this.service.versionDetail(actor, id, versionId);
+  }
+
+  @Post(':id/reopen-requests')
+  @RequirePermissions(BSC_PERMISSIONS.REQUEST_REOPEN)
+  createReopenRequest(@CurrentUser() actor: AuthUser, @Param('id') id: string,
+    @Body() dto: CreateReopenRequestDto, @Req() request: Request) {
+    return this.service.createReopenRequest(actor, id, dto.stage, dto.reason, metadata(request));
+  }
+
+  @Get(':id/reopen-requests')
+  @RequireAnyPermission(BSC_PERMISSIONS.REQUEST_REOPEN, BSC_PERMISSIONS.REVIEW_REOPEN)
+  reopenRequests(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.service.reopenRequests(actor, id);
+  }
+
+  @Get(':id/duplicate-options')
+  @RequirePermissions(BSC_PERMISSIONS.DUPLICATE_OWN)
+  duplicateOptions(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.service.duplicateOptions(actor, id);
+  }
+
+  @Post(':id/duplicate')
+  @RequirePermissions(BSC_PERMISSIONS.DUPLICATE_OWN)
+  duplicate(@CurrentUser() actor: AuthUser, @Param('id') id: string,
+    @Body() dto: DuplicateBscDto, @Req() request: Request) {
+    return this.service.duplicate(actor, id, dto.targetCycleId, metadata(request));
   }
 
   @Get(':id/scoring-preview')
@@ -106,13 +172,13 @@ export class EmployeeBscController {
   }
 
   @Post(':bscId/items')
-  @RequirePermissions(BSC_PERMISSIONS.MANAGE_KPI)
+  @RequireAnyPermission(BSC_PERMISSIONS.MANAGE_KPI, BSC_PERMISSIONS.EDIT_OWN)
   createItem(@CurrentUser() actor: AuthUser, @Param('bscId') bscId: string, @Body() dto: CreateBscItemDto, @Req() request: Request) {
     return this.service.createItem(actor, bscId, dto, metadata(request));
   }
 
   @Patch(':bscId/items/:itemId')
-  @RequirePermissions(BSC_PERMISSIONS.MANAGE_KPI)
+  @RequireAnyPermission(BSC_PERMISSIONS.MANAGE_KPI, BSC_PERMISSIONS.EDIT_OWN)
   updateItem(@CurrentUser() actor: AuthUser, @Param('bscId') bscId: string, @Param('itemId') itemId: string, @Body() dto: UpdateBscItemDto, @Req() request: Request) {
     return this.service.updateItem(actor, bscId, itemId, dto, metadata(request));
   }
@@ -124,7 +190,7 @@ export class EmployeeBscController {
   }
 
   @Delete(':bscId/items/:itemId')
-  @RequirePermissions(BSC_PERMISSIONS.MANAGE_KPI)
+  @RequireAnyPermission(BSC_PERMISSIONS.MANAGE_KPI, BSC_PERMISSIONS.EDIT_OWN)
   deleteItem(@CurrentUser() actor: AuthUser, @Param('bscId') bscId: string, @Param('itemId') itemId: string, @Req() request: Request) {
     return this.service.deleteItem(actor, bscId, itemId, metadata(request));
   }

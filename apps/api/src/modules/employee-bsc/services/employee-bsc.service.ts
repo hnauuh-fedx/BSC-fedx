@@ -5,6 +5,7 @@ import { CreateBscItemDto, UpdateBscActualDto, UpdateBscItemDto } from '../dto/b
 import { CreateEmployeeBscDto } from '../dto/create-employee-bsc.dto';
 import { QueryEmployeeBscDto } from '../dto/query-employee-bsc.dto';
 import { UpdateEmployeeBscDto } from '../dto/update-employee-bsc.dto';
+import { QueryReopenRequestDto } from '../dto/reopen-bsc.dto';
 import { AuditRequestMetadata } from '../employee-bsc.types';
 import { BSC_PERMISSIONS, BscAccessPolicy } from '../policies/bsc-access.policy';
 import { EmployeeBscRepository } from '../repositories/employee-bsc.repository';
@@ -132,6 +133,118 @@ export class EmployeeBscService {
     })));
     const { canonicalTotalWeightedScore: _canonicalTotalWeightedScore, ...preview } = result;
     return { bscId: bsc.id, planStatus: bsc.plan_status, evaluationStatus: bsc.evaluation_status, ...preview };
+  }
+
+  async versions(actor: AuthUser, id: string) {
+    const bsc = await this.requireBsc(id);
+    this.policy.assertCanViewVersion(actor, bsc);
+    return this.repository.findVersions(id);
+  }
+
+  async versionDetail(actor: AuthUser, id: string, versionId: string) {
+    const bsc = await this.requireBsc(id);
+    this.policy.assertCanViewVersion(actor, bsc);
+    const version = await this.repository.findVersion(id, versionId);
+    if (!version) throw new NotFoundException({ code: 'BSC_VERSION_NOT_FOUND', message: 'Không tìm thấy phiên bản BSC.' });
+    return {
+      id: version.id,
+      versionNumber: version.version_number,
+      stage: version.stage,
+      versionType: version.version_type,
+      snapshot: version.snapshot,
+      createdAt: version.created_at,
+      createdBy: version.users,
+      sourceReviewId: version.source_review_id,
+      sourceReopenRequestId: version.source_reopen_request_id,
+    };
+  }
+
+  async createReopenRequest(actor: AuthUser, id: string, stage: 'PLAN' | 'EVALUATION', rawReason: string, metadata: AuditRequestMetadata) {
+    const reason = this.normalizeReason(rawReason, 'BSC_REOPEN_REASON_REQUIRED');
+    const bsc = await this.requireBsc(id);
+    this.policy.assertCanRequestReopen(actor, bsc);
+    try {
+      return await this.repository.createReopenRequest(actor, id, stage, reason, metadata, (snapshot) => {
+        if (snapshot.employee_id !== actor.id) throw new BadRequestException({ code: 'BSC_REOPEN_NOT_ALLOWED', message: 'Chỉ chủ sở hữu được yêu cầu mở lại BSC.' });
+        const status = stage === 'PLAN' ? snapshot.plan_status : snapshot.evaluation_status;
+        if (status !== 'APPROVED') throw new ConflictException({
+          code: stage === 'PLAN' ? 'BSC_PLAN_NOT_APPROVED_FOR_REOPEN' : 'BSC_EVALUATION_NOT_APPROVED_FOR_REOPEN',
+          message: 'Chỉ stage đã duyệt mới được yêu cầu mở lại.',
+        });
+        if (snapshot.owner_status !== 'ACTIVE' || snapshot.owner_deleted_at || snapshot.department_status !== 'ACTIVE'
+          || snapshot.position_status !== 'ACTIVE') {
+          throw new BadRequestException({ code: 'BSC_REOPEN_NOT_ALLOWED', message: 'Chủ sở hữu hoặc tổ chức không hoạt động.' });
+        }
+        if (snapshot.reviewer_status !== 'ACTIVE' || snapshot.reviewer_deleted_at || !snapshot.reviewer_matches_owner
+          || !snapshot.reviewer_organization_active) {
+          throw new BadRequestException({ code: 'BSC_REOPEN_REVIEWER_REQUIRED', message: 'Không xác định được người duyệt hiện tại.' });
+        }
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2002') {
+        throw new ConflictException({ code: 'BSC_REOPEN_REQUEST_ALREADY_PENDING', message: 'Đã có yêu cầu mở lại đang chờ xử lý cho stage này.' });
+      }
+      throw error;
+    }
+  }
+
+  async reopenRequests(actor: AuthUser, bscId: string) {
+    const bsc = await this.requireBsc(bscId);
+    this.policy.assertCanView(actor, bsc);
+    return this.repository.findReopenRequestsForBsc(bscId);
+  }
+
+  pendingReopenRequests(actor: AuthUser, query: QueryReopenRequestDto) {
+    if (!actor.permissions.includes(BSC_PERMISSIONS.REVIEW_REOPEN)) {
+      throw new BadRequestException({ code: 'BSC_ACCESS_DENIED', message: 'Không có quyền xử lý yêu cầu mở lại.' });
+    }
+    return this.repository.findPendingReopenRequests(actor.id, query);
+  }
+
+  async reopenRequestDetail(actor: AuthUser, requestId: string) {
+    const request = await this.repository.findReopenRequest(requestId);
+    if (!request) throw new NotFoundException({ code: 'BSC_REOPEN_REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu mở lại.' });
+    if (actor.id === request.requested_by) this.policy.assertCanView(actor, request.employee_bsc);
+    else this.policy.assertCanReviewReopen(actor, request.employee_bsc, request.reviewer_id);
+    return request;
+  }
+
+  async approveReopenRequest(actor: AuthUser, requestId: string, metadata: AuditRequestMetadata) {
+    const request = await this.repository.findReopenRequest(requestId);
+    if (!request) throw new NotFoundException({ code: 'BSC_REOPEN_REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu mở lại.' });
+    this.policy.assertCanReviewReopen(actor, request.employee_bsc, request.reviewer_id);
+    return this.repository.approveReopenRequest(actor, requestId, metadata, (snapshot) => this.assertReopenDecision(actor, snapshot));
+  }
+
+  async rejectReopenRequest(actor: AuthUser, requestId: string, rawReason: string, metadata: AuditRequestMetadata) {
+    const reason = this.normalizeReason(rawReason, 'BSC_REOPEN_REJECT_REASON_REQUIRED');
+    const request = await this.repository.findReopenRequest(requestId);
+    if (!request) throw new NotFoundException({ code: 'BSC_REOPEN_REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu mở lại.' });
+    this.policy.assertCanReviewReopen(actor, request.employee_bsc, request.reviewer_id);
+    return this.repository.rejectReopenRequest(actor, requestId, reason, metadata, (snapshot) => this.assertReopenDecision(actor, snapshot));
+  }
+
+  async duplicateOptions(actor: AuthUser, id: string) {
+    const bsc = await this.requireBsc(id);
+    this.policy.assertCanDuplicateOwn(actor, bsc);
+    const versions = await this.repository.findVersions(id);
+    const latestPlan = versions.find((version) => version.versionType === 'PLAN_APPROVED');
+    if (!latestPlan) throw new ConflictException({ code: 'BSC_APPROVED_PLAN_VERSION_NOT_FOUND', message: 'BSC chưa có phiên bản kế hoạch được duyệt.' });
+    const cycles = await this.repository.findDuplicateOptions(id, actor.id);
+    return { sourceBscId: id, sourceVersion: latestPlan, cycles, suggestedCycleId: cycles[0]?.id ?? null };
+  }
+
+  async duplicate(actor: AuthUser, id: string, targetCycleId: string, metadata: AuditRequestMetadata) {
+    const bsc = await this.requireBsc(id);
+    this.policy.assertCanDuplicateOwn(actor, bsc);
+    try {
+      return await this.repository.duplicateFromApprovedPlan(actor, id, targetCycleId, metadata);
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2034') {
+        throw new ConflictException({ code: 'BSC_DUPLICATE_CONFLICT', message: 'BSC vừa được sao chép đồng thời, vui lòng thử lại.' });
+      }
+      throw error;
+    }
   }
 
   submitPlan(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
@@ -292,6 +405,25 @@ export class EmployeeBscService {
     return actor.roles.some((role) => role.scopeType === 'GLOBAL')
       || actor.roles.some((role) => role.scopeType === 'DEPARTMENT' && role.scopeId === departmentId)
       || (actor.permissions.includes(BSC_PERMISSIONS.VIEW_OWN) && actor.departmentId === departmentId);
+  }
+
+  private assertReopenDecision(actor: AuthUser, request: any): void {
+    if (request.status !== 'PENDING') throw new ConflictException({ code: 'BSC_REOPEN_REQUEST_NOT_PENDING', message: 'Yêu cầu không còn ở trạng thái chờ xử lý.' });
+    if (request.reviewer_id !== actor.id || request.direct_manager_id !== actor.id
+      || request.owner_current_manager_id !== actor.id) {
+      throw new ConflictException({ code: 'BSC_REOPEN_REVIEWER_CHANGED', message: 'Người duyệt trực tiếp đã thay đổi; yêu cầu cũ không thể xử lý.' });
+    }
+    if (!request.owner_active || !request.reviewer_active || !request.organization_active) {
+      throw new BadRequestException({ code: 'BSC_REOPEN_NOT_ALLOWED', message: 'BSC, người dùng hoặc tổ chức không còn đủ điều kiện mở lại.' });
+    }
+    const stageStatus = request.stage === 'PLAN' ? request.plan_status : request.evaluation_status;
+    if (stageStatus !== 'APPROVED') throw new ConflictException({ code: 'BSC_REOPEN_WORKFLOW_CONFLICT', message: 'Stage không còn ở trạng thái đã duyệt.' });
+  }
+
+  private normalizeReason(reason: string | undefined, code: string): string {
+    const normalized = (reason ?? '').trim().replace(/<[^>]*>/g, '').trim();
+    if (!normalized) throw new BadRequestException({ code, message: 'Lý do là bắt buộc.' });
+    return normalized;
   }
 
   private mapItemMutationError(error: unknown): never {

@@ -19,6 +19,10 @@ export const BSC_PERMISSIONS = {
   RETURN_EVALUATION_SUBORDINATE: 'bsc.evaluation.return.subordinate',
   VIEW_PLAN_HISTORY: 'bsc.plan.history.view',
   VIEW_EVALUATION_HISTORY: 'bsc.evaluation.history.view',
+  REQUEST_REOPEN: 'bsc.reopen.request',
+  REVIEW_REOPEN: 'bsc.reopen.subordinate',
+  VIEW_VERSION: 'bsc.version.view',
+  DUPLICATE_OWN: 'bsc.duplicate.own',
 } as const;
 
 export interface BscAccessResource {
@@ -55,6 +59,29 @@ export class BscAccessPolicy {
     this.deny();
   }
 
+  assertCanViewVersion(actor: AuthUser, bsc: BscAccessResource): void {
+    this.requirePermission(actor, BSC_PERMISSIONS.VIEW_VERSION);
+    this.assertCanView(actor, bsc);
+  }
+
+  assertCanRequestReopen(actor: AuthUser, bsc: BscAccessResource): void {
+    this.requirePermission(actor, BSC_PERMISSIONS.REQUEST_REOPEN);
+    if (actor.id !== bsc.employee_id) this.deny();
+    this.scope.assertResourceScope(actor, { ownerId: bsc.employee_id, departmentId: bsc.department_id });
+  }
+
+  assertCanReviewReopen(actor: AuthUser, bsc: BscAccessResource, reviewerId: string | null): void {
+    this.requirePermission(actor, BSC_PERMISSIONS.REVIEW_REOPEN);
+    if (actor.id === bsc.employee_id || actor.id !== reviewerId || actor.id !== bsc.direct_manager_id
+      || !this.canAccessBusinessScope(actor, bsc)) this.deny();
+  }
+
+  assertCanDuplicateOwn(actor: AuthUser, bsc: BscAccessResource): void {
+    this.requirePermission(actor, BSC_PERMISSIONS.DUPLICATE_OWN);
+    if (actor.id !== bsc.employee_id) this.deny();
+    this.scope.assertResourceScope(actor, { ownerId: bsc.employee_id, departmentId: bsc.department_id });
+  }
+
   assertCanUpdateOwn(actor: AuthUser, bsc: BscAccessResource): void {
     this.assertEditable(bsc);
     if (bsc.employee_id !== actor.id || !actor.permissions.includes(BSC_PERMISSIONS.EDIT_OWN)) this.deny();
@@ -72,7 +99,12 @@ export class BscAccessPolicy {
   }
 
   assertCanEditPlanDefinition(actor: AuthUser, bsc: BscAccessResource): void {
-    if (!['DRAFT', 'RETURNED'].includes(bsc.plan_status)) this.fieldLocked();
+    if (!['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.plan_status)) this.fieldLocked();
+    if (bsc.plan_status === 'REOPENED') {
+      if (bsc.employee_id !== actor.id || !actor.permissions.includes(BSC_PERMISSIONS.EDIT_OWN)) this.deny();
+      this.scope.assertResourceScope(actor, { ownerId: bsc.employee_id, departmentId: bsc.department_id });
+      return;
+    }
     if (!actor.permissions.includes(BSC_PERMISSIONS.MANAGE_KPI) || bsc.direct_manager_id !== actor.id || !this.canAccessBusinessScope(actor, bsc)) this.deny();
   }
 
@@ -81,7 +113,7 @@ export class BscAccessPolicy {
   }
 
   assertCanEditEvaluationResult(actor: AuthUser, bsc: BscAccessResource): void {
-    if (bsc.plan_status !== 'APPROVED' || !['DRAFT', 'RETURNED'].includes(bsc.evaluation_status)) this.fieldLocked();
+    if (bsc.plan_status !== 'APPROVED' || !['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.evaluation_status)) this.fieldLocked();
     const hasOwnEdit = actor.permissions.includes(BSC_PERMISSIONS.EDIT_OWN) || actor.permissions.includes(BSC_PERMISSIONS.UPDATE_ACTUAL);
     if (!hasOwnEdit || bsc.employee_id !== actor.id) this.deny();
     this.scope.assertResourceScope(actor, { ownerId: bsc.employee_id, departmentId: bsc.department_id });
@@ -97,7 +129,7 @@ export class BscAccessPolicy {
   }
 
   private assertEditable(bsc: BscAccessResource): void {
-    if (!['DRAFT', 'RETURNED'].includes(bsc.plan_status) || bsc.evaluation_status !== 'NOT_STARTED') this.fieldLocked();
+    if (!['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.plan_status) || bsc.evaluation_status !== 'NOT_STARTED') this.fieldLocked();
   }
 
   private fieldLocked(): never {

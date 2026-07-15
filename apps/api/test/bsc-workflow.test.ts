@@ -42,6 +42,7 @@ const workflow = new BscWorkflowService(scope);
 test('plan transition matrix is independent from evaluation', () => {
   for (const [from, action, to] of [
     ['DRAFT', 'SUBMIT_PLAN', 'SUBMITTED'], ['RETURNED', 'SUBMIT_PLAN', 'SUBMITTED'],
+    ['REOPENED', 'SUBMIT_PLAN', 'SUBMITTED'],
     ['SUBMITTED', 'APPROVE_PLAN', 'APPROVED'], ['SUBMITTED', 'RETURN_PLAN', 'RETURNED'],
   ] as const) assert.equal(workflow.assertPlanTransition(from, action), to);
 
@@ -53,6 +54,7 @@ test('plan transition matrix is independent from evaluation', () => {
 test('evaluation transition matrix cannot start before plan approval', () => {
   for (const [from, action, to] of [
     ['DRAFT', 'SUBMIT_EVALUATION', 'SUBMITTED'], ['RETURNED', 'SUBMIT_EVALUATION', 'SUBMITTED'],
+    ['REOPENED', 'SUBMIT_EVALUATION', 'SUBMITTED'],
     ['SUBMITTED', 'APPROVE_EVALUATION', 'APPROVED'], ['SUBMITTED', 'RETURN_EVALUATION', 'RETURNED'],
   ] as const) assert.equal(workflow.assertEvaluationTransition(from, action), to);
 

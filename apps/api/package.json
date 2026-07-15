@@ -15,12 +15,15 @@
     "typecheck": "tsc --noEmit",
     "test": "node ./test/run-tests.js",
     "prisma:test:deploy": "node ./test/run-organization-integration.js --deploy-only",
+    "prisma:test:fresh-verify": "node ./test/verify-fresh-migrations.js",
     "test:integration:organization": "node ./test/run-organization-integration.js",
     "test:integration:bsc-draft": "node ./test/run-bsc-draft-integration.js",
     "test:integration:bsc-scoring": "node ./test/run-bsc-scoring-integration.js",
     "test:integration:bsc-dual-stage-workflow": "node ./test/run-bsc-dual-stage-workflow-integration.js",
     "test:integration:bsc-scoring-alignment": "node ./test/run-bsc-scoring-alignment-integration.js",
-    "report:bsc-scoring-alignment": "dotenv -e ../../.env -- ts-node scripts/report-bsc-scoring-alignment.ts"
+    "test:integration:bsc-reopen-version-duplicate": "node ./test/run-bsc-reopen-version-duplicate-integration.js",
+    "report:bsc-scoring-alignment": "dotenv -e ../../.env -- ts-node scripts/report-bsc-scoring-alignment.ts",
+    "report:bsc-version-backfill": "dotenv -e ../../.env.test.local -e ../../.env -- ts-node scripts/report-bsc-version-backfill.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.28",

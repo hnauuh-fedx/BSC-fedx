@@ -6,6 +6,9 @@ const labels: Record<string, string> = {
   SUBMITTED: 'Chờ duyệt',
   RETURNED: 'Bị trả lại',
   APPROVED: 'Đã duyệt',
+  REOPENED: 'Được mở lại',
+  PENDING: 'Chờ xử lý',
+  REJECTED: 'Từ chối',
 };
 
 export const BscStatusBadge: React.FC<{ status: string }> = ({ status }) => (
