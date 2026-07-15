@@ -34,13 +34,15 @@ export const BscItemTable: React.FC<Props> = ({ bscId, items, scoring, canManage
     <h2>KPI</h2>
     {error && <ErrorState error={error}/>}
     {items.length === 0 ? <EmptyState message="BSC chưa có KPI."/> : <table>
-      <thead><tr><th>Mã</th><th>KPI</th><th>Chỉ tiêu</th><th>Trọng số</th><th>Kết quả</th><th>Hoàn thành</th><th>Điểm</th><th>Thao tác</th></tr></thead>
+      <thead><tr><th>Mã</th><th>KPI</th><th>Chỉ tiêu</th><th>Kết quả</th><th>TM KQTH</th><th>Hoàn thành</th><th>Điểm công việc</th><th>Trọng số</th><th>Điểm trọng số</th><th>Thao tác</th></tr></thead>
       <tbody>{items.map((item) => {
         const score = scoreByItem.get(item.id);
         return <tr key={item.id}>
           <td>{item.kpi_code}</td><td>{item.kpi_name}</td><td>{item.target_value ?? item.target_text ?? '—'} {item.measurement_unit}</td>
-          <td>{item.weight}%</td><td>{item.actual_value ?? item.actual_text ?? '—'}{item.employee_note?.trim() && <small>TM KQTH: {item.employee_note}</small>}</td>
-          <td>{score?.achievementPercentage === null || score?.achievementPercentage === undefined ? '—' : `${score.achievementPercentage.toFixed(4)}%`}{score?.reason && <small>{reasonMessage[score.reason] ?? score.reason}</small>}</td>
+          <td>{item.actual_value ?? item.actual_text ?? '—'}</td><td>{item.employee_note?.trim() || '—'}</td>
+          <td>{score?.roundedAchievementPercentage === null || score?.roundedAchievementPercentage === undefined ? '—' : <span title={`Giá trị thô: ${score.rawAchievementPercentage}%`}>{score.roundedAchievementPercentage}%</span>}{score?.reason && <small>{reasonMessage[score.reason] ?? score.reason}</small>}</td>
+          <td>{score?.roundedWorkScore === null || score?.roundedWorkScore === undefined ? '—' : <span title={`Giá trị thô: ${score.rawWorkScore}`}>{score.roundedWorkScore}</span>}</td>
+          <td>{item.weight}%</td>
           <td>{score?.weightedScore === null || score?.weightedScore === undefined ? '—' : score.weightedScore.toFixed(4)}</td>
           <td>
             {canManage && <form onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); void run(() => employeeBscApi.updateItem(bscId, item.id, { targetValue: Number(data.get('targetValue')), weight: Number(data.get('weight')) })); }}>

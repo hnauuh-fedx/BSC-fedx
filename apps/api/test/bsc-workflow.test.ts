@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { Prisma } from '@prisma/client';
 import { ResourceScopePolicy } from '../src/common/policies/resource-scope.policy';
 import { AuthUser } from '../src/common/types/auth-user.type';
 import { BSC_PERMISSIONS, BscAccessPolicy } from '../src/modules/employee-bsc/policies/bsc-access.policy';
@@ -27,9 +28,11 @@ const definition = (overrides: Record<string, unknown> = {}) => ({
 });
 
 const scoring = (overrides: Record<string, unknown> = {}) => ({
-  totalWeight: 100, scoredWeight: 100, totalWeightedScore: 95, isComplete: true, classification: 'A' as const,
+  totalWeight: 100, scoredWeight: 100, totalWeightedScore: 100, isComplete: true, classification: 'A' as const,
+  canonicalTotalWeightedScore: new Prisma.Decimal(100),
   items: [{ itemId: 'kpi-1', calculationMethod: 'ACTUAL_DIV_TARGET', target: 100, actual: 95,
-    weight: 100, isScorable: true, achievementPercentage: 95, weightedScore: 95, reason: null }],
+    weight: 100, isScorable: true, rawAchievementPercentage: 95, roundedAchievementPercentage: 95,
+    rawWorkScore: 95, roundedWorkScore: 100, weightedScore: 100, reason: null }],
   ...overrides,
 });
 

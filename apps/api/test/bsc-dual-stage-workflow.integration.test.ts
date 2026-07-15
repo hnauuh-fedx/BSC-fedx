@@ -153,7 +153,7 @@ test('Phase 3B.3 dual-stage BSC workflow integration', { skip: safeDatabase() ? 
       await expectHttp(request(server).patch(`/employee-bsc/${record.id}/items/${record.item.id}/actual`).set(auth(tokens.employee)).send({ actualValue: 92, employeeNote: 'Đã bổ sung' }), 200);
       await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/submit`).set(auth(tokens.employee)).send({}), 200);
       const approved = await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/approve`).set(auth(tokens.manager)).send({}), 200);
-      assert.equal(approved.body.evaluation_status, 'APPROVED'); assert.equal(Number(approved.body.final_score), 92); assert.equal(approved.body.final_grade, 'A'); assert.equal(approved.body.evaluation_approved_by, manager.id);
+      assert.equal(approved.body.evaluation_status, 'APPROVED'); assert.equal(Number(approved.body.final_score), 90); assert.equal(approved.body.final_grade, 'A'); assert.equal(approved.body.evaluation_approved_by, manager.id);
       await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/approve`).set(auth(tokens.manager)).send({}), 409);
       await expectHttp(request(server).patch(`/employee-bsc/${record.id}/items/${record.item.id}/actual`).set(auth(tokens.employee)).send({ actualValue: 100 }), 403);
       const reasons = await prisma.bsc_status_histories.findMany({ where: { employee_bsc_id: record.id, comment: { not: null } } });

@@ -34,7 +34,9 @@ export type BscFilterOptions = {
 
 export type BscScoringItem = {
   itemId: string; calculationMethod: string; target: number | null; actual: number | null; weight: number;
-  isScorable: boolean; achievementPercentage: number | null; weightedScore: number | null; reason: string | null;
+  isScorable: boolean; reason: string | null;
+  rawAchievementPercentage: number | null; roundedAchievementPercentage: number | null;
+  rawWorkScore: number | null; roundedWorkScore: number | null; weightedScore: number | null;
 };
 
 export type BscScoringPreview = {

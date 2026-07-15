@@ -170,26 +170,26 @@ test('Phase 3B.2 BSC scoring integration', { skip: safeDatabase() ? false : 'TES
 
       const complete = await request(server).get(`/employee-bsc/${bscId}/scoring-preview`).set(auth(tokens.employee)).expect(200);
       assert.equal(complete.body.bscId, bscId);
-      assert.equal(complete.body.totalWeight, 100); assert.equal(complete.body.scoredWeight, 100); assert.equal(complete.body.totalWeightedScore, 115.5);
+      assert.equal(complete.body.totalWeight, 100); assert.equal(complete.body.scoredWeight, 100); assert.equal(complete.body.totalWeightedScore, 117);
       assert.equal(complete.body.isComplete, true); assert.equal(complete.body.classification, 'A++');
-      assert.deepEqual(complete.body.items.map((item: { achievementPercentage: number; weightedScore: number }) => [item.achievementPercentage, item.weightedScore]), [[120, 48], [125, 37.5], [100, 30]]);
+      assert.deepEqual(complete.body.items.map((item: { roundedAchievementPercentage: number; roundedWorkScore: number; weightedScore: number }) => [item.roundedAchievementPercentage, item.roundedWorkScore, item.weightedScore]), [[120, 120, 48], [125, 130, 39], [100, 100, 30]]);
       assert.doesNotMatch(JSON.stringify(complete.body), /NaN|Infinity/);
     });
 
     await t.test('preview recalculates after actual, target, weight, delete and add without stale aggregate', async () => {
       await request(server).patch(`/employee-bsc/${bscId}/items/${higherId}/actual`).set(auth(tokens.employee)).send({ actualValue: 80 }).expect(200);
       let preview = await request(server).get(`/employee-bsc/${bscId}/scoring-preview`).set(auth(tokens.employee)).expect(200);
-      assert.equal(preview.body.totalWeightedScore, 99.5); assert.equal(preview.body.classification, 'A');
+      assert.equal(preview.body.totalWeightedScore, 101); assert.equal(preview.body.classification, 'A+');
 
       await prisma.employee_bsc.update({ where: { id: bscId }, data: { plan_status: 'DRAFT', evaluation_status: 'NOT_STARTED' } });
       await request(server).patch(`/employee-bsc/${bscId}/items/${higherId}`).set(auth(tokens.manager)).send({ targetValue: 80 }).expect(200);
       preview = await request(server).get(`/employee-bsc/${bscId}/scoring-preview`).set(auth(tokens.employee)).expect(200);
-      assert.equal(preview.body.totalWeightedScore, 107.5); assert.equal(preview.body.classification, 'A+');
+      assert.equal(preview.body.totalWeightedScore, 109); assert.equal(preview.body.classification, 'A+');
 
       await request(server).patch(`/employee-bsc/${bscId}/items/${binaryId}`).set(auth(tokens.manager)).send({ weight: 20 }).expect(200);
       await request(server).patch(`/employee-bsc/${bscId}/items/${higherId}`).set(auth(tokens.manager)).send({ weight: 50 }).expect(200);
       preview = await request(server).get(`/employee-bsc/${bscId}/scoring-preview`).set(auth(tokens.employee)).expect(200);
-      assert.equal(preview.body.totalWeight, 100); assert.equal(preview.body.totalWeightedScore, 107.5);
+      assert.equal(preview.body.totalWeight, 100); assert.equal(preview.body.totalWeightedScore, 109);
 
       await request(server).delete(`/employee-bsc/${bscId}/items/${binaryId}`).set(auth(tokens.manager)).expect(200);
       preview = await request(server).get(`/employee-bsc/${bscId}/scoring-preview`).set(auth(tokens.employee)).expect(200);
@@ -199,7 +199,7 @@ test('Phase 3B.2 BSC scoring integration', { skip: safeDatabase() ? false : 'TES
       await prisma.employee_bsc.update({ where: { id: bscId }, data: { plan_status: 'APPROVED', evaluation_status: 'DRAFT' } });
       await request(server).patch(`/employee-bsc/${bscId}/items/${added.body.id}/actual`).set(auth(tokens.employee)).send({ actualValue: 50 }).expect(200);
       preview = await request(server).get(`/employee-bsc/${bscId}/scoring-preview`).set(auth(tokens.employee)).expect(200);
-      assert.equal(preview.body.totalWeight, 100); assert.equal(preview.body.totalWeightedScore, 97.5); assert.equal(preview.body.classification, 'A');
+      assert.equal(preview.body.totalWeight, 100); assert.equal(preview.body.totalWeightedScore, 99); assert.equal(preview.body.classification, 'A');
 
       const audits = await prisma.audit_logs.findMany({ where: { user_id: { in: [employee.id, manager.id] }, module: 'employee-bsc' } });
       for (const action of ['BSC_ITEM_CREATED', 'BSC_ITEM_UPDATED', 'BSC_ITEM_DELETED', 'BSC_ACTUAL_UPDATED']) assert.ok(audits.some((audit) => audit.action === action));

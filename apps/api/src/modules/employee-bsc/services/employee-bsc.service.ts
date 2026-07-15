@@ -130,7 +130,8 @@ export class EmployeeBscService {
       actualValue: item.actual_value,
       weight: item.weight,
     })));
-    return { bscId: bsc.id, planStatus: bsc.plan_status, evaluationStatus: bsc.evaluation_status, ...result };
+    const { canonicalTotalWeightedScore: _canonicalTotalWeightedScore, ...preview } = result;
+    return { bscId: bsc.id, planStatus: bsc.plan_status, evaluationStatus: bsc.evaluation_status, ...preview };
   }
 
   submitPlan(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {

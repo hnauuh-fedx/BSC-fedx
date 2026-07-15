@@ -662,9 +662,7 @@ Ví dụ:
 
 Công thức mặc định:
 
-completionRate = actualValue / targetValue
-
-kpiScore = completionRate × weight
+rawAchievementPercentage = actualValue / targetValue × 100
 
 Ví dụ:
 
@@ -672,9 +670,7 @@ Ví dụ:
 - Kết quả: 495.
 - Tỷ trọng: 10%.
 
-completionRate = 495 / 550 = 90%
-
-kpiScore = 90% × 10 = 9 điểm
+rawAchievementPercentage = 495 / 550 × 100 = 90
 
 ---
 
@@ -689,9 +685,7 @@ Ví dụ:
 
 Công thức mặc định:
 
-completionRate = targetValue / actualValue
-
-kpiScore = completionRate × weight
+rawAchievementPercentage = targetValue / actualValue × 100
 
 Phải xử lý trường hợp actualValue bằng 0.
 
@@ -744,6 +738,27 @@ kpiScore = completionRate × weight
 Ngưỡng 70% phải được cấu hình theo KPI.
 
 Không hard-code 70% cho toàn hệ thống.
+
+---
+
+## 21.5. Alignment và làm tròn điểm (Phase 3B.4)
+
+Tỷ lệ hoàn thành và điểm công việc là hai domain value riêng:
+
+- `roundedAchievementPercentage = HALF_UP(rawAchievementPercentage, 0)`.
+- `rawWorkScore` do công thức điểm công việc tạo ra; công thức canonical hiện tại giữ giá trị raw achievement, không lấy từ achievement đã làm tròn.
+- `roundedWorkScore = HALF_UP(rawWorkScore / 10, 0) × 10`.
+- `weightedScore = roundedWorkScore × weight / 100`.
+- `totalWeightedScore` là tổng Decimal chính xác của các `weightedScore`.
+- Xếp loại dùng `totalWeightedScore` chính xác và chỉ được tạo khi tổng trọng số bằng 100, mọi KPI có actual và đều tính được.
+
+Hai phép làm tròn phải độc lập. Không được dùng `roundedAchievementPercentage` để tạo `rawWorkScore` hoặc `roundedWorkScore`. Domain scoring dùng `Prisma.Decimal`; chỉ giá trị transport mới được làm tròn HALF_UP tối đa 4 chữ số thập phân.
+
+Trong dual-stage workflow, PLAN không yêu cầu actual và không ghi điểm. EVALUATION submit kiểm tra scoring hoàn chỉnh; EVALUATION approve đọc dữ liệu mới nhất, tính lại trong transaction rồi mới ghi `manager_total_score`, `final_score` và `final_grade`.
+
+Các tổng điểm chính thức và score snapshot của review dùng `Decimal(18,4)` để giá trị lưu khớp với Decimal canonical dùng cho xếp loại; migration chỉ nới precision, không tự tính lại dữ liệu đã duyệt.
+
+Chưa xác nhận công thức điểm công việc nào khác ngoài công thức canonical hiện hữu. Không tự thêm cap, ngưỡng dưới 70%, bảng quy đổi hoặc adjustment ±10 vào pipeline Phase 3B.4.
 
 ---
 

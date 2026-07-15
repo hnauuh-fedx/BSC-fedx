@@ -261,7 +261,8 @@ export class EmployeeBscRepository {
         where: { id, plan_status: 'APPROVED', evaluation_status: 'SUBMITTED' },
         data: approved ? {
           evaluation_status: targetStatus, evaluation_approved_at: now, evaluation_approved_by: actor.id, locked_at: now,
-          manager_total_score: scoring.totalWeightedScore, final_score: scoring.totalWeightedScore, final_grade: scoring.classification, updated_at: now,
+          manager_total_score: scoring.canonicalTotalWeightedScore, final_score: scoring.canonicalTotalWeightedScore,
+          final_grade: scoring.classification, updated_at: now,
         } : {
           evaluation_status: targetStatus, evaluation_approved_at: null, evaluation_approved_by: null, locked_at: null,
           manager_total_score: null, final_score: null, final_grade: null, updated_at: now,
@@ -273,11 +274,12 @@ export class EmployeeBscRepository {
       await db.bsc_approval_steps.update({ where: { employee_bsc_id_stage_step_order: { employee_bsc_id: id, stage: 'EVALUATION', step_order: 1 } },
         data: { status: targetStatus, comment: reason, acted_at: now } });
       await db.bsc_reviews.create({ data: { employee_bsc_id: id, stage: 'EVALUATION', reviewer_id: actor.id, reviewer_role: snapshot.reviewer_role,
-        review_level: 1, action: approved ? 'APPROVE' : 'RETURN', score_before: snapshot.final_score, score_after: approved ? scoring.totalWeightedScore : null, comment: reason, reviewed_at: now } });
+        review_level: 1, action: approved ? 'APPROVE' : 'RETURN', score_before: snapshot.final_score,
+        score_after: approved ? scoring.canonicalTotalWeightedScore : null, comment: reason, reviewed_at: now } });
       await this.audit(db, actor, approved ? 'BSC_EVALUATION_APPROVED' : 'BSC_EVALUATION_RETURNED', 'employee_bsc', id,
         { bscId: id, employeeId: snapshot.employee_id, stage: 'EVALUATION', status: 'SUBMITTED' },
         { bscId: id, employeeId: snapshot.employee_id, stage: 'EVALUATION', status: targetStatus, reason,
-          ...(approved ? { score: scoring.totalWeightedScore, classification: scoring.classification } : {}) }, metadata);
+          ...(approved ? { score: scoring.canonicalTotalWeightedScore.toString(), classification: scoring.classification } : {}) }, metadata);
       return db.employee_bsc.findUniqueOrThrow({ where: { id }, select: bscDetailSelect });
     });
   }

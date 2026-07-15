@@ -145,9 +145,20 @@ Transition mặc định:
 
 Các transition khác phải bị từ chối trừ khi có rule được xác nhận riêng.
 
-## 2.5. Cách tính xếp loại
+## 2.5. Cách tính và xếp loại
 
-Xếp loại dựa trên tỷ lệ hoàn thành tổng:
+Backend phải giữ riêng các giá trị scoring:
+
+- tỷ lệ hoàn thành thô và tỷ lệ hoàn thành HALF_UP đến số nguyên gần nhất;
+- điểm công việc thô và điểm công việc HALF_UP đến bội số 10 gần nhất;
+- điểm trọng số = điểm công việc đã làm tròn × trọng số / 100;
+- tổng điểm = tổng Decimal chính xác của các điểm trọng số.
+
+Không được tính điểm công việc từ tỷ lệ hoàn thành đã làm tròn. Công thức canonical hiện tại của điểm công việc giữ raw achievement; đây là seam riêng và chưa xác nhận thêm cap/threshold/bảng điểm. Frontend chỉ hiển thị các giá trị backend trả về.
+
+`manager_total_score`, `final_score` và score snapshot của review lưu `Decimal(18,4)`. Việc nới precision không được dùng để tự động tính lại BSC đã duyệt.
+
+Xếp loại dựa trên tổng điểm trọng số:
 
 - C: dưới 80%
 - B: từ 80% đến dưới 90%
