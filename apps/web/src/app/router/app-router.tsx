@@ -4,6 +4,8 @@ import { useAuth } from '../../features/auth/hooks/use-auth';
 import { LoginPage } from '../../features/auth/pages/login-page';
 import { BscCreatePage, BscDetailPage, BscEditPage, BscListPage, BscPendingReviewPage, BscReopenRequestsPage } from '../../features/employee-bsc';
 import { DepartmentEditPage } from '../../features/organization/pages/department-edit-page';
+import { ADMINISTRATION_PERMISSIONS } from '../../features/organization/administration-navigation';
+import { AdministrationHome } from '../../features/organization/pages/administration-home';
 import { DepartmentsPage } from '../../features/organization/pages/departments-page';
 import { OrganizationManagementPage } from '../../features/organization/pages/organization-management-page';
 import { PositionEditPage } from '../../features/organization/pages/position-edit-page';
@@ -24,9 +26,10 @@ const ProtectedPage: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 const REPORT_PERMISSIONS = ['bsc.statistics.personal', 'bsc.statistics.unit', 'bsc.statistics.organization'];
 const HomePage: React.FC = () => {
   const { user } = useAuth();
-  return user?.permissions.some(permission => REPORT_PERMISSIONS.includes(permission))
-    ? <DashboardPage/>
-    : <main><h1 className="text-3xl font-semibold">BSC Management</h1><p className="mt-3">Chọn chức năng phù hợp từ thanh điều hướng.</p></main>;
+  const permissions = user?.permissions ?? [];
+  if (permissions.some(permission => REPORT_PERMISSIONS.includes(permission))) return <DashboardPage/>;
+  if (permissions.some(permission => ADMINISTRATION_PERMISSIONS.includes(permission))) return <AdministrationHome permissions={permissions}/>;
+  return <main><h1 className="text-3xl font-semibold">BSC Management</h1><p className="mt-3">Tài khoản chưa được cấp chức năng phù hợp. Liên hệ quản trị viên phân quyền.</p></main>;
 };
 const ReportDashboardRoute: React.FC = () => {
   const { user } = useAuth();
