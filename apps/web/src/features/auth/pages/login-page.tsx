@@ -1,5 +1,6 @@
-import React, { useState, FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState, FormEvent } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { resolvePostLoginPath } from '../landing';
 import { useAuth } from '../hooks/use-auth';
 
 interface LoginFormState {
@@ -14,14 +15,22 @@ interface LoginFormState {
  * Thiết kế premium, sẽ được polish thêm trong phase sau.
  */
 export const LoginPage: React.FC = () => {
-  const { login } = useAuth();
+  const { isAuthenticated, isLoading, login, user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const requestedPath = (location.state as { from?: string } | null)?.from;
   const [form, setForm] = useState<LoginFormState>({
     email: '',
     password: '',
     error: null,
     isSubmitting: false,
   });
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && user) {
+      navigate(resolvePostLoginPath(user.permissions, requestedPath), { replace: true });
+    }
+  }, [isAuthenticated, isLoading, navigate, requestedPath, user]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value, error: null }));
@@ -35,8 +44,6 @@ export const LoginPage: React.FC = () => {
 
     try {
       await login({ email: form.email, password: form.password });
-      navigate('/', { replace: true });
-      // Redirect sẽ được handle bởi AppRouter khi auth state thay đổi
     } catch (err: unknown) {
       const message =
         err instanceof Error
