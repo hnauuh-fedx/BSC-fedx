@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { PrismaClient } from '@prisma/client';
 import { assertDisposableDatabase, databaseName, DisposablePurpose } from './lib/database-safety';
 
-const TABLES = ['users', 'departments', 'positions', 'bsc_cycles', 'employee_bsc', 'employee_bsc_items', 'bsc_reviews', 'bsc_status_histories', 'audit_logs', 'bsc_versions', 'bsc_unlock_requests'] as const;
+const TABLES = ['users', 'departments', 'positions', 'bsc_cycles', 'employee_bsc', 'employee_bsc_items', 'bsc_approval_steps', 'bsc_reviews', 'bsc_status_histories', 'audit_logs', 'bsc_versions', 'bsc_unlock_requests'] as const;
 
 function safeDiagnostic(value: unknown) {
   return String(value).replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, '[REDACTED_DATABASE_URL]').slice(0, 500);
@@ -69,6 +69,16 @@ async function operationalSnapshot(client: PrismaClient) {
   };
 }
 
+async function smokeReads(client: PrismaClient) {
+  const tables = ['employee_bsc', 'bsc_approval_steps', 'bsc_reviews', 'bsc_status_histories', 'bsc_versions'] as const;
+  const result: Record<string, boolean> = {};
+  for (const table of tables) {
+    const rows = await client.$queryRawUnsafe<Array<{ present: boolean }>>(`SELECT EXISTS(SELECT 1 FROM "${table}" LIMIT 1) AS present`);
+    result[table] = rows[0]?.present ?? false;
+  }
+  return result;
+}
+
 async function main() {
   const started = Date.now();
   const source = process.env.TEST_DATABASE_URL;
@@ -106,9 +116,11 @@ async function main() {
     if (beforeSnapshot.employeeBscInvariantDigest !== afterSnapshot.employeeBscInvariantDigest) throw new Error('BSC owner/reviewer/workflow/score invariant changed.');
     if (beforeSnapshot.backfillIssues !== afterSnapshot.backfillIssues) throw new Error('Backfill ambiguity count changed.');
     if (afterSnapshot.duplicateVersions !== 0) throw new Error('Duplicate BSC versions detected.');
+    const smoke = await smokeReads(target);
+    if (Object.values(smoke).some((present) => !present)) throw new Error('Required restored BSC smoke record is missing.');
     report = { mode: mode.toUpperCase(), source: 'bsc_organization_test', target: targetName, backupBytes: statSync(backup).size,
       durationMs: Date.now() - started, counts: { before, after }, operational: { before: beforeSnapshot, after: afterSnapshot },
-      smoke: { organizationRead: true, bscRead: true, versionRead: true }, pendingMigrations: 0 };
+      smoke, pendingMigrations: 0 };
   } finally {
     const cleanupErrors: unknown[] = [];
     await target?.$disconnect().catch((error) => cleanupErrors.push(error));
