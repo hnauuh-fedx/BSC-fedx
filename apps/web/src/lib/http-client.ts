@@ -37,6 +37,7 @@ async function execute<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const httpClient = {
   get: <T>(path: string) => execute<T>(path),
   post: <T>(path: string, body?: unknown) => execute<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }),
+  put: <T>(path: string, body: unknown) => execute<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
   patch: <T>(path: string, body: unknown) => execute<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: <T>(path: string) => execute<T>(path, { method: 'DELETE' }),
   download: async (path: string) => {

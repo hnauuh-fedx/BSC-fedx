@@ -23,7 +23,20 @@ export const ADMINISTRATION_DESTINATIONS = [
     description: 'Cấu hình timeline, mở, khóa và đóng kỳ BSC.',
     href: '/management/bsc-cycles',
   },
+  {
+    permissions: ['role.view', 'role.manage'],
+    label: 'Vai trò & Quyền',
+    description: 'Xem và cấu hình permission cho từng vai trò. Thay đổi được ghi vào nhật ký.',
+    href: '/management/roles',
+  },
+  {
+    permissions: ['audit.view'],
+    label: 'Nhật ký hệ thống',
+    description: 'Xem lịch sử thao tác toàn hệ thống theo thời gian và module.',
+    href: '/management/audit-logs',
+  },
 ] as const;
+
 
 export const ADMINISTRATION_CAPABILITIES = [
   { permissions: ['user.create', 'user.update', 'user.lock', 'user.password.reset'], label: 'Thao tác người dùng' },

@@ -8,6 +8,8 @@ import { PositionsModule } from './modules/positions/positions.module';
 import { UsersModule } from './modules/users/users.module';
 import { BscCyclesModule } from './modules/bsc-cycles/bsc-cycles.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { RolesModule } from './modules/roles/roles.module';
+import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { ReportsModule } from './modules/reports/reports.module';
     UsersModule,
     BscCyclesModule,
     ReportsModule,
+    RolesModule,
+    AuditLogsModule,
   ],
 })
 export class AppModule {}
