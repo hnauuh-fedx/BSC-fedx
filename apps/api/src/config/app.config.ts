@@ -5,6 +5,8 @@ export interface AppConfig {
   apiPort: number;
   corsOrigin: string;
   isProduction: boolean;
+  trustProxy: number;
+  logLevel: AppEnvironment['logLevel'];
 }
 
 export function getAppConfig(env: AppEnvironment = validateEnvironment()): AppConfig {
@@ -13,5 +15,7 @@ export function getAppConfig(env: AppEnvironment = validateEnvironment()): AppCo
     apiPort: env.apiPort,
     corsOrigin: env.corsOrigin,
     isProduction: env.nodeEnv === 'production',
+    trustProxy: env.trustProxy,
+    logLevel: env.logLevel,
   };
 }

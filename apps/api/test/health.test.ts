@@ -5,6 +5,7 @@ import { NestFactory } from '@nestjs/core';
 import { HealthModule } from '../src/health/health.module';
 import { PrismaService } from '../src/database/prisma.service';
 import { GlobalExceptionFilter } from '../src/common/filters/global-exception.filter';
+import { requestContextMiddleware } from '../src/common/observability/request-context';
 
 const prismaMock = {
   $queryRaw: async () => Promise.resolve([{ '?column?': 1 }]),
@@ -57,8 +58,42 @@ test('GET /health returns the expected shape when the database is healthy', asyn
   }
 });
 
+test('GET /health/live is public and never queries the database', async () => {
+  let queries = 0;
+  prismaMock.$queryRaw = async () => { queries += 1; return [{ '?column?': 1 }]; };
+  const app = await NestFactory.create(HealthTestModule, { logger: false });
+  try {
+    await app.listen(0, '127.0.0.1');
+    const address = app.getHttpServer().address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    const response = await fetch(`http://127.0.0.1:${port}/health/live`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { status: 'ok' });
+    assert.equal(queries, 0);
+  } finally { await app.close(); }
+});
+
+test('GET /health/ready returns non-2xx without leaking database errors', async () => {
+  prismaMock.$queryRaw = async () => { throw new Error('postgresql://admin:secret@db/private'); };
+  const app = await NestFactory.create(HealthTestModule, { logger: false });
+  app.useGlobalFilters(new GlobalExceptionFilter());
+  try {
+    await app.listen(0, '127.0.0.1');
+    const address = app.getHttpServer().address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    const response = await fetch(`http://127.0.0.1:${port}/health/ready`);
+    const raw = await response.text();
+    assert.equal(response.status, 503);
+    assert.doesNotMatch(raw, /admin|secret|postgresql/i);
+  } finally {
+    prismaMock.$queryRaw = async () => [{ '?column?': 1 }];
+    await app.close();
+  }
+});
+
 test('Global exception response shape matches the contract', async () => {
   const app = await NestFactory.create(HealthTestModule, { logger: false });
+  app.use(requestContextMiddleware({ log() {}, error() {} } as never));
   app.useGlobalFilters(new GlobalExceptionFilter());
 
   try {
@@ -66,7 +101,7 @@ test('Global exception response shape matches the contract', async () => {
     const address = app.getHttpServer().address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const response = await fetch(`http://127.0.0.1:${port}/boom/validation`);
+    const response = await fetch(`http://127.0.0.1:${port}/boom/validation`, { headers: { 'x-correlation-id': 'uat-correlation-123' } });
     const body = await response.json();
 
     assert.equal(response.status, 400);
@@ -76,6 +111,8 @@ test('Global exception response shape matches the contract', async () => {
     assert.deepEqual(body.details, []);
     assert.equal(typeof body.timestamp, 'string');
     assert.equal(body.path, '/boom/validation');
+    assert.equal(body.correlationId, 'uat-correlation-123');
+    assert.equal(response.headers.get('x-correlation-id'), 'uat-correlation-123');
   } finally {
     await app.close();
   }
@@ -100,6 +137,7 @@ test('Unknown errors are normalized without leaking stacks', async () => {
     assert.deepEqual(body.details, []);
     assert.equal(typeof body.timestamp, 'string');
     assert.equal(body.path, '/boom');
+    assert.equal(typeof body.correlationId, 'string');
   } finally {
     await app.close();
   }

@@ -6,36 +6,36 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { RequestWithCorrelation, redactText, resolveCorrelationId } from '../observability/request-context';
+import { ErrorMonitor, NoopErrorMonitor } from '../observability/error-monitor';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(GlobalExceptionFilter.name);
+  constructor(private readonly monitor: ErrorMonitor = new NoopErrorMonitor()) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse();
-    const request = ctx.getRequest();
-    const path = request?.url ?? request?.originalUrl ?? '';
+    const request = ctx.getRequest<RequestWithCorrelation>();
+    const path = request?.path ?? request?.url?.split('?')[0] ?? request?.originalUrl?.split('?')[0] ?? '';
+    const correlationId = request.correlationId ?? resolveCorrelationId(request.headers?.['x-correlation-id']);
 
     if (exception instanceof HttpException) {
       const statusCode = exception.getStatus();
-      const responseBody = this.normalizeHttpException(exception, path, statusCode);
+      const responseBody = this.normalizeHttpException(exception, path, statusCode, correlationId);
+      request.errorCode = responseBody.code;
 
       if (statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
-        this.logger.error(
-          `${request?.method ?? 'HTTP'} ${path}`,
-          exception instanceof Error ? exception.stack : undefined,
-        );
+        this.logServerError(exception, request?.method ?? 'HTTP', path, correlationId, statusCode);
       }
 
       response.status(statusCode).json(responseBody);
       return;
     }
 
-    this.logger.error(
-      `${request?.method ?? 'HTTP'} ${path}`,
-      exception instanceof Error ? exception.stack : undefined,
-    );
+    request.errorCode = 'INTERNAL_SERVER_ERROR';
+    this.logServerError(exception, request?.method ?? 'HTTP', path, correlationId, HttpStatus.INTERNAL_SERVER_ERROR);
 
     response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
@@ -44,10 +44,18 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       details: [],
       timestamp: new Date().toISOString(),
       path,
+      correlationId,
     });
   }
 
-  private normalizeHttpException(exception: HttpException, path: string, statusCode: number) {
+  private logServerError(exception: unknown, method: string, path: string, correlationId: string, statusCode: number): void {
+    const stack = exception instanceof Error ? exception.stack ?? exception.message : String(exception);
+    const safeError = { name: exception instanceof Error ? exception.name : 'UnknownError', message: redactText(exception instanceof Error ? exception.message : String(exception)), stack: redactText(stack) };
+    this.monitor.capture({ correlationId, method, path, statusCode, error: safeError });
+    this.logger.error(JSON.stringify({ timestamp: new Date().toISOString(), level: 'error', correlationId, method, path, statusCode, stack: safeError.stack }));
+  }
+
+  private normalizeHttpException(exception: HttpException, path: string, statusCode: number, correlationId: string) {
     const response = exception.getResponse();
     const isValidationError = statusCode === HttpStatus.BAD_REQUEST;
 
@@ -58,6 +66,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         message: isValidationError ? '\u0044\u1EEF li\u1EC7u kh\u00F4ng h\u1EE3p l\u1EC7' : response,
         details: [],
         path,
+        correlationId,
       });
     }
 
@@ -78,6 +87,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           ? body.message
           : details,
         path,
+        correlationId,
       });
     }
 
@@ -87,6 +97,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       message: isValidationError ? '\u0044\u1EEF li\u1EC7u kh\u00F4ng h\u1EE3p l\u1EC7' : exception.message,
       details: [],
       path,
+      correlationId,
     });
   }
 
@@ -96,6 +107,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     message: string;
     details: unknown[];
     path: string;
+    correlationId: string;
   }) {
     return {
       ...payload,

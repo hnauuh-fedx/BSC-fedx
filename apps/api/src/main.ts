@@ -6,23 +6,29 @@ import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { getAppConfig } from './config/app.config';
 import { loadLocalEnvironment, validateEnvironment } from './config/env.validation';
+import { requestContextMiddleware } from './common/observability/request-context';
 
 export async function createApp() {
   loadLocalEnvironment();
   const env = validateEnvironment();
   const appConfig = getAppConfig(env);
   const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn', 'log'],
+    logger: appConfig.logLevel === 'debug' ? ['error', 'warn', 'log', 'debug']
+      : appConfig.logLevel === 'log' ? ['error', 'warn', 'log']
+        : appConfig.logLevel === 'warn' ? ['error', 'warn'] : ['error'],
   });
+  app.enableShutdownHooks();
+  app.getHttpAdapter().getInstance().set('trust proxy', appConfig.trustProxy);
 
   // Cookie parser phải đứng trước guards để đọc được HttpOnly cookie
   app.use(cookieParser());
+  app.use(requestContextMiddleware());
 
   app.enableCors({
     origin: appConfig.corsOrigin,
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    exposedHeaders: ['Set-Cookie'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Correlation-ID'],
+    exposedHeaders: ['X-Correlation-ID'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 

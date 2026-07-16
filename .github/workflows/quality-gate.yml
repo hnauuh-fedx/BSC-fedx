@@ -1,0 +1,76 @@
+name: quality-gate
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: bsc_test
+          POSTGRES_PASSWORD: bsc_test
+          POSTGRES_DB: bsc_organization_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U bsc_test -d bsc_organization_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      NODE_ENV: test
+      API_PORT: 3100
+      DATABASE_URL: postgresql://bsc_test:bsc_test@localhost:5432/bsc_organization_test?schema=public
+      TEST_DATABASE_URL: postgresql://bsc_test:bsc_test@localhost:5432/bsc_organization_test?schema=public
+      JWT_ACCESS_SECRET: ci-access-secret-at-least-thirty-two-characters
+      JWT_REFRESH_SECRET: ci-refresh-secret-at-least-thirty-two-characters
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      CORS_ORIGIN: http://127.0.0.1:5173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run prisma:validate
+      - run: npm run prisma:generate
+      - run: npm run prisma:test:deploy
+      - run: npm run seed --workspace=apps/api
+      - run: npm run typecheck --workspaces --if-present
+      - run: npm run lint --workspaces --if-present
+      - run: npm run build --workspaces --if-present
+      - run: npm test --workspaces --if-present
+      - name: Integration suites (sequential)
+        run: |
+          npm run test:integration:organization --workspace=apps/api
+          npm run test:integration:bsc-draft --workspace=apps/api
+          npm run test:integration:bsc-scoring --workspace=apps/api
+          npm run test:integration:bsc-dual-stage-workflow --workspace=apps/api
+          npm run test:integration:bsc-scoring-alignment --workspace=apps/api
+          npm run test:integration:bsc-reopen-version-duplicate --workspace=apps/api
+      - name: UAT fixture seed and cleanup rehearsal
+        env:
+          UAT_PASSWORD: CI-only-runtime-password-3B6!
+          UAT_FIXTURE_PREFIX: BSCUAT_1000000000000_C1C1C1C1
+        run: |
+          npm run uat:seed --workspace=apps/api
+          npm run uat:cleanup --workspace=apps/api
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-artifacts
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: ignore
+
+  staging-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f apps/api/Dockerfile -t bsc-api:staging-check .
+      - run: docker build -f apps/web/Dockerfile -t bsc-web:staging-check .

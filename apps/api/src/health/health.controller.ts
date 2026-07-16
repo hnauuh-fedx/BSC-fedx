@@ -9,4 +9,11 @@ export class HealthController {
   async check() {
     return this.healthService.check();
   }
+
+
+  @Get('live')
+  live() { return this.healthService.live(); }
+
+  @Get('ready')
+  ready() { return this.healthService.ready(); }
 }

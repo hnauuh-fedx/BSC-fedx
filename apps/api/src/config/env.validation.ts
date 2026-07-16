@@ -12,6 +12,8 @@ export interface AppEnvironment {
   jwtAccessExpiresIn: string;
   jwtRefreshExpiresIn: string;
   corsOrigin: string;
+  trustProxy: number;
+  logLevel: 'error' | 'warn' | 'log' | 'debug';
 }
 
 const REQUIRED_KEYS = [
@@ -64,17 +66,57 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): AppEn
   }
 
   const nodeEnv = normalizeNodeEnv(env.NODE_ENV);
+  const databaseUrl = String(env.DATABASE_URL);
+  const databaseName = parseDatabaseName(databaseUrl);
+  const accessSecret = String(env.JWT_ACCESS_SECRET);
+  const refreshSecret = String(env.JWT_REFRESH_SECRET);
+  const corsOrigin = String(env.CORS_ORIGIN);
+  const trustProxy = Number(env.TRUST_PROXY ?? 0);
+  const logLevel = env.LOG_LEVEL === 'debug' ? 'debug' : env.LOG_LEVEL === 'warn' ? 'warn' : env.LOG_LEVEL === 'error' ? 'error' : 'log';
+  if (!Number.isInteger(trustProxy) || trustProxy < 0 || trustProxy > 10) throw new Error('TRUST_PROXY must be an integer from 0 to 10');
+
+  if (nodeEnv === 'test' && databaseName === 'bsc_db') {
+    throw new Error('Test environment must never use bsc_db');
+  }
+  if (nodeEnv === 'production') {
+    validateProductionSecret('JWT_ACCESS_SECRET', accessSecret);
+    validateProductionSecret('JWT_REFRESH_SECRET', refreshSecret);
+    if (accessSecret === refreshSecret) throw new Error('JWT access and refresh secrets must be different in production');
+    if (env.TRUST_PROXY === undefined) throw new Error('TRUST_PROXY must be explicitly configured in production');
+    if (env.LOG_LEVEL !== undefined && !['error', 'warn', 'info', 'log', 'debug'].includes(env.LOG_LEVEL)) throw new Error('LOG_LEVEL is invalid');
+    if (databaseName === 'bsc_db') throw new Error('Production database must use an explicit environment-specific name, not bsc_db');
+    if (/(^|[_-])test($|[_-])/.test(databaseName)) throw new Error('Production must not use a test database');
+    if (corsOrigin === '*' || corsOrigin.split(',').some((origin) => origin.trim() === '*')) {
+      throw new Error('CORS_ORIGIN cannot be wildcard when credentials are enabled');
+    }
+    for (const origin of corsOrigin.split(',').map((item) => item.trim())) {
+      if (new URL(origin).protocol !== 'https:') throw new Error('Production CORS_ORIGIN must use HTTPS');
+    }
+  }
 
   return {
     nodeEnv,
     apiPort,
-    databaseUrl: String(env.DATABASE_URL),
-    jwtAccessSecret: String(env.JWT_ACCESS_SECRET),
-    jwtRefreshSecret: String(env.JWT_REFRESH_SECRET),
+    databaseUrl,
+    jwtAccessSecret: accessSecret,
+    jwtRefreshSecret: refreshSecret,
     jwtAccessExpiresIn: String(env.JWT_ACCESS_EXPIRES_IN),
     jwtRefreshExpiresIn: String(env.JWT_REFRESH_EXPIRES_IN),
-    corsOrigin: String(env.CORS_ORIGIN),
+    corsOrigin,
+    trustProxy,
+    logLevel,
   };
+}
+
+function parseDatabaseName(databaseUrl: string): string {
+  try { return decodeURIComponent(new URL(databaseUrl).pathname.replace(/^\//, '')).toLowerCase(); }
+  catch { throw new Error('DATABASE_URL must be a valid URL'); }
+}
+
+function validateProductionSecret(key: string, value: string): void {
+  if (value.length < 32 || /change[-_ ]?me|placeholder|example|secret/i.test(value)) {
+    throw new Error(`${key} must be a non-placeholder secret of at least 32 characters in production`);
+  }
 }
 
 function normalizeNodeEnv(value: string | undefined): NodeEnvironment {

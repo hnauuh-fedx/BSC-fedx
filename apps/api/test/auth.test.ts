@@ -98,15 +98,29 @@ test('refresh requires an exact allowed Origin or Referer', async () => {
 });
 
 test('production requires Origin or Referer and marks refresh cookie Secure', async () => {
-  const previous = process.env.NODE_ENV; process.env.NODE_ENV = 'production';
+  const previous = {
+    NODE_ENV: process.env.NODE_ENV, DATABASE_URL: process.env.DATABASE_URL,
+    JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET, JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET,
+    CORS_ORIGIN: process.env.CORS_ORIGIN, TRUST_PROXY: process.env.TRUST_PROXY, LOG_LEVEL: process.env.LOG_LEVEL,
+  };
+  process.env.NODE_ENV = 'production';
+  process.env.DATABASE_URL = 'postgresql://app:secret@localhost:5432/bsc_staging';
+  process.env.JWT_ACCESS_SECRET = 'a'.repeat(48);
+  process.env.JWT_REFRESH_SECRET = 'b'.repeat(48);
+  process.env.CORS_ORIGIN = 'https://bsc-staging.example.test';
+  process.env.TRUST_PROXY = '1';
+  process.env.LOG_LEVEL = 'warn';
   const { app, agent, user } = await createApp();
   try {
     const login = await agent.post('/auth/login').send({ email: user.email, password }).expect(200);
     assert.match(cookie(login), /Secure/);
     await agent.post('/auth/refresh').set('Cookie', cookie(login).split(';')[0]).expect(403);
-    const logout = await request(app.getHttpServer()).post('/auth/logout').set('Origin', 'http://localhost:5173').set('Cookie', cookie(login).split(';')[0]).set('Authorization', `Bearer ${login.body.accessToken}`).expect(200);
+    const logout = await request(app.getHttpServer()).post('/auth/logout').set('Origin', 'https://bsc-staging.example.test').set('Cookie', cookie(login).split(';')[0]).set('Authorization', `Bearer ${login.body.accessToken}`).expect(200);
     assert.match(logout.headers['set-cookie'][0] as string, /Secure/); assert.match(logout.headers['set-cookie'][0] as string, /SameSite=Lax/); assert.match(logout.headers['set-cookie'][0] as string, /Path=\/auth/);
-  } finally { await app.close(); process.env.NODE_ENV = previous; }
+  } finally {
+    await app.close();
+    for (const [key, value] of Object.entries(previous)) value === undefined ? delete process.env[key] : process.env[key] = value;
+  }
 });
 
 test('rate limiter returns 429, expires entries, and disposes the cleanup timer', async () => {
