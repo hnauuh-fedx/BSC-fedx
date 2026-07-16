@@ -1,6 +1,5 @@
 import type { LoginRequest, LoginResponse, RefreshResponse, AuthUser } from '../types/auth.types';
-
-const API_BASE = '/api';
+import { API_BASE_URL } from '../../../lib/api-base-url';
 
 /**
  * Auth service — tất cả request đến /auth endpoints.
@@ -24,7 +23,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
 
 export const authService = {
   async login(data: LoginRequest): Promise<LoginResponse> {
-    const res = await fetch(`${API_BASE}/auth/login`, {
+    const res = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -34,7 +33,7 @@ export const authService = {
   },
 
   async refresh(): Promise<RefreshResponse> {
-    const res = await fetch(`${API_BASE}/auth/refresh`, {
+    const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
     });
@@ -42,7 +41,7 @@ export const authService = {
   },
 
   async logout(accessToken: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/auth/logout`, {
+    const res = await fetch(`${API_BASE_URL}/auth/logout`, {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -56,7 +55,7 @@ export const authService = {
   },
 
   async getCurrentUser(accessToken: string): Promise<AuthUser> {
-    const res = await fetch(`${API_BASE}/auth/me`, {
+    const res = await fetch(`${API_BASE_URL}/auth/me`, {
       credentials: 'include',
       headers: {
         Authorization: `Bearer ${accessToken}`,

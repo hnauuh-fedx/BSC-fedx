@@ -25,7 +25,7 @@ export async function createApp() {
   app.use(requestContextMiddleware());
 
   app.enableCors({
-    origin: appConfig.corsOrigin,
+    origin: appConfig.corsOrigins,
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Correlation-ID'],
     exposedHeaders: ['X-Correlation-ID'],

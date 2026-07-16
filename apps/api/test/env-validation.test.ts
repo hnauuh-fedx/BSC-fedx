@@ -10,6 +10,7 @@ const valid = {
   JWT_REFRESH_SECRET: 'b'.repeat(48),
   JWT_ACCESS_EXPIRES_IN: '15m',
   JWT_REFRESH_EXPIRES_IN: '7d',
+  REFRESH_COOKIE_SAME_SITE: 'lax',
   CORS_ORIGIN: 'https://bsc-staging.example.com',
   TRUST_PROXY: '1',
   LOG_LEVEL: 'info',

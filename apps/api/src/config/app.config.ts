@@ -3,7 +3,7 @@ import { AppEnvironment, validateEnvironment } from './env.validation';
 export interface AppConfig {
   nodeEnv: AppEnvironment['nodeEnv'];
   apiPort: number;
-  corsOrigin: string;
+  corsOrigins: string[];
   isProduction: boolean;
   trustProxy: number;
   logLevel: AppEnvironment['logLevel'];
@@ -13,7 +13,7 @@ export function getAppConfig(env: AppEnvironment = validateEnvironment()): AppCo
   return {
     nodeEnv: env.nodeEnv,
     apiPort: env.apiPort,
-    corsOrigin: env.corsOrigin,
+    corsOrigins: env.corsOrigins,
     isProduction: env.nodeEnv === 'production',
     trustProxy: env.trustProxy,
     logLevel: env.logLevel,

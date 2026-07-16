@@ -10,12 +10,25 @@ COPY tsconfig.base.json ./
 COPY apps/api ./apps/api
 RUN npm run prisma:generate --workspace=apps/api && npm run build --workspace=apps/api
 
+FROM build AS release
+WORKDIR /app/apps/api
+CMD ["../../node_modules/.bin/prisma", "migrate", "deploy", "--schema", "prisma/schema.prisma"]
+
+FROM node:22-bookworm-slim AS production-dependencies
+WORKDIR /app
+COPY package*.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY packages ./packages
+RUN npm ci --omit=dev --workspace=apps/api --include-workspace-root && npm cache clean --force
+
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system app && useradd --system --gid app app
-COPY --from=build --chown=app:app /app/node_modules ./node_modules
+COPY --from=production-dependencies --chown=app:app /app/node_modules ./node_modules
+COPY --from=build --chown=app:app /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build --chown=app:app /app/apps/api/dist ./apps/api/dist
 COPY --from=build --chown=app:app /app/apps/api/prisma ./apps/api/prisma
 COPY --from=build --chown=app:app /app/apps/api/package.json ./apps/api/package.json

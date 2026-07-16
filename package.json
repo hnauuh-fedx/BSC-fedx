@@ -9,6 +9,7 @@
   "scripts": {
     "dev:web": "npm run dev --workspace=apps/web",
     "dev:api": "npm run dev --workspace=apps/api",
+    "start:api": "npm run start:prod --workspace=apps/api",
     "build:web": "npm run build --workspace=apps/web",
     "build:api": "npm run build --workspace=apps/api",
     "build": "npm run build --workspaces --if-present",
@@ -25,8 +26,11 @@
     "prisma:test:deploy": "dotenv -e .env -- npm run prisma:test:deploy --workspace=apps/api",
     "prisma:pull": "dotenv -e .env -- npm run prisma:pull --workspace=apps/api",
     "prisma:migrate": "npm run prisma:migrate --workspace=apps/api",
+    "prisma:migrate:deploy": "npm run prisma:migrate:deploy --workspace=apps/api",
+    "prisma:migrate:status": "npm run prisma:migrate:status --workspace=apps/api",
     "prisma:studio": "dotenv -e .env -- npm run prisma:studio --workspace=apps/api",
-    "seed": "dotenv -e .env -- npm run seed --workspace=apps/api"
+    "seed": "dotenv -e .env -- npm run seed --workspace=apps/api",
+    "seed:release": "npm run seed:release --workspace=apps/api"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

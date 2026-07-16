@@ -138,21 +138,21 @@ export class AuthController {
     const maxAgeSec = this.parseExpiresInToSeconds(authConfig.refreshExpiresIn);
     const isProduction = env.nodeEnv === 'production';
 
-    res.cookie(COOKIE_NAME, token, this.refreshCookieOptions(isProduction, maxAgeSec * 1000));
+    res.cookie(COOKIE_NAME, token, this.refreshCookieOptions(isProduction, env.refreshCookieSameSite, maxAgeSec * 1000));
   }
 
   private clearRefreshCookie(res: Response, _req: Request): void {
     const env = validateEnvironment();
     const isProduction = env.nodeEnv === 'production';
 
-    res.clearCookie(COOKIE_NAME, this.refreshCookieOptions(isProduction));
+    res.clearCookie(COOKIE_NAME, this.refreshCookieOptions(isProduction, env.refreshCookieSameSite));
   }
 
-  private refreshCookieOptions(isProduction: boolean, maxAge?: number) {
+  private refreshCookieOptions(isProduction: boolean, sameSite: 'lax' | 'strict' | 'none', maxAge?: number) {
     return {
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'lax',
+      sameSite,
       path: COOKIE_PATH,
       ...(maxAge === undefined ? {} : { maxAge }),
     } as const;
@@ -175,9 +175,9 @@ export class AuthController {
     }
 
     try {
-      const allowedOrigin = new URL(env.corsOrigin).origin;
       const requestOrigin = new URL(String(candidate)).origin;
-      if (requestOrigin !== allowedOrigin) {
+      const allowedOrigins = env.corsOrigins.map((origin) => new URL(origin).origin);
+      if (!allowedOrigins.includes(requestOrigin)) {
         throw new Error('origin mismatch');
       }
     } catch {

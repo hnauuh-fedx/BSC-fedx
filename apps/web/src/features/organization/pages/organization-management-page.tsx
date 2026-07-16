@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PermissionGate } from '../../auth/components/permission-gate';
 import { useAuth } from '../../auth/hooks/use-auth';
+import { API_BASE_URL } from '../../../lib/api-base-url';
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge, TableContainer } from '../management-ui';
 
 type Tab = 'departments' | 'positions' | 'users';
@@ -19,7 +20,7 @@ export const OrganizationManagementPage: React.FC = () => {
     const token = getAccessToken();
     if (!token) { setLoading(false); return; }
     setLoading(true); setError(null); setItems([]);
-    void fetch(`/api/${tab}?limit=100`, { credentials: 'include', headers: { Authorization: `Bearer ${token}` } })
+    void fetch(`${API_BASE_URL}/${tab}?limit=100`, { credentials: 'include', headers: { Authorization: `Bearer ${token}` } })
       .then(async response => { if (!response.ok) throw new Error((await response.json().catch(() => ({}))).message ?? 'Không thể tải dữ liệu.'); return response.json() as Promise<{ items: Item[] }>; })
       .then(data => setItems(data.items))
       .catch((reason: unknown) => { setItems([]); setError(reason instanceof Error ? reason.message : 'Không thể tải dữ liệu.'); })

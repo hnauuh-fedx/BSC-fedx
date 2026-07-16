@@ -1,5 +1,6 @@
+import { API_BASE_URL } from './api-base-url';
+
 export class ApiError extends Error { constructor(public readonly status: number, public readonly code?: string) { super('API request failed'); } }
-declare const __API_BASE_URL__: string | undefined;
 const messages: Record<string, string> = {
   AUTH_PERMISSION_DENIED: 'Bạn không có quyền thực hiện thao tác này.', AUTH_SCOPE_DENIED: 'Bạn không có quyền truy cập phạm vi dữ liệu này.',
   DEPARTMENT_CODE_EXISTS: 'Mã đơn vị đã tồn tại.', DEPARTMENT_CYCLE: 'Quan hệ đơn vị cha tạo thành vòng lặp.', DEPARTMENT_HAS_ACTIVE_CHILDREN: 'Đơn vị còn đơn vị con đang hoạt động.', DEPARTMENT_HAS_ACTIVE_USERS: 'Đơn vị còn người dùng đang hoạt động.',
@@ -12,7 +13,6 @@ const messages: Record<string, string> = {
 type AuthHandlers = { getAccessToken: () => string | null; refresh: () => Promise<string | null>; onUnauthenticated: () => void };
 let auth: AuthHandlers | null = null;
 let refreshInFlight: Promise<string | null> | null = null;
-const API_BASE_URL = (typeof __API_BASE_URL__ === 'string' ? __API_BASE_URL__ : '/api').replace(/\/$/, '');
 export function configureHttpClient(handlers: AuthHandlers | null) { auth = handlers; }
 
 async function responseFor(path: string, init: RequestInit = {}, retry = true): Promise<Response> {

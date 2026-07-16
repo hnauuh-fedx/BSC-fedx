@@ -37,5 +37,5 @@ export class HealthService {
     };
   }
 
-  async check(): Promise<HealthResponse> { return this.ready(); }
+  check() { return this.live(); }
 }

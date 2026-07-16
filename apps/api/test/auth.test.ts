@@ -21,6 +21,7 @@ process.env.JWT_ACCESS_SECRET = 'test-access-secret-minimum-32-chars!';
 process.env.JWT_REFRESH_SECRET = 'test-refresh-secret-minimum-32-chars!';
 process.env.JWT_ACCESS_EXPIRES_IN = '15m';
 process.env.JWT_REFRESH_EXPIRES_IN = '7d';
+process.env.REFRESH_COOKIE_SAME_SITE = 'lax';
 process.env.CORS_ORIGIN = 'http://localhost:5173';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports

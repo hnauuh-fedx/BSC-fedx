@@ -11,7 +11,8 @@ export interface AppEnvironment {
   jwtRefreshSecret: string;
   jwtAccessExpiresIn: string;
   jwtRefreshExpiresIn: string;
-  corsOrigin: string;
+  corsOrigins: string[];
+  refreshCookieSameSite: 'lax' | 'strict' | 'none';
   trustProxy: number;
   logLevel: 'error' | 'warn' | 'log' | 'debug';
 }
@@ -70,15 +71,24 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): AppEn
   const databaseName = parseDatabaseName(databaseUrl);
   const accessSecret = String(env.JWT_ACCESS_SECRET);
   const refreshSecret = String(env.JWT_REFRESH_SECRET);
-  const corsOrigin = String(env.CORS_ORIGIN);
+  const corsOrigins = String(env.CORS_ORIGIN).split(',').map((item) => item.trim()).filter(Boolean);
+  const accessExpiresIn = String(env.JWT_ACCESS_EXPIRES_IN);
+  const refreshExpiresIn = String(env.JWT_REFRESH_EXPIRES_IN);
+  const refreshCookieSameSite = normalizeSameSite(env.REFRESH_COOKIE_SAME_SITE);
   const trustProxy = Number(env.TRUST_PROXY ?? 0);
   const logLevel = env.LOG_LEVEL === 'debug' ? 'debug' : env.LOG_LEVEL === 'warn' ? 'warn' : env.LOG_LEVEL === 'error' ? 'error' : 'log';
   if (!Number.isInteger(trustProxy) || trustProxy < 0 || trustProxy > 10) throw new Error('TRUST_PROXY must be an integer from 0 to 10');
+  validateExpiry('JWT_ACCESS_EXPIRES_IN', accessExpiresIn);
+  validateExpiry('JWT_REFRESH_EXPIRES_IN', refreshExpiresIn);
 
   if (nodeEnv === 'test' && databaseName === 'bsc_db') {
     throw new Error('Test environment must never use bsc_db');
   }
+  if (nodeEnv !== 'production' && refreshCookieSameSite === 'none') {
+    throw new Error('REFRESH_COOKIE_SAME_SITE=none requires production HTTPS');
+  }
   if (nodeEnv === 'production') {
+    if (!env.REFRESH_COOKIE_SAME_SITE) throw new Error('REFRESH_COOKIE_SAME_SITE must be explicitly configured in production');
     validateProductionSecret('JWT_ACCESS_SECRET', accessSecret);
     validateProductionSecret('JWT_REFRESH_SECRET', refreshSecret);
     if (accessSecret === refreshSecret) throw new Error('JWT access and refresh secrets must be different in production');
@@ -86,11 +96,13 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): AppEn
     if (env.LOG_LEVEL !== undefined && !['error', 'warn', 'info', 'log', 'debug'].includes(env.LOG_LEVEL)) throw new Error('LOG_LEVEL is invalid');
     if (databaseName === 'bsc_db') throw new Error('Production database must use an explicit environment-specific name, not bsc_db');
     if (/(^|[_-])test($|[_-])/.test(databaseName)) throw new Error('Production must not use a test database');
-    if (corsOrigin === '*' || corsOrigin.split(',').some((origin) => origin.trim() === '*')) {
+    if (corsOrigins.includes('*')) {
       throw new Error('CORS_ORIGIN cannot be wildcard when credentials are enabled');
     }
-    for (const origin of corsOrigin.split(',').map((item) => item.trim())) {
-      if (new URL(origin).protocol !== 'https:') throw new Error('Production CORS_ORIGIN must use HTTPS');
+    for (const origin of corsOrigins) {
+      const parsed = new URL(origin);
+      if (parsed.protocol !== 'https:') throw new Error('Production CORS_ORIGIN must use HTTPS');
+      if (parsed.origin !== origin.replace(/\/$/, '')) throw new Error('CORS_ORIGIN entries must be origins without paths, queries, or fragments');
     }
   }
 
@@ -100,9 +112,10 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): AppEn
     databaseUrl,
     jwtAccessSecret: accessSecret,
     jwtRefreshSecret: refreshSecret,
-    jwtAccessExpiresIn: String(env.JWT_ACCESS_EXPIRES_IN),
-    jwtRefreshExpiresIn: String(env.JWT_REFRESH_EXPIRES_IN),
-    corsOrigin,
+    jwtAccessExpiresIn: accessExpiresIn,
+    jwtRefreshExpiresIn: refreshExpiresIn,
+    corsOrigins,
+    refreshCookieSameSite,
     trustProxy,
     logLevel,
   };
@@ -117,6 +130,16 @@ function validateProductionSecret(key: string, value: string): void {
   if (value.length < 32 || /change[-_ ]?me|placeholder|example|secret/i.test(value)) {
     throw new Error(`${key} must be a non-placeholder secret of at least 32 characters in production`);
   }
+}
+
+function validateExpiry(key: string, value: string): void {
+  if (!/^[1-9]\d*(s|m|h|d)$/.test(value)) throw new Error(`${key} must be a positive duration using s, m, h, or d`);
+}
+
+function normalizeSameSite(value: string | undefined): 'lax' | 'strict' | 'none' {
+  const normalized = value?.trim().toLowerCase() ?? 'lax';
+  if (normalized === 'lax' || normalized === 'strict' || normalized === 'none') return normalized;
+  throw new Error('REFRESH_COOKIE_SAME_SITE must be lax, strict, or none');
 }
 
 function normalizeNodeEnv(value: string | undefined): NodeEnvironment {

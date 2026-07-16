@@ -3,8 +3,18 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      target: release
     env_file: .env.staging
-    command: ["../../node_modules/.bin/prisma", "migrate", "deploy", "--schema", "prisma/schema.prisma"]
+    restart: "no"
+
+  seed:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: release
+    env_file: .env.staging
+    command: ["../../node_modules/.bin/ts-node", "prisma/seed.ts"]
+    profiles: ["release-tools"]
     restart: "no"
 
   api:

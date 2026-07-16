@@ -37,7 +37,9 @@ class PrismaMockModule {}
 })
 class HealthTestModule {}
 
-test('GET /health returns the expected shape when the database is healthy', async () => {
+test('GET /health is a lightweight liveness check and does not query the database', async () => {
+  let queries = 0;
+  prismaMock.$queryRaw = async () => { queries += 1; return [{ '?column?': 1 }]; };
   const app = await NestFactory.create(HealthTestModule, { logger: false });
   app.useGlobalFilters(new GlobalExceptionFilter());
 
@@ -51,9 +53,10 @@ test('GET /health returns the expected shape when the database is healthy', asyn
 
     assert.equal(response.status, 200);
     assert.deepEqual(body.status, 'ok');
-    assert.deepEqual(body.database, { status: 'connected' });
-    assert.equal(typeof body.timestamp, 'string');
+    assert.deepEqual(body, { status: 'ok' });
+    assert.equal(queries, 0);
   } finally {
+    prismaMock.$queryRaw = async () => [{ '?column?': 1 }];
     await app.close();
   }
 });
