@@ -7,6 +7,7 @@ const employeePermissions = [
   'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own',
   'bsc.plan.history.view', 'bsc.evaluation.history.view',
   'bsc.reopen.request', 'bsc.version.view', 'bsc.duplicate.own',
+  'bsc.statistics.personal',
 ];
 const managerPermissions = [
   'bsc.view.subordinate', 'bsc.kpi.manage.subordinate',
@@ -14,6 +15,7 @@ const managerPermissions = [
   'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate',
   'bsc.plan.history.view', 'bsc.evaluation.history.view',
   'bsc.reopen.subordinate', 'bsc.version.view',
+  'bsc.statistics.unit', 'bsc.report.export',
 ];
 
 export default async function globalSetup() {

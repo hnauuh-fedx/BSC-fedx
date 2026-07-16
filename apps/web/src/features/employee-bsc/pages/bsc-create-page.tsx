@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { bscCyclesApi, BscCycle } from '../../bsc-cycles';
 import { EmptyState, ErrorState, FormField, LoadingState, PageHeader } from '../../organization/management-ui';
 import { employeeBscApi } from '../services/employee-bsc.service';
@@ -17,17 +17,21 @@ export const BscCreatePage: React.FC = () => {
   const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedCycleId = searchParams.get('cycleId');
 
   const loadCycles = useCallback(async () => {
     setLoading(true); setLoadError('');
     try {
       const result = await bscCyclesApi.open();
       setCycles(result);
-      setCycleId((current) => current && result.some((cycle) => cycle.id === current) ? current : (result[0]?.id ?? ''));
+      setCycleId((current) => current && result.some((cycle) => cycle.id === current)
+        ? current
+        : requestedCycleId && result.some((cycle) => cycle.id === requestedCycleId) ? requestedCycleId : (result[0]?.id ?? ''));
     } catch (cause) {
       setLoadError(cause instanceof Error ? cause.message : 'Không thể tải danh sách kỳ BSC.');
     } finally { setLoading(false); }
-  }, []);
+  }, [requestedCycleId]);
 
   useEffect(() => { void loadCycles(); }, [loadCycles]);
 

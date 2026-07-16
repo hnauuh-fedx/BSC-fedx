@@ -22,6 +22,7 @@
     "test:integration:bsc-dual-stage-workflow": "node ./test/run-bsc-dual-stage-workflow-integration.js",
     "test:integration:bsc-scoring-alignment": "node ./test/run-bsc-scoring-alignment-integration.js",
     "test:integration:bsc-reopen-version-duplicate": "node ./test/run-bsc-reopen-version-duplicate-integration.js",
+    "test:integration:bsc-reports": "node ./test/run-bsc-reports-integration.js",
     "report:bsc-scoring-alignment": "dotenv -e ../../.env -- ts-node scripts/report-bsc-scoring-alignment.ts",
     "report:bsc-version-backfill": "dotenv -e ../../.env.test.local -e ../../.env -- ts-node scripts/report-bsc-version-backfill.ts"
     ,"report:bsc-workflow-backfill-issues": "dotenv -e ../../.env.test.local -e ../../.env -- ts-node scripts/report-bsc-workflow-backfill-issues.ts"
@@ -45,6 +46,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "cookie-parser": "^1.4.7",
+    "exceljs": "^4.4.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.2.2",

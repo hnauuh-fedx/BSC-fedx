@@ -19,6 +19,10 @@ export const CANONICAL_BSC_WORKFLOW_PERMISSIONS = [
   'bsc.reopen.request', 'bsc.reopen.subordinate', 'bsc.version.view', 'bsc.duplicate.own',
 ] as const;
 
+export const CANONICAL_BSC_REPORT_PERMISSIONS = [
+  'bsc.statistics.personal', 'bsc.statistics.unit', 'bsc.statistics.organization', 'bsc.report.export',
+] as const;
+
 const legacyCode = (...segments: string[]) => ['system', ...segments].join('.');
 export const LEGACY_SYSTEM_PERMISSIONS = [
   legacyCode('audit', 'view'), legacyCode('bsc', 'config', 'manage'), legacyCode('organization', 'manage'),
@@ -38,7 +42,7 @@ export async function seedPermissions(client: Prisma.TransactionClient): Promise
     canonical.push(await client.permissions.upsert({ where: { code }, create: { code, name: code, module: moduleFor(code) }, update: {} }));
   }
   const bscPermissions = new Map<string, string>();
-  for (const code of [...CANONICAL_BSC_DRAFT_PERMISSIONS, ...CANONICAL_BSC_WORKFLOW_PERMISSIONS]) {
+  for (const code of [...CANONICAL_BSC_DRAFT_PERMISSIONS, ...CANONICAL_BSC_WORKFLOW_PERMISSIONS, ...CANONICAL_BSC_REPORT_PERMISSIONS]) {
     const permission = await client.permissions.upsert({ where: { code }, create: { code, name: code, module: 'bsc' }, update: {} });
     bscPermissions.set(code, permission.id);
   }
@@ -46,9 +50,9 @@ export async function seedPermissions(client: Prisma.TransactionClient): Promise
     await client.role_permissions.upsert({ where: { role_id_permission_id: { role_id: admin.id, permission_id: permission.id } }, create: { role_id: admin.id, permission_id: permission.id }, update: {} });
   }
   const roleMappings: Record<string, readonly string[]> = {
-    EMPLOYEE: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.request', 'bsc.version.view', 'bsc.duplicate.own'],
-    MANAGER: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own', 'bsc.view.subordinate', 'bsc.kpi.manage.subordinate', 'bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate', 'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.request', 'bsc.reopen.subordinate', 'bsc.version.view', 'bsc.duplicate.own'],
-    DIRECTOR: ['bsc.view.unit', 'bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate', 'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.subordinate', 'bsc.version.view'],
+    EMPLOYEE: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.request', 'bsc.version.view', 'bsc.duplicate.own', 'bsc.statistics.personal'],
+    MANAGER: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own', 'bsc.view.subordinate', 'bsc.kpi.manage.subordinate', 'bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate', 'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.request', 'bsc.reopen.subordinate', 'bsc.version.view', 'bsc.duplicate.own', 'bsc.statistics.personal', 'bsc.statistics.unit', 'bsc.report.export'],
+    DIRECTOR: ['bsc.view.unit', 'bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate', 'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.subordinate', 'bsc.version.view', 'bsc.statistics.organization', 'bsc.report.export'],
   };
   for (const [roleCode, codes] of Object.entries(roleMappings)) {
     const role = await client.roles.findUnique({ where: { code: roleCode } });

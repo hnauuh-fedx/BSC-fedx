@@ -7,6 +7,7 @@ import { DepartmentsModule } from './modules/departments/departments.module';
 import { PositionsModule } from './modules/positions/positions.module';
 import { UsersModule } from './modules/users/users.module';
 import { BscCyclesModule } from './modules/bsc-cycles/bsc-cycles.module';
+import { ReportsModule } from './modules/reports/reports.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { BscCyclesModule } from './modules/bsc-cycles/bsc-cycles.module';
     PositionsModule,
     UsersModule,
     BscCyclesModule,
+    ReportsModule,
   ],
 })
 export class AppModule {}

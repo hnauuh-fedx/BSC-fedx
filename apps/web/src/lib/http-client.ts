@@ -15,7 +15,7 @@ let refreshInFlight: Promise<string | null> | null = null;
 const API_BASE_URL = (typeof __API_BASE_URL__ === 'string' ? __API_BASE_URL__ : '/api').replace(/\/$/, '');
 export function configureHttpClient(handlers: AuthHandlers | null) { auth = handlers; }
 
-async function execute<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
+async function responseFor(path: string, init: RequestInit = {}, retry = true): Promise<Response> {
   const token = auth?.getAccessToken();
   const headers = new Headers(init.headers);
   if (token) headers.set('Authorization', `Bearer ${token}`);
@@ -24,10 +24,14 @@ async function execute<T>(path: string, init: RequestInit = {}, retry = true): P
   if (response.status === 401 && retry && path !== '/auth/refresh' && auth) {
     refreshInFlight ??= auth.refresh().finally(() => { refreshInFlight = null; });
     const refreshed = await refreshInFlight;
-    if (refreshed) return execute<T>(path, init, false);
+    if (refreshed) return responseFor(path, init, false);
     auth.onUnauthenticated();
   }
   if (!response.ok) { const body = await response.json().catch(() => ({})); const error = new ApiError(response.status, body.code); error.message = messages[body.code] ?? (typeof body.message === 'string' ? body.message : 'Không thể hoàn tất yêu cầu.'); throw error; }
+  return response;
+}
+async function execute<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await responseFor(path, init);
   return response.status === 204 ? undefined as T : response.json() as Promise<T>;
 }
 export const httpClient = {
@@ -35,4 +39,10 @@ export const httpClient = {
   post: <T>(path: string, body?: unknown) => execute<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }),
   patch: <T>(path: string, body: unknown) => execute<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: <T>(path: string) => execute<T>(path, { method: 'DELETE' }),
+  download: async (path: string) => {
+    const response = await responseFor(path);
+    const disposition = response.headers.get('content-disposition') ?? '';
+    const fileName = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? 'download.xlsx';
+    return { blob: await response.blob(), fileName };
+  },
 };

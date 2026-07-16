@@ -1,90 +1,61 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from '../../features/auth/hooks/use-auth';
 import { LoginPage } from '../../features/auth/pages/login-page';
-import { OrganizationManagementPage } from '../../features/organization/pages/organization-management-page';
-import { DepartmentsPage } from '../../features/organization/pages/departments-page';
-import { PositionsPage } from '../../features/organization/pages/positions-page';
-import { UsersPage } from '../../features/organization/pages/users-page';
-import { UserFormPage } from '../../features/organization/pages/user-form-page';
-import { UserDetailPage } from '../../features/organization/pages/user-detail-page';
-import { DepartmentEditPage } from '../../features/organization/pages/department-edit-page';
-import { PositionEditPage } from '../../features/organization/pages/position-edit-page';
 import { BscCreatePage, BscDetailPage, BscEditPage, BscListPage, BscPendingReviewPage, BscReopenRequestsPage } from '../../features/employee-bsc';
+import { DepartmentEditPage } from '../../features/organization/pages/department-edit-page';
+import { DepartmentsPage } from '../../features/organization/pages/departments-page';
+import { OrganizationManagementPage } from '../../features/organization/pages/organization-management-page';
+import { PositionEditPage } from '../../features/organization/pages/position-edit-page';
+import { PositionsPage } from '../../features/organization/pages/positions-page';
+import { UserDetailPage } from '../../features/organization/pages/user-detail-page';
+import { UserFormPage } from '../../features/organization/pages/user-form-page';
+import { UsersPage } from '../../features/organization/pages/users-page';
+import { BscReportPage, DashboardPage } from '../../features/reports';
+import { MainLayout } from '../layouts/main-layout';
 
-/**
- * ProtectedRoute — redirect về /login nếu chưa xác thực.
- * Hiển thị loading screen khi đang restore session.
- */
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated, isLoading } = useAuth();
-
-  if (isLoading) {
-    return (
-      <div className="app-loading" aria-label="Đang tải...">
-        <div className="app-loading-spinner" />
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-
+  if (isLoading) return <div className="app-loading" aria-label="Đang tải..."><div className="app-loading-spinner" /></div>;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <>{children}</>;
 };
-
-/** Placeholder cho dashboard — sẽ triển khai trong phase sau */
-const DashboardPlaceholder: React.FC = () => {
-  const { user, logout } = useAuth();
-  return (
-    <div style={{ padding: 32 }}>
-      <h1>Chào mừng, {user?.fullName}</h1>
-      <p>Dashboard sẽ được triển khai trong Phase 2B.</p>
-      <button id="btn-logout" onClick={() => void logout()}>
-        Đăng xuất
-      </button>
-    </div>
-  );
+const ProtectedPage: React.FC<{ children: React.ReactNode }> = ({ children }) => <ProtectedRoute><MainLayout>{children}</MainLayout></ProtectedRoute>;
+const REPORT_PERMISSIONS = ['bsc.statistics.personal', 'bsc.statistics.unit', 'bsc.statistics.organization'];
+const HomePage: React.FC = () => {
+  const { user } = useAuth();
+  return user?.permissions.some(permission => REPORT_PERMISSIONS.includes(permission))
+    ? <DashboardPage/>
+    : <main><h1 className="text-3xl font-semibold">BSC Management</h1><p className="mt-3">Chọn chức năng phù hợp từ thanh điều hướng.</p></main>;
+};
+const ReportDashboardRoute: React.FC = () => {
+  const { user } = useAuth();
+  return user?.permissions.some(permission => REPORT_PERMISSIONS.includes(permission)) ? <DashboardPage/> : <Navigate to="/" replace/>;
+};
+const BscReportRoute: React.FC = () => {
+  const { user } = useAuth();
+  return user?.permissions.some(permission => REPORT_PERMISSIONS.includes(permission)) ? <BscReportPage/> : <Navigate to="/" replace/>;
 };
 
-export const AppRouter: React.FC = () => {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute>
-              <DashboardPlaceholder />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="/management/organization" element={<ProtectedRoute><OrganizationManagementPage /></ProtectedRoute>} />
-        <Route path="/management/departments" element={<ProtectedRoute><DepartmentsPage /></ProtectedRoute>} />
-        <Route path="/management/departments/:id/edit" element={<ProtectedRoute><DepartmentEditPage /></ProtectedRoute>} />
-        <Route path="/management/positions" element={<ProtectedRoute><PositionsPage /></ProtectedRoute>} />
-        <Route path="/management/positions/:id/edit" element={<ProtectedRoute><PositionEditPage /></ProtectedRoute>} />
-        <Route path="/management/users" element={<ProtectedRoute><UsersPage /></ProtectedRoute>} />
-        <Route path="/management/users/new" element={<ProtectedRoute><UserFormPage /></ProtectedRoute>} />
-        <Route path="/management/users/:id" element={<ProtectedRoute><UserDetailPage /></ProtectedRoute>} />
-        <Route path="/management/users/:id/edit" element={<ProtectedRoute><UserFormPage /></ProtectedRoute>} />
-        <Route path="/employee-bsc" element={<ProtectedRoute><BscListPage /></ProtectedRoute>} />
-        <Route path="/employee-bsc/new" element={<ProtectedRoute><BscCreatePage /></ProtectedRoute>} />
-        <Route path="/employee-bsc/:id" element={<ProtectedRoute><BscDetailPage /></ProtectedRoute>} />
-        <Route path="/employee-bsc/:id/edit" element={<ProtectedRoute><BscEditPage /></ProtectedRoute>} />
-        <Route path="/management/bsc-reviews" element={<ProtectedRoute><BscPendingReviewPage /></ProtectedRoute>} />
-        <Route path="/management/bsc-reopen-requests" element={<ProtectedRoute><BscReopenRequestsPage /></ProtectedRoute>} />
-        <Route
-          path="*"
-          element={
-            <ProtectedRoute>
-              <Navigate to="/" replace />
-            </ProtectedRoute>
-          }
-        />
-      </Routes>
-    </BrowserRouter>
-  );
-};
+export const AppRouter: React.FC = () => <BrowserRouter><Routes>
+  <Route path="/login" element={<LoginPage />} />
+  <Route path="/" element={<ProtectedPage><HomePage /></ProtectedPage>} />
+  <Route path="/dashboard" element={<ProtectedPage><ReportDashboardRoute /></ProtectedPage>} />
+  <Route path="/reports/bsc" element={<ProtectedPage><BscReportRoute /></ProtectedPage>} />
+  <Route path="/management/organization" element={<ProtectedPage><OrganizationManagementPage /></ProtectedPage>} />
+  <Route path="/management/departments" element={<ProtectedPage><DepartmentsPage /></ProtectedPage>} />
+  <Route path="/management/departments/:id/edit" element={<ProtectedPage><DepartmentEditPage /></ProtectedPage>} />
+  <Route path="/management/positions" element={<ProtectedPage><PositionsPage /></ProtectedPage>} />
+  <Route path="/management/positions/:id/edit" element={<ProtectedPage><PositionEditPage /></ProtectedPage>} />
+  <Route path="/management/users" element={<ProtectedPage><UsersPage /></ProtectedPage>} />
+  <Route path="/management/users/new" element={<ProtectedPage><UserFormPage /></ProtectedPage>} />
+  <Route path="/management/users/:id" element={<ProtectedPage><UserDetailPage /></ProtectedPage>} />
+  <Route path="/management/users/:id/edit" element={<ProtectedPage><UserFormPage /></ProtectedPage>} />
+  <Route path="/employee-bsc" element={<ProtectedPage><BscListPage /></ProtectedPage>} />
+  <Route path="/employee-bsc/new" element={<ProtectedPage><BscCreatePage /></ProtectedPage>} />
+  <Route path="/employee-bsc/:id" element={<ProtectedPage><BscDetailPage /></ProtectedPage>} />
+  <Route path="/employee-bsc/:id/edit" element={<ProtectedPage><BscEditPage /></ProtectedPage>} />
+  <Route path="/management/bsc-reviews" element={<ProtectedPage><BscPendingReviewPage /></ProtectedPage>} />
+  <Route path="/management/bsc-reopen-requests" element={<ProtectedPage><BscReopenRequestsPage /></ProtectedPage>} />
+  <Route path="*" element={<ProtectedRoute><Navigate to="/" replace /></ProtectedRoute>} />
+</Routes></BrowserRouter>;
