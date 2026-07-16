@@ -35,7 +35,6 @@ export class EmployeeBscService {
       throw new BadRequestException({ code: 'BSC_OWNER_REQUIRED', message: 'Chủ sở hữu BSC phải đang hoạt động.' });
     }
     if (!cycle) throw new NotFoundException({ code: 'BSC_CYCLE_NOT_FOUND', message: 'Không tìm thấy kỳ BSC.' });
-    if (cycle.status !== 'OPEN') throw new BadRequestException({ code: 'BSC_CYCLE_NOT_OPEN', message: 'Kỳ BSC chưa mở hoặc đã đóng.' });
     if (employee.departments.status !== 'ACTIVE' || employee.positions.status !== 'ACTIVE') {
       throw new BadRequestException({ code: 'BSC_OWNER_ORGANIZATION_INACTIVE', message: 'Đơn vị và chức danh của người lập phải đang hoạt động.' });
     }
@@ -398,6 +397,7 @@ export class EmployeeBscService {
       employeeId: snapshot.employee_id, directManagerId: snapshot.direct_manager_id, departmentId: snapshot.department_id,
       planStatus: snapshot.plan_status, evaluationStatus: snapshot.evaluation_status, cycleStatus: snapshot.cycle_status,
       submissionDeadline: snapshot.submission_deadline,
+      startDate: snapshot.start_date, endDate: snapshot.end_date,
       ownerActive: snapshot.owner_status === 'ACTIVE' && snapshot.owner_deleted_at === null,
       ownerOrganizationActive: snapshot.department_status === 'ACTIVE' && snapshot.position_status === 'ACTIVE',
       reviewerActive: snapshot.reviewer_status === 'ACTIVE' && snapshot.reviewer_deleted_at === null

@@ -40,6 +40,18 @@ async function main() {
   } finally {
     await fresh.$disconnect();
   }
+
+  const drift = spawnSync('npx', [
+    'prisma', 'migrate', 'diff',
+    '--from-migrations', 'prisma/migrations',
+    '--to-schema-datamodel', 'prisma/schema.prisma',
+    '--shadow-database-url', freshUrl.toString(),
+    '--exit-code',
+  ], {
+    cwd: path.resolve(__dirname, '..'), env, stdio: 'inherit', shell: process.platform === 'win32',
+  });
+  if (drift.status !== 0) throw new Error(`Fresh migration schema drift detected (code ${drift.status})`);
+  console.log('Schema drift: NONE');
 }
 
 main().finally(async () => {

@@ -11,7 +11,7 @@ describe('AdministrationHome', () => {
     expect(screen.getByRole('link', { name: 'Người dùng' })).toHaveAttribute('href', '/management/users');
     expect(screen.getByRole('link', { name: 'Đơn vị' })).toHaveAttribute('href', '/management/departments');
     expect(screen.getByRole('link', { name: 'Chức danh' })).toHaveAttribute('href', '/management/positions');
-    expect(screen.getByText('Kỳ BSC')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Kỳ BSC' })).toHaveAttribute('href', '/management/bsc-cycles');
     expect(screen.getByText('Mẫu BSC')).toBeVisible();
     expect(screen.getByText('Nhật ký hệ thống')).toBeVisible();
   });
@@ -23,6 +23,6 @@ describe('AdministrationHome', () => {
     expect(screen.getByText('Thao tác người dùng')).toBeVisible();
     expect(screen.getByText('Quản lý đơn vị')).toBeVisible();
     expect(screen.getByText('Phân quyền')).toBeVisible();
-    expect(screen.getByText('Kỳ BSC')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Kỳ BSC' })).toHaveAttribute('href', '/management/bsc-cycles');
   });
 });

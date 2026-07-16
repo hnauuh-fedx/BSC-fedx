@@ -253,9 +253,9 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       const reset = await prisma.employee_bsc.findUniqueOrThrow({ where: { id: record.id }, include: { employee_bsc_items: true } });
       assert.equal(reset.plan_status, 'REOPENED'); assert.equal(reset.evaluation_status, 'NOT_STARTED');
       assert.equal(reset.employee_bsc_items[0].actual_value, null); assert.equal(reset.final_score, null);
+      await prisma.bsc_cycles.update({ where: { id: record.cycle_id }, data: { status: 'OPEN' } });
       await expectHttp(request(server).patch(`/employee-bsc/${record.id}/items/${record.item.id}`).set(auth(tokens.employee)).send({ targetValue: 120 }), 200);
       await expectHttp(request(server).patch(`/employee-bsc/${record.id}/items/${record.item.id}/actual`).set(auth(tokens.employee)).send({ actualValue: 100 }), 403);
-      await prisma.bsc_cycles.update({ where: { id: record.cycle_id }, data: { status: 'OPEN' } });
       await approvePlan(record);
       const current = await prisma.employee_bsc.findUniqueOrThrow({ where: { id: record.id } });
       assert.equal(current.plan_status, 'APPROVED'); assert.equal(current.evaluation_status, 'DRAFT');

@@ -12,7 +12,7 @@ import { BscDuplicateOptions, BscReopenRequest, BscScoringPreview, BscVersionDet
 
 type WorkflowAction = 'submitPlan' | 'approvePlan' | 'returnPlan' | 'submitEvaluation' | 'approveEvaluation' | 'returnEvaluation';
 type Stage = 'PLAN' | 'EVALUATION';
-const formatDate = (value?: string | null) => value ? new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—';
+const formatDate = (value?: string | null) => value ? new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—';
 const stageLabel = (stage: string) => stage === 'PLAN' ? 'Kế hoạch' : stage === 'EVALUATION' ? 'Kết quả đánh giá' : 'Toàn bộ BSC';
 const versionTypeLabel = (type: string) => ({ PLAN_APPROVED: 'Kế hoạch đã duyệt', EVALUATION_APPROVED: 'Kết quả đã duyệt', PRE_REOPEN: 'Trước khi mở lại' }[type] ?? 'Phiên bản BSC');
 
@@ -109,17 +109,26 @@ export const BscDetailPage: React.FC = () => {
   if (!bsc) return <main><EmptyState message="Không tìm thấy BSC."/></main>;
 
   const isOwner = state.user?.id === bsc.employee_id, isReviewer = state.user?.id === bsc.direct_manager_id;
+  const cycleOpen = bsc.bsc_cycles.status === 'OPEN';
+  const currentTime = Date.now();
+  const beforeDeadline = (value?: string | null) => !value || currentTime <= new Date(value).getTime();
+  const evaluationSubmitWindow = beforeDeadline(bsc.bsc_cycles.submission_deadline);
+  const cycleBlockReason = bsc.bsc_cycles.status === 'LOCKED' ? 'Kỳ BSC đang bị khóa. Chủ sở hữu tạm thời không thể tạo, sửa hoặc nộp BSC.'
+    : bsc.bsc_cycles.status === 'CLOSED' ? 'Kỳ BSC đang ở trạng thái CLOSED lịch sử.'
+    : bsc.bsc_cycles.status === 'DRAFT' ? 'Kỳ BSC chưa mở.'
+    : !evaluationSubmitWindow && ['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.evaluation_status) ? 'Đã quá hạn nộp kết quả đánh giá.' : null;
   const planEditable = ['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.plan_status) && bsc.evaluation_status === 'NOT_STARTED';
   const evaluationEditable = bsc.plan_status === 'APPROVED' && ['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.evaluation_status);
-  const canManage = planEditable && ((bsc.plan_status === 'REOPENED' && isOwner && permissions.includes(BSC_PERMISSIONS.EDIT_OWN))
+  const canManage = cycleOpen && planEditable && ((bsc.plan_status === 'REOPENED' && isOwner && permissions.includes(BSC_PERMISSIONS.EDIT_OWN))
     || (isReviewer && permissions.includes(BSC_PERMISSIONS.MANAGE_KPI)));
-  const canActual = evaluationEditable && isOwner && permissions.some(value => value === BSC_PERMISSIONS.EDIT_OWN || value === BSC_PERMISSIONS.UPDATE_ACTUAL);
-  const canSubmitPlan = planEditable && isOwner && permissions.includes(BSC_PERMISSIONS.SUBMIT_PLAN_OWN);
-  const canSubmitEvaluation = evaluationEditable && isOwner && permissions.includes(BSC_PERMISSIONS.SUBMIT_EVALUATION_OWN);
-  const canApprovePlan = bsc.plan_status === 'SUBMITTED' && isReviewer && permissions.includes(BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE);
-  const canReturnPlan = bsc.plan_status === 'SUBMITTED' && isReviewer && permissions.includes(BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE);
-  const canApproveEvaluation = bsc.evaluation_status === 'SUBMITTED' && isReviewer && permissions.includes(BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE);
-  const canReturnEvaluation = bsc.evaluation_status === 'SUBMITTED' && isReviewer && permissions.includes(BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE);
+  const canActual = cycleOpen && evaluationEditable && isOwner && permissions.some(value => value === BSC_PERMISSIONS.EDIT_OWN || value === BSC_PERMISSIONS.UPDATE_ACTUAL);
+  const canSubmitPlan = cycleOpen && planEditable && isOwner && permissions.includes(BSC_PERMISSIONS.SUBMIT_PLAN_OWN);
+  const canSubmitEvaluation = cycleOpen && evaluationSubmitWindow && evaluationEditable && isOwner && permissions.includes(BSC_PERMISSIONS.SUBMIT_EVALUATION_OWN);
+  const reviewCycleAllowed = ['OPEN', 'LOCKED'].includes(bsc.bsc_cycles.status);
+  const canApprovePlan = reviewCycleAllowed && bsc.plan_status === 'SUBMITTED' && isReviewer && permissions.includes(BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE);
+  const canReturnPlan = reviewCycleAllowed && bsc.plan_status === 'SUBMITTED' && isReviewer && permissions.includes(BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE);
+  const canApproveEvaluation = reviewCycleAllowed && bsc.evaluation_status === 'SUBMITTED' && isReviewer && permissions.includes(BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE);
+  const canReturnEvaluation = reviewCycleAllowed && bsc.evaluation_status === 'SUBMITTED' && isReviewer && permissions.includes(BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE);
   const planPending = reopenRequests.some(value => value.stage === 'PLAN' && value.status === 'PENDING');
   const evaluationPending = reopenRequests.some(value => value.stage === 'EVALUATION' && value.status === 'PENDING');
   const canRequestPlan = isOwner && bsc.plan_status === 'APPROVED' && !planPending && permissions.includes(BSC_PERMISSIONS.REQUEST_REOPEN);
@@ -136,11 +145,12 @@ export const BscDetailPage: React.FC = () => {
 
   return <main>
     <PageHeader title={bsc.bsc_code} description={`${bsc.users_employee_bsc_employee_idTousers.full_name} · ${bsc.bsc_cycles.name}`} breadcrumb={<Link to="/employee-bsc">BSC / Chi tiết</Link>} action={<Link to="/employee-bsc">Quay lại danh sách</Link>}/>
+    {cycleBlockReason && <p role="alert">{cycleBlockReason}</p>}
     {bsc.plan_status === 'RETURNED' && planReturn && <section role="alert"><h2>Nội dung BSC bị trả lại</h2><p>{planReturn.comment}</p><p>Bởi {planReturn.users.full_name}, {formatDate(planReturn.changed_at)}</p></section>}
     {bsc.evaluation_status === 'RETURNED' && evaluationReturn && <section role="alert"><h2>Kết quả đánh giá bị trả lại</h2><p>{evaluationReturn.comment}</p><p>Bởi {evaluationReturn.users.full_name}, {formatDate(evaluationReturn.changed_at)}</p></section>}
     {bsc.plan_status === 'REOPENED' && <p role="alert">Kế hoạch đã được mở lại. Dữ liệu đánh giá active đã đặt lại; hãy sửa và gửi duyệt kế hoạch lại.</p>}
     {bsc.evaluation_status === 'REOPENED' && <p role="alert">Kết quả đã được mở lại. Định nghĩa KPI vẫn khóa và điểm hiện tại chỉ là dự kiến.</p>}
-    <section aria-labelledby="general-information"><h2 id="general-information">Thông tin chung</h2><dl><dt>Nhân viên</dt><dd>{bsc.users_employee_bsc_employee_idTousers.full_name}</dd><dt>Kỳ</dt><dd>{bsc.bsc_cycles.name}</dd><dt>Đơn vị</dt><dd>{bsc.departments.name}</dd>
+    <section aria-labelledby="general-information"><h2 id="general-information">Thông tin chung</h2><dl><dt>Nhân viên</dt><dd>{bsc.users_employee_bsc_employee_idTousers.full_name}</dd><dt>Kỳ</dt><dd>{bsc.bsc_cycles.name} · {bsc.bsc_cycles.status}</dd><dt>Hạn nộp kết quả đánh giá</dt><dd>{formatDate(bsc.bsc_cycles.submission_deadline)}</dd><dt>Đơn vị</dt><dd>{bsc.departments.name}</dd>
       <dt>Duyệt nội dung BSC</dt><dd><BscStatusBadge status={bsc.plan_status}/></dd><dt>Đánh giá kết quả</dt><dd><BscStatusBadge status={bsc.evaluation_status}/></dd>
       <dt>Quản lý trực tiếp</dt><dd>{bsc.users_employee_bsc_direct_manager_idTousers?.full_name ?? '—'}</dd><dt>Ngày gửi nội dung</dt><dd>{formatDate(bsc.plan_submitted_at)}</dd><dt>Ngày duyệt nội dung</dt><dd>{formatDate(bsc.plan_approved_at)}</dd>
       <dt>Ngày gửi kết quả</dt><dd>{formatDate(bsc.evaluation_submitted_at)}</dd><dt>Ngày duyệt kết quả</dt><dd>{formatDate(bsc.evaluation_approved_at)}</dd>
@@ -148,8 +158,8 @@ export const BscDetailPage: React.FC = () => {
       <dt>Ghi chú</dt><dd>{bsc.employee_comment || '—'}</dd>{bsc.source_bsc_id && <><dt>Nguồn sao chép</dt><dd>{bsc.source_bsc_id} / {bsc.source_bsc_version_id}</dd></>}
     </dl></section>
     {bsc.plan_status === 'SUBMITTED' && <p>Đang chờ duyệt nội dung BSC.</p>}{bsc.evaluation_status === 'SUBMITTED' && <p>Đang chờ duyệt kết quả.</p>}
-    <div className="action-bar" aria-label="Thao tác BSC">{isOwner && planEditable && <PermissionGate permission={BSC_PERMISSIONS.EDIT_OWN}><Link to={`/employee-bsc/${bsc.id}/edit`}>Sửa ghi chú</Link></PermissionGate>} {' '}
-    {isOwner && bsc.plan_status === 'DRAFT' && bsc.evaluation_status === 'NOT_STARTED' && <PermissionGate permission={BSC_PERMISSIONS.DELETE_OWN}><button onClick={() => void remove()}>Xóa BSC</button></PermissionGate>} {' '}
+    <div className="action-bar" aria-label="Thao tác BSC">{isOwner && cycleOpen && planEditable && <PermissionGate permission={BSC_PERMISSIONS.EDIT_OWN}><Link to={`/employee-bsc/${bsc.id}/edit`}>Sửa ghi chú</Link></PermissionGate>} {' '}
+    {isOwner && cycleOpen && bsc.plan_status === 'DRAFT' && bsc.evaluation_status === 'NOT_STARTED' && <PermissionGate permission={BSC_PERMISSIONS.DELETE_OWN}><button onClick={() => void remove()}>Xóa BSC</button></PermissionGate>} {' '}
     {canSubmitPlan && <button disabled={Boolean(action) || !planComplete} title={!planComplete ? 'Tổng trọng số KPI phải bằng 100%' : undefined} onClick={() => void runAction('submitPlan')}>{action === 'submitPlan' ? 'Đang gửi…' : 'Gửi duyệt BSC'}</button>} {' '}
     {canApprovePlan && <button disabled={Boolean(action)} onClick={() => void runAction('approvePlan')}>Duyệt BSC</button>} {' '}
     {canReturnPlan && <button disabled={Boolean(action)} onClick={() => setReturnStage('PLAN')}>Trả lại BSC</button>} {' '}

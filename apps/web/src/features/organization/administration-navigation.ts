@@ -17,6 +17,12 @@ export const ADMINISTRATION_DESTINATIONS = [
     description: 'Quản lý danh mục chức danh trong tổ chức.',
     href: '/management/positions',
   },
+  {
+    permissions: ['bsc.period.view', 'bsc.period.manage'],
+    label: 'Kỳ BSC',
+    description: 'Cấu hình timeline, mở, khóa và đóng kỳ BSC.',
+    href: '/management/bsc-cycles',
+  },
 ] as const;
 
 export const ADMINISTRATION_CAPABILITIES = [

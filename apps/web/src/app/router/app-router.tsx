@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from '../../features/auth/hooks/use-auth';
 import { LoginPage } from '../../features/auth/pages/login-page';
 import { BscCreatePage, BscDetailPage, BscEditPage, BscListPage, BscPendingReviewPage, BscReopenRequestsPage } from '../../features/employee-bsc';
+import { BscCycleDetailPage, BscCycleFormPage, BscCyclesPage } from '../../features/bsc-cycles';
 import { DepartmentEditPage } from '../../features/organization/pages/department-edit-page';
 import { ADMINISTRATION_PERMISSIONS } from '../../features/organization/administration-navigation';
 import { AdministrationHome } from '../../features/organization/pages/administration-home';
@@ -54,6 +55,10 @@ export const AppRouter: React.FC = () => <BrowserRouter><Routes>
   <Route path="/management/users/new" element={<ProtectedPage><UserFormPage /></ProtectedPage>} />
   <Route path="/management/users/:id" element={<ProtectedPage><UserDetailPage /></ProtectedPage>} />
   <Route path="/management/users/:id/edit" element={<ProtectedPage><UserFormPage /></ProtectedPage>} />
+  <Route path="/management/bsc-cycles" element={<ProtectedPage><BscCyclesPage /></ProtectedPage>} />
+  <Route path="/management/bsc-cycles/new" element={<ProtectedPage><BscCycleFormPage /></ProtectedPage>} />
+  <Route path="/management/bsc-cycles/:id" element={<ProtectedPage><BscCycleDetailPage /></ProtectedPage>} />
+  <Route path="/management/bsc-cycles/:id/edit" element={<ProtectedPage><BscCycleFormPage /></ProtectedPage>} />
   <Route path="/employee-bsc" element={<ProtectedPage><BscListPage /></ProtectedPage>} />
   <Route path="/employee-bsc/new" element={<ProtectedPage><BscCreatePage /></ProtectedPage>} />
   <Route path="/employee-bsc/:id" element={<ProtectedPage><BscDetailPage /></ProtectedPage>} />

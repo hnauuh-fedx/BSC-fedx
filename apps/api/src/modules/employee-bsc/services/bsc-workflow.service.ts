@@ -3,6 +3,7 @@ import { ResourceScopePolicy } from '../../../common/policies/resource-scope.pol
 import { AuthUser } from '../../../common/types/auth-user.type';
 import { BSC_PERMISSIONS } from '../policies/bsc-access.policy';
 import { BscScoringResult } from './bsc-scoring.service';
+import { BscCyclePolicy, CycleTiming } from '../../bsc-cycles/bsc-cycle.policy';
 
 export type PlanStatus = 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'REOPENED';
 export type EvaluationStatus = 'NOT_STARTED' | 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'REOPENED';
@@ -17,6 +18,8 @@ export interface WorkflowBscContext {
   evaluationStatus: string;
   cycleStatus: string;
   submissionDeadline: Date;
+  startDate: Date;
+  endDate: Date;
   ownerActive: boolean;
   ownerOrganizationActive: boolean;
   reviewerActive: boolean;
@@ -46,7 +49,7 @@ const SUPPORTED_METHODS = new Set(['ACTUAL_DIV_TARGET', 'TARGET_DIV_ACTUAL', 'BI
 
 @Injectable()
 export class BscWorkflowService {
-  constructor(private readonly scope: ResourceScopePolicy) {}
+  constructor(private readonly scope: ResourceScopePolicy, private readonly cyclePolicy: BscCyclePolicy) {}
 
   assertPlanTransition(fromStatus: string, action: PlanAction): PlanStatus {
     const target = PLAN_TRANSITIONS[action][fromStatus as PlanStatus];
@@ -63,7 +66,8 @@ export class BscWorkflowService {
   assertCanSubmitPlan(actor: AuthUser, bsc: WorkflowBscContext, definition: PlanDefinitionValidation, now = new Date()): void {
     this.assertOwner(actor, bsc, BSC_PERMISSIONS.SUBMIT_PLAN_OWN);
     this.assertPlanTransition(bsc.planStatus, 'SUBMIT_PLAN');
-    this.assertCommonActiveContext(bsc, now, false);
+    this.cyclePolicy.assertCycleAllowsPlanWork(this.cycleTiming(bsc));
+    this.assertCommonActiveContext(bsc);
     this.assertPlanDefinitionComplete(definition);
   }
 
@@ -93,13 +97,15 @@ export class BscWorkflowService {
     this.assertOwner(actor, bsc, BSC_PERMISSIONS.SUBMIT_EVALUATION_OWN);
     if (bsc.planStatus !== 'APPROVED') this.badRequest('BSC_EVALUATION_NOT_AVAILABLE', 'Chỉ được đánh giá sau khi kế hoạch được duyệt.');
     this.assertEvaluationTransition(bsc.evaluationStatus, 'SUBMIT_EVALUATION');
-    this.assertCommonActiveContext(bsc, now, true);
+    this.cyclePolicy.assertCycleAllowsEvaluationSubmit(this.cycleTiming(bsc), now);
+    this.assertCommonActiveContext(bsc);
     this.assertEvaluationScoringComplete(scoring);
   }
 
   assertCanReviewPlan(actor: AuthUser, bsc: WorkflowBscContext, action: 'APPROVE_PLAN' | 'RETURN_PLAN', reason?: string): string | null {
     this.assertReviewer(actor, bsc, action === 'APPROVE_PLAN' ? BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE : BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE);
     this.assertPlanTransition(bsc.planStatus, action);
+    this.cyclePolicy.assertCycleAllowsReview(this.cycleTiming(bsc));
     return action === 'RETURN_PLAN' ? this.normalizeReturnReason(reason, 'BSC_PLAN_RETURN_REASON_REQUIRED') : null;
   }
 
@@ -107,6 +113,7 @@ export class BscWorkflowService {
     if (bsc.planStatus !== 'APPROVED') this.badRequest('BSC_EVALUATION_NOT_AVAILABLE', 'Kế hoạch chưa được duyệt.');
     this.assertReviewer(actor, bsc, action === 'APPROVE_EVALUATION' ? BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE : BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE);
     this.assertEvaluationTransition(bsc.evaluationStatus, action);
+    this.cyclePolicy.assertCycleAllowsReview(this.cycleTiming(bsc));
     return action === 'RETURN_EVALUATION' ? this.normalizeReturnReason(reason, 'BSC_EVALUATION_RETURN_REASON_REQUIRED') : null;
   }
 
@@ -118,18 +125,22 @@ export class BscWorkflowService {
   private assertReviewer(actor: AuthUser, bsc: WorkflowBscContext, permission: string): void {
     if (actor.id === bsc.employeeId) throw new ForbiddenException({ code: 'BSC_SELF_APPROVAL_FORBIDDEN', message: 'Không thể tự duyệt hoặc trả lại BSC của chính mình.' });
     if (!actor.permissions.includes(permission) || actor.id !== bsc.directManagerId || !this.scope.canAccessDepartment(actor, bsc.departmentId)) this.deny();
-    if (bsc.cycleStatus !== 'OPEN') this.badRequest('BSC_CYCLE_NOT_OPEN', 'Kỳ BSC không còn mở.');
     if (actor.status !== 'ACTIVE' || !bsc.reviewerActive) this.badRequest('BSC_REVIEWER_INACTIVE', 'Người duyệt không còn hoạt động.');
     if (!bsc.ownerActive) this.badRequest('BSC_OWNER_INACTIVE', 'Chủ sở hữu BSC không còn hoạt động.');
     if (!bsc.ownerOrganizationActive) this.badRequest('BSC_OWNER_ORGANIZATION_INACTIVE', 'Đơn vị hoặc chức danh của chủ sở hữu không còn hoạt động.');
   }
 
-  private assertCommonActiveContext(bsc: WorkflowBscContext, now: Date, enforceSubmissionDeadline: boolean): void {
-    if (bsc.cycleStatus !== 'OPEN') this.badRequest('BSC_CYCLE_NOT_OPEN', 'Kỳ BSC không còn mở.');
-    if (enforceSubmissionDeadline && bsc.submissionDeadline.getTime() < now.getTime()) this.badRequest('BSC_SUBMISSION_DEADLINE_PASSED', 'Đã quá hạn nộp kết quả BSC.');
+  private assertCommonActiveContext(bsc: WorkflowBscContext): void {
     if (!bsc.ownerActive) this.badRequest('BSC_OWNER_INACTIVE', 'Chủ sở hữu BSC không còn hoạt động.');
     if (!bsc.ownerOrganizationActive) this.badRequest('BSC_OWNER_ORGANIZATION_INACTIVE', 'Đơn vị hoặc chức danh của chủ sở hữu không còn hoạt động.');
     if (!bsc.reviewerActive) this.badRequest('BSC_APPROVER_REQUIRED', 'Không xác định được quản lý trực tiếp đang hoạt động.');
+  }
+
+  private cycleTiming(bsc: WorkflowBscContext): CycleTiming {
+    return {
+      status: bsc.cycleStatus, startDate: bsc.startDate, endDate: bsc.endDate,
+      submissionDeadline: bsc.submissionDeadline,
+    };
   }
 
   private normalizeReturnReason(reason: string | undefined, code: string): string {

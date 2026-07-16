@@ -8,6 +8,7 @@ import { QueryEmployeeBscDto } from '../dto/query-employee-bsc.dto';
 import { QueryReopenRequestDto } from '../dto/reopen-bsc.dto';
 import { assertTotalWeight } from '../validators/bsc-item.validator';
 import { BscScoringResult } from '../services/bsc-scoring.service';
+import { BscCycleBusinessAction, BscCyclePolicy, CycleTiming } from '../../bsc-cycles/bsc-cycle.policy';
 
 const bscAccessSelect = {
   id: true,
@@ -42,7 +43,10 @@ const bscDetailSelect = {
   final_grade: true,
   created_at: true,
   updated_at: true,
-  bsc_cycles: { select: { id: true, code: true, name: true, cycle_type: true, year: true, month: true, quarter: true, status: true } },
+  bsc_cycles: { select: {
+    id: true, code: true, name: true, cycle_type: true, year: true, month: true, quarter: true, status: true,
+    start_date: true, end_date: true, submission_deadline: true,
+  } },
   users_employee_bsc_employee_idTousers: { select: { id: true, employee_code: true, full_name: true, email: true } },
   departments: { select: { id: true, code: true, name: true } },
   positions: { select: { id: true, code: true, name: true, level: true } },
@@ -89,7 +93,7 @@ type Transaction = Prisma.TransactionClient;
 
 @Injectable()
 export class EmployeeBscRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly cyclePolicy: BscCyclePolicy) {}
 
   findEmployeeContext(id: string) {
     return this.prisma.users.findUnique({
@@ -133,7 +137,10 @@ export class EmployeeBscRepository {
           final_grade: true,
           created_at: true,
           updated_at: true,
-          bsc_cycles: { select: { id: true, code: true, name: true, year: true, month: true, status: true } },
+          bsc_cycles: { select: {
+            id: true, code: true, name: true, year: true, month: true, status: true,
+            submission_deadline: true,
+          } },
           users_employee_bsc_employee_idTousers: { select: { id: true, employee_code: true, full_name: true, email: true } },
           departments: { select: { id: true, code: true, name: true } },
           users_employee_bsc_direct_manager_idTousers: { select: { id: true, employee_code: true, full_name: true } },
@@ -561,7 +568,7 @@ export class EmployeeBscRepository {
     if (!source) return [];
     return this.prisma.bsc_cycles.findMany({
       where: {
-        status: 'OPEN', id: { not: source.cycle_id }, start_date: { gt: source.bsc_cycles.start_date },
+        status: 'OPEN', cycle_type: 'MONTH', id: { not: source.cycle_id }, start_date: { gt: source.bsc_cycles.start_date },
         employee_bsc: { none: { employee_id: employeeId } },
       },
       select: { id: true, code: true, name: true, year: true, month: true, status: true, start_date: true },
@@ -595,10 +602,10 @@ export class EmployeeBscRepository {
       ]);
       if (!version) throw new ConflictException({ code: 'BSC_APPROVED_PLAN_VERSION_NOT_FOUND', message: 'BSC nguồn chưa có phiên bản kế hoạch được duyệt.' });
       if (!targetCycle) throw new NotFoundException({ code: 'BSC_DUPLICATE_TARGET_INVALID', message: 'Không tìm thấy kỳ đích.' });
+      this.cyclePolicy.assertCycleAllowsDuplicate(this.cycleTiming(targetCycle));
       if (targetCycle.id === source.cycle_id || targetCycle.start_date <= source.bsc_cycles.start_date) {
         throw new BadRequestException({ code: 'BSC_DUPLICATE_TARGET_INVALID', message: 'Kỳ đích phải nằm sau kỳ nguồn.' });
       }
-      if (targetCycle.status !== 'OPEN') throw new BadRequestException({ code: 'BSC_DUPLICATE_TARGET_CYCLE_NOT_OPEN', message: 'Kỳ đích phải đang mở.' });
       if (!owner || owner.deleted_at || owner.status !== 'ACTIVE' || owner.departments.status !== 'ACTIVE' || owner.positions.status !== 'ACTIVE') {
         throw new BadRequestException({ code: 'BSC_DUPLICATE_NOT_ALLOWED', message: 'Chủ sở hữu hoặc tổ chức hiện tại không hoạt động.' });
       }
@@ -670,7 +677,8 @@ export class EmployeeBscRepository {
     managerId: string;
     metadata: AuditRequestMetadata;
   }) {
-    return this.prisma.$transaction(async (db) => {
+    return this.serializable(async (db) => {
+      await this.assertCycleActionInTransaction(db, data.cycleId, 'CREATE_BSC');
       const bsc = await db.employee_bsc.create({
         data: {
           bsc_code: this.createBscCode(data.employeeCode),
@@ -698,7 +706,8 @@ export class EmployeeBscRepository {
   }
 
   async updateDraftComment(actor: AuthUser, id: string, comment: string | undefined, metadata: AuditRequestMetadata) {
-    return this.prisma.$transaction(async (db) => {
+    return this.serializable(async (db) => {
+      await this.assertCycleActionForBscInTransaction(db, id, 'EDIT_PLAN');
       const current = await db.employee_bsc.findUniqueOrThrow({ where: { id }, select: { employee_comment: true, plan_status: true } });
       if (!['DRAFT', 'RETURNED', 'REOPENED'].includes(current.plan_status)) throw new ForbiddenException({ code: 'BSC_FIELD_NOT_EDITABLE_IN_CURRENT_STAGE', message: 'Nội dung BSC đang bị khóa.' });
       const bsc = await db.employee_bsc.update({ where: { id }, data: { employee_comment: comment, updated_at: new Date() }, select: bscDetailSelect });
@@ -708,7 +717,8 @@ export class EmployeeBscRepository {
   }
 
   async deleteDraft(actor: AuthUser, bsc: { id: string; employee_id: string; cycle_id?: string }, metadata: AuditRequestMetadata) {
-    await this.prisma.$transaction(async (db) => {
+    await this.serializable(async (db) => {
+      await this.assertCycleActionForBscInTransaction(db, bsc.id, 'EDIT_PLAN');
       const current = await db.employee_bsc.findUniqueOrThrow({ where: { id: bsc.id }, select: { plan_status: true } });
       if (current.plan_status !== 'DRAFT') throw new ForbiddenException({ code: 'BSC_FIELD_NOT_EDITABLE_IN_CURRENT_STAGE', message: 'Chỉ kế hoạch nháp mới được xóa.' });
       const itemCount = await db.employee_bsc_items.count({ where: { employee_bsc_id: bsc.id } });
@@ -770,7 +780,7 @@ export class EmployeeBscRepository {
   }
 
   updateActual(actor: AuthUser, bscId: string, itemId: string, dto: UpdateBscActualDto, metadata: AuditRequestMetadata) {
-    return this.prisma.$transaction(async (db) => {
+    return this.serializable(async (db) => {
       await this.assertEvaluationResultEditableInTransaction(db, bscId);
       const old = await this.requireItemInBsc(db, bscId, itemId);
       const item = await db.employee_bsc_items.update({
@@ -1007,7 +1017,9 @@ export class EmployeeBscRepository {
     return db.employee_bsc.findUnique({ where: { id }, select: {
       id: true, employee_id: true, department_id: true, direct_manager_id: true,
       plan_status: true, evaluation_status: true, final_score: true,
-      bsc_cycles: { select: { status: true, submission_deadline: true } },
+      bsc_cycles: { select: {
+        status: true, start_date: true, end_date: true, submission_deadline: true,
+      } },
       users_employee_bsc_employee_idTousers: { select: { status: true, deleted_at: true, direct_manager_id: true } },
       users_employee_bsc_direct_manager_idTousers: { select: {
         status: true, deleted_at: true,
@@ -1024,6 +1036,7 @@ export class EmployeeBscRepository {
       direct_manager_id: bsc.direct_manager_id, plan_status: bsc.plan_status,
       evaluation_status: bsc.evaluation_status, final_score: bsc.final_score,
       cycle_status: bsc.bsc_cycles.status, submission_deadline: bsc.bsc_cycles.submission_deadline,
+      start_date: bsc.bsc_cycles.start_date, end_date: bsc.bsc_cycles.end_date,
       owner_status: bsc.users_employee_bsc_employee_idTousers.status,
       owner_deleted_at: bsc.users_employee_bsc_employee_idTousers.deleted_at,
       reviewer_status: bsc.users_employee_bsc_direct_manager_idTousers.status,
@@ -1075,17 +1088,50 @@ export class EmployeeBscRepository {
   }
 
   private async assertPlanDefinitionEditableInTransaction(db: Transaction, bscId: string): Promise<void> {
+    await this.assertCycleActionForBscInTransaction(db, bscId, 'EDIT_PLAN');
     const bsc = await db.employee_bsc.findUniqueOrThrow({ where: { id: bscId }, select: { plan_status: true } });
     if (!['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.plan_status)) this.fieldLocked();
   }
 
   private async assertEvaluationResultEditableInTransaction(db: Transaction, bscId: string): Promise<void> {
+    await this.assertCycleActionForBscInTransaction(db, bscId, 'EDIT_EVALUATION');
     const bsc = await db.employee_bsc.findUniqueOrThrow({ where: { id: bscId }, select: { plan_status: true, evaluation_status: true } });
     if (bsc.plan_status !== 'APPROVED' || !['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.evaluation_status)) this.fieldLocked();
   }
 
   private fieldLocked(): never {
     throw new ForbiddenException({ code: 'BSC_FIELD_NOT_EDITABLE_IN_CURRENT_STAGE', message: 'Trường này đang bị khóa ở giai đoạn workflow hiện tại.' });
+  }
+
+  private async assertCycleActionForBscInTransaction(
+    db: Transaction,
+    bscId: string,
+    action: BscCycleBusinessAction,
+  ): Promise<void> {
+    const bsc = await db.employee_bsc.findUnique({ where: { id: bscId }, select: { cycle_id: true } });
+    if (!bsc) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC.' });
+    await this.assertCycleActionInTransaction(db, bsc.cycle_id, action);
+  }
+
+  private async assertCycleActionInTransaction(
+    db: Transaction,
+    cycleId: string,
+    action: BscCycleBusinessAction,
+  ): Promise<void> {
+    const cycle = await db.bsc_cycles.findUnique({ where: { id: cycleId }, select: {
+      status: true, start_date: true, end_date: true, submission_deadline: true,
+    } });
+    if (!cycle) throw new NotFoundException({ code: 'BSC_CYCLE_NOT_FOUND', message: 'Không tìm thấy kỳ BSC.' });
+    this.cyclePolicy.assertBusinessAction(this.cycleTiming(cycle), action);
+  }
+
+  private cycleTiming(cycle: {
+    status: string; start_date: Date; end_date: Date; submission_deadline: Date;
+  }): CycleTiming {
+    return {
+      status: cycle.status, startDate: cycle.start_date, endDate: cycle.end_date,
+      submissionDeadline: cycle.submission_deadline,
+    };
   }
 
   private async requireItemInBsc(db: Transaction, bscId: string, itemId: string) {

@@ -14,7 +14,10 @@ export type EmployeeBsc = {
   evaluation_submitted_at?: string | null; evaluation_approved_at?: string | null; evaluation_approved_by?: string | null;
   submitted_at?: string | null; approved_at?: string | null; approved_by?: string | null; locked_at?: string | null;
   final_score?: string | null; final_grade?: string | null;
-  bsc_cycles: { id: string; code: string; name: string; year: number; month: number | null; status: string };
+  bsc_cycles: {
+    id: string; code: string; name: string; year: number; month: number | null; status: string;
+    start_date?: string; end_date?: string; submission_deadline: string;
+  };
   users_employee_bsc_employee_idTousers: { id: string; employee_code: string; full_name: string; email: string };
   users_employee_bsc_direct_manager_idTousers?: { id: string; employee_code: string; full_name: string; email?: string };
   departments: { id: string; code: string; name: string };

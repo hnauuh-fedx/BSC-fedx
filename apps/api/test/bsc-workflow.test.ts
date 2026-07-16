@@ -6,6 +6,7 @@ import { AuthUser } from '../src/common/types/auth-user.type';
 import { BSC_PERMISSIONS, BscAccessPolicy } from '../src/modules/employee-bsc/policies/bsc-access.policy';
 import { BscWorkflowService, WorkflowBscContext } from '../src/modules/employee-bsc/services/bsc-workflow.service';
 import { PrismaService } from '../src/database/prisma.service';
+import { BscCyclePolicy } from '../src/modules/bsc-cycles/bsc-cycle.policy';
 
 const employeeId = '00000000-0000-4000-8000-000000000001';
 const managerId = '00000000-0000-4000-8000-000000000002';
@@ -20,6 +21,7 @@ const actor = (overrides: Partial<AuthUser> = {}): AuthUser => ({
 const context = (overrides: Partial<WorkflowBscContext> = {}): WorkflowBscContext => ({
   employeeId, directManagerId: managerId, departmentId, planStatus: 'DRAFT', evaluationStatus: 'NOT_STARTED',
   cycleStatus: 'OPEN', submissionDeadline: new Date('2099-12-31T23:59:59.000Z'), ownerActive: true,
+  startDate: new Date('2020-01-01'), endDate: new Date('2199-12-31'), reviewDeadline: new Date('2099-12-31T23:59:59.000Z'),
   ownerOrganizationActive: true, reviewerActive: true, ...overrides,
 });
 
@@ -38,7 +40,7 @@ const scoring = (overrides: Record<string, unknown> = {}) => ({
 });
 
 const scope = new ResourceScopePolicy();
-const workflow = new BscWorkflowService(scope);
+const workflow = new BscWorkflowService(scope, new BscCyclePolicy());
 
 test('plan transition matrix is independent from evaluation', () => {
   for (const [from, action, to] of [

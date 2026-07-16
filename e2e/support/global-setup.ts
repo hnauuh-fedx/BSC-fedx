@@ -22,6 +22,7 @@ const directorPermissions = [
   'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate',
   'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.version.view',
 ];
+const cycleAdminPermissions = ['bsc.period.view', 'bsc.period.manage'];
 
 export default async function globalSetup() {
   const db = prisma();
@@ -42,7 +43,7 @@ export default async function globalSetup() {
       const position = await tx.positions.create({ data: { code: `${marker}_P1`, name: `${marker} Position`, level: 2 } });
       const createdPermissionIds: string[] = [];
       const permissions = new Map<string, string>();
-      for (const code of [...new Set([...employeePermissions, ...managerPermissions, ...directorPermissions])]) {
+      for (const code of [...new Set([...employeePermissions, ...managerPermissions, ...directorPermissions, ...cycleAdminPermissions])]) {
         const existing = await tx.permissions.findUnique({ where: { code }, select: { id: true } });
         const permission = existing ?? await tx.permissions.create({ data: { code, name: code, module: 'employee-bsc' }, select: { id: true } });
         if (!existing) createdPermissionIds.push(permission.id);
@@ -51,10 +52,12 @@ export default async function globalSetup() {
       const employeeRole = await tx.roles.create({ data: { code: `${marker}_EMP`, name: `${marker} Employee`, hierarchy_level: 1, is_system: false } });
       const managerRole = await tx.roles.create({ data: { code: `${marker}_MGR`, name: `${marker} Manager`, hierarchy_level: 2, is_system: false } });
       const directorRole = await tx.roles.create({ data: { code: `${marker}_DIRECTOR`, name: `${marker} Director`, hierarchy_level: 3, is_system: false } });
+      const cycleAdminRole = await tx.roles.create({ data: { code: `${marker}_CYCLE_ADMIN`, name: `${marker} Cycle Admin`, hierarchy_level: 4, is_system: false } });
       await tx.role_permissions.createMany({ data: [
         ...employeePermissions.map((code) => ({ role_id: employeeRole.id, permission_id: permissions.get(code)! })),
         ...managerPermissions.map((code) => ({ role_id: managerRole.id, permission_id: permissions.get(code)! })),
         ...directorPermissions.map((code) => ({ role_id: directorRole.id, permission_id: permissions.get(code)! })),
+        ...cycleAdminPermissions.map((code) => ({ role_id: cycleAdminRole.id, permission_id: permissions.get(code)! })),
       ] });
       const director = await tx.users.create({ data: { employee_code: `${marker}_DIR`, full_name: `${marker} Director`, email: `${marker.toLowerCase()}_director@example.test`, password_hash: passwordHash, department_id: mainDepartment.id, position_id: position.id } });
       const outsideDirector = await tx.users.create({ data: { employee_code: `${marker}_OUT_DIR`, full_name: `${marker} Outside Director`, email: `${marker.toLowerCase()}_outside_director@example.test`, password_hash: passwordHash, department_id: otherDepartment.id, position_id: position.id } });
@@ -65,6 +68,7 @@ export default async function globalSetup() {
       await tx.user_roles.createMany({ data: [
         { user_id: employee.id, role_id: employeeRole.id, scope_type: 'SELF', scope_id: null },
         { user_id: manager.id, role_id: managerRole.id, scope_type: 'DEPARTMENT', scope_id: mainDepartment.id },
+        { user_id: manager.id, role_id: cycleAdminRole.id, scope_type: 'GLOBAL', scope_id: null },
         { user_id: director.id, role_id: directorRole.id, scope_type: 'DEPARTMENT', scope_id: mainDepartment.id },
         { user_id: outsideDirector.id, role_id: directorRole.id, scope_type: 'DEPARTMENT', scope_id: otherDepartment.id },
         { user_id: outsideManager.id, role_id: managerRole.id, scope_type: 'DEPARTMENT', scope_id: otherDepartment.id },
@@ -92,10 +96,10 @@ export default async function globalSetup() {
           code: `${marker}_C${index + 1}`,
           name: `${marker} Cycle ${index + 1}`,
           cycle_type: 'MONTH', year: cycleYear, month: cycleMonth,
-          start_date: new Date(`${cycleYear}-${String(cycleMonth).padStart(2, '0')}-01T00:00:00.000Z`),
-          end_date: new Date(`${cycleYear}-${String(cycleMonth).padStart(2, '0')}-28T00:00:00.000Z`),
-          submission_deadline: new Date(`${cycleYear}-${String(cycleMonth).padStart(2, '0')}-25T00:00:00.000Z`),
-          review_deadline: new Date(`${cycleYear}-${String(cycleMonth).padStart(2, '0')}-27T00:00:00.000Z`),
+          start_date: new Date(Date.UTC(2020, 0, index + 1)),
+          end_date: new Date('2199-12-31T00:00:00.000Z'),
+          submission_deadline: new Date('2199-12-20T00:00:00.000Z'),
+          review_deadline: new Date('2199-12-25T00:00:00.000Z'),
           status: 'OPEN', created_by: manager.id,
         } }));
       }
