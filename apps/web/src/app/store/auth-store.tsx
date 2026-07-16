@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useEffect, useRef } from 'react';
 import type { AuthState, AuthUser, LoginRequest } from '../../features/auth/types/auth.types';
 import { authService } from '../../features/auth/services/auth.service';
 import { configureHttpClient } from '../../lib/http-client';
@@ -70,6 +70,8 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
   const [state, dispatch] = useReducer(authReducer, initialState);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   /** Thử silent refresh khi mount — để khôi phục session từ HttpOnly cookie */
   useEffect(() => {
@@ -120,7 +122,7 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     dispatch({ type: 'LOGOUT' });
   }, [state.accessToken]);
 
-  const getAccessToken = useCallback(() => state.accessToken, [state.accessToken]);
+  const getAccessToken = useCallback(() => stateRef.current.accessToken, []);
 
   useEffect(() => {
     configureHttpClient({

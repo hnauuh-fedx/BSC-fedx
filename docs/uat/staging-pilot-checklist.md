@@ -12,6 +12,20 @@ Use one status for every row: `PASS`, `FAIL`, `BLOCKED`, `READY`, `OUT_OF_SCOPE`
 | DIRECTOR | Login, verify navigation | Unit dashboard landing; no personal BSC menu or create action | READY | DIRECTOR has no `bsc.create.own` / `bsc.view.own` |
 | ADMIN | Login, verify navigation | Administration landing; roles/permissions and audit log accessible if granted | READY | |
 
+### Developer runtime smoke (2026-07-16)
+
+This table records developer-operated runtime verification only. It is not end-user acceptance.
+
+| Actor | DEVELOPER SMOKE | USER UAT | Runtime evidence |
+|---|---|---|---|
+| EMPLOYEE | PASS | NOT RUN | Actual login landed at `/employee-bsc`; personal BSC navigation was visible; administration, role, audit and review navigation stayed hidden. Landing refresh, `/`, direct `/employee-bsc`, denied `/management/roles`, logout and Back were safe. |
+| MANAGER | PASS | NOT RUN | Actual login landed at `/employee-bsc`; personal BSC, overview and pending-review navigation were visible; subordinate fixture data was visible while outside-scope data was absent. A submitted MANAGER-owned fixture was excluded from the MANAGER review queue. Landing refresh, `/`, direct overview/review, denied roles route, logout and Back were safe. |
+| DIRECTOR | PASS | NOT RUN | Actual login landed at `/management/bsc-overview`; overview and review navigation were visible; no personal BSC navigation/create/duplicate action appeared. Landing refresh, `/`, direct overview/review, denied `/employee-bsc/new`, logout and Back were safe. |
+| ADMIN | PASS | NOT RUN | Actual login landed at `/management`; users, departments, positions, BSC cycles, roles/permissions and audit navigation were visible; role and audit screens opened; pending review and BSC review actions stayed unavailable. Landing refresh, `/`, valid role/audit URLs, denied review URL, logout and Back were safe. |
+| NO_PERMISSION | PASS | NOT RUN | Active user with zero permissions landed at `/forbidden`; no navigation was rendered; refresh, `/` and direct protected URL remained forbidden; logout and Back returned safely to `/login`. |
+
+Runtime session evidence: PostgreSQL was healthy; all migrations were deployed; release seed was rerun idempotently; `/health`, `/health/live` and `/health/ready` returned HTTP 200; refresh-cookie restoration survived full browser reload; protected original URL was restored after login; no blocking CORS, console, page or HTTP errors remained before logout. Expected requests interrupted by logout are not counted as runtime page errors.
+
 ## Authentication & Session
 
 | Actor | Scenario | Expected result | Status | Note / evidence |
@@ -49,8 +63,8 @@ Use one status for every row: `PASS`, `FAIL`, `BLOCKED`, `READY`, `OUT_OF_SCOPE`
 | ADMIN | Open administration pages | Canonical technical permissions work; no implicit BSC approval action appears | READY | |
 | ADMIN | Manage roles and permissions | `GET /roles`, `GET /roles/:id`, `GET /permissions`, `PUT /roles/:id/permissions` all work with auth | READY | `RolesModule` wired up in Phase 3E.2.1 |
 | ADMIN | View audit log | `GET /audit-logs` with pagination/filter, redaction of sensitive fields | READY | `AuditLogsModule` wired up in Phase 3E.2.1 |
-| OPS | Check `/health`, `/health/live`, `/health/ready` | Liveness is lightweight; readiness reflects database availability |  |  |
-| OPS | Rerun release seed | Counts remain stable and existing ADMIN password is unchanged |  |  |
+| OPS | Check `/health`, `/health/live`, `/health/ready` | Liveness is lightweight; readiness reflects database availability | READY | DEVELOPER SMOKE: PASS — all three endpoints returned HTTP 200; readiness reported database connected. USER UAT: NOT RUN. |
+| OPS | Rerun release seed | Counts remain stable and existing ADMIN password is unchanged | READY | DEVELOPER SMOKE: PASS — release seed completed twice with `bootstrapAdmin: preserved`; no duplicate role/permission or `system.*` permission was created. USER UAT: NOT RUN. |
 
 ## Blocked / Out of Scope
 
@@ -63,6 +77,6 @@ Use one status for every row: `PASS`, `FAIL`, `BLOCKED`, `READY`, `OUT_OF_SCOPE`
 
 ---
 
-Sign-off: release SHA ___, environment ___, tester ___, decision owner ___, date/time ___, final decision `PASS / FAIL / BLOCKED`, limitations ___ .
+Sign-off: release SHA `91dd44d` plus the runtime-verification commit, environment `local disposable UAT database`, tester `Codex developer runtime smoke`, decision owner ___, date/time `2026-07-16`, final decision `BLOCKED`, limitations `USER UAT NOT RUN; attachment upload remains BLOCKED for pilot`.
 
-> **NOTE**: `READY` means the feature is implemented and statically verified. It does not mean a real user has performed UAT. `PASS` must be recorded only after actual user verification.
+> **NOTE**: `READY` means the feature is implemented and statically verified. It does not mean a real user has performed UAT. `PASS` in the canonical scenario `Status` column must be recorded only after actual user verification; `DEVELOPER SMOKE: PASS` records developer-operated runtime evidence only.
