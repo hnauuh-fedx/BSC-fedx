@@ -15,9 +15,12 @@ export type FixtureState = {
   positionId: string;
   manager: { id: string; email: string };
   employee: { id: string; email: string };
+  director: { id: string; email: string };
+  outsideDirector: { id: string; email: string };
   outsideManager: { id: string; email: string };
+  outsideEmployee: { id: string; email: string };
   cycleIds: { flow: string; underweight: string; performance: string[]; duplicateTargets: string[] };
-  bscIds: { reopenEvaluation: string; reopenPlan: string; duplicateSource: string };
+  bscIds: { reopenEvaluation: string; reopenPlan: string; duplicateSource: string; managerApproval: string; outsideEmployee: string; outsideManagerApproval: string };
   createdPermissionIds: string[];
 };
 
@@ -37,7 +40,7 @@ export async function readState(): Promise<FixtureState> {
 export async function removeState() { await rm(STATE_DIR, { recursive: true, force: true }); }
 
 export async function cleanupFixture(db: PrismaClient, state: FixtureState) {
-  const userIds = [state.manager.id, state.employee.id, state.outsideManager.id];
+  const userIds = [state.manager.id, state.employee.id, state.director.id, state.outsideDirector.id, state.outsideManager.id, state.outsideEmployee.id];
   const bscIds = (await db.employee_bsc.findMany({
     where: { OR: [{ employee_id: { in: userIds } }, { bsc_code: { startsWith: state.marker } }] },
     select: { id: true },

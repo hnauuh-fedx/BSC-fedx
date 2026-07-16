@@ -105,6 +105,11 @@ test('Phase 3B.2 BSC scoring integration', { skip: safeDatabase() ? false : 'TES
     const outsider = await createUser('OUTSIDER', departmentB.id, employeeRole.id, 'SELF', null, otherManager.id);
     const noPermission = await createUser('NONE', departmentA.id, noneRole.id, 'SELF', null, manager.id);
     const ineligibleCreator = await createUser('INELIGIBLE_CREATOR', departmentA.id, createOnlyRole.id, 'SELF', null);
+    await prisma.manager_relationships.createMany({ data: [
+      { employee_id: employee.id, manager_id: manager.id, is_primary: true, start_date: new Date('2026-01-01') },
+      { employee_id: employee2.id, manager_id: manager.id, is_primary: true, start_date: new Date('2026-01-01') },
+      { employee_id: outsider.id, manager_id: otherManager.id, is_primary: true, start_date: new Date('2026-01-01') },
+    ] });
 
     const cycleData = (suffix: string, year: number, month: number, status: string) => ({ code: `${marker}_${suffix}`, name: `${marker} ${suffix}`, cycle_type: 'MONTH', year, month, start_date: new Date(`${year}-${String(month).padStart(2, '0')}-01T00:00:00Z`), end_date: new Date(`${year}-${String(month).padStart(2, '0')}-28T00:00:00Z`), submission_deadline: new Date(`${year}-${String(month).padStart(2, '0')}-28T17:00:00Z`), status, created_by: globalViewer.id });
     const openOld = await prisma.bsc_cycles.create({ data: cycleData('OPEN_OLD', 2026, 6, 'OPEN') });

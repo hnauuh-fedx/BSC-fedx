@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuthUser } from '../../../common/types/auth-user.type';
 import { CreateBscItemDto, UpdateBscActualDto, UpdateBscItemDto } from '../dto/bsc-item.dto';
@@ -12,6 +12,9 @@ import { EmployeeBscRepository } from '../repositories/employee-bsc.repository';
 import { assertBinaryActual, assertTargetCompatible, assertValidWeight } from '../validators/bsc-item.validator';
 import { BscScoringService } from './bsc-scoring.service';
 import { BscWorkflowService } from './bsc-workflow.service';
+
+type WorkflowSnapshot = Parameters<Parameters<EmployeeBscRepository['submitPlanWorkflow']>[3]>[0];
+type ReopenDecisionSnapshot = Parameters<Parameters<EmployeeBscRepository['approveReopenRequest']>[3]>[0];
 
 @Injectable()
 export class EmployeeBscService {
@@ -39,6 +42,8 @@ export class EmployeeBscService {
     if (!employee.direct_manager_id || !employee.users || employee.users.status !== 'ACTIVE' || employee.users.deleted_at) {
       throw new BadRequestException({ code: 'BSC_MANAGER_REQUIRED', message: 'Không xác định được quản lý trực tiếp đang hoạt động.' });
     }
+    await this.policy.assertHasActiveReviewer({ employee_id: employee.id, department_id: employee.department_id,
+      direct_manager_id: employee.direct_manager_id, plan_status: 'DRAFT', evaluation_status: 'NOT_STARTED' });
     try {
       return await this.repository.createDraft({
         actor,
@@ -58,9 +63,9 @@ export class EmployeeBscService {
   }
 
   findAll(actor: AuthUser, query: QueryEmployeeBscDto) {
-    const access = this.listAccessWhere(actor);
-    if (query.departmentId && !this.canUseDepartmentFilter(actor, query.departmentId)) {
-      throw new BadRequestException({ code: 'BSC_ACCESS_DENIED', message: 'Không thể lọc ngoài phạm vi được cấp.' });
+    const access = this.policy.listWhere(actor);
+    if (query.departmentId && !this.policy.canFilterDepartment(actor, query.departmentId)) {
+      throw new ForbiddenException({ code: 'BSC_ACCESS_DENIED', message: 'Không thể lọc ngoài phạm vi được cấp.' });
     }
     const filters: Prisma.employee_bscWhereInput[] = [access];
     if (query.cycleId) filters.push({ cycle_id: query.cycleId });
@@ -81,22 +86,12 @@ export class EmployeeBscService {
     const approvePermission = query.stage === 'PLAN' ? BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE : BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE;
     const returnPermission = query.stage === 'PLAN' ? BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE : BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE;
     if (!actor.permissions.includes(approvePermission) && !actor.permissions.includes(returnPermission)) {
-      throw new BadRequestException({ code: 'BSC_ACCESS_DENIED', message: 'Không có quyền xử lý BSC chờ duyệt.' });
+      throw new ForbiddenException({ code: 'BSC_ACCESS_DENIED', message: 'Không có quyền xử lý BSC chờ duyệt.' });
     }
-    if (query.departmentId && !this.canUseDepartmentFilter(actor, query.departmentId)) {
-      throw new BadRequestException({ code: 'BSC_ACCESS_DENIED', message: 'Không thể lọc ngoài phạm vi được cấp.' });
+    if (query.departmentId && !this.policy.canFilterDepartment(actor, query.departmentId)) {
+      throw new ForbiddenException({ code: 'BSC_ACCESS_DENIED', message: 'Không thể lọc ngoài phạm vi được cấp.' });
     }
-    const scopedDepartments = actor.roles
-      .filter((role) => role.scopeType === 'DEPARTMENT' && role.scopeId)
-      .map((role) => role.scopeId!);
-    const pendingStatus: Prisma.employee_bscWhereInput = query.stage === 'PLAN'
-      ? { plan_status: 'SUBMITTED' }
-      : { evaluation_status: 'SUBMITTED', plan_status: 'APPROVED' };
-    const access: Prisma.employee_bscWhereInput = actor.roles.some((role) => role.scopeType === 'GLOBAL')
-      ? { direct_manager_id: actor.id, ...pendingStatus }
-      : scopedDepartments.length
-        ? { direct_manager_id: actor.id, department_id: { in: scopedDepartments }, ...pendingStatus }
-        : { id: { equals: '00000000-0000-0000-0000-000000000000' } };
+    const access = this.policy.pendingReviewWhere(actor, query.stage);
     const filters: Prisma.employee_bscWhereInput[] = [access];
     if (query.cycleId) filters.push({ cycle_id: query.cycleId });
     if (query.departmentId) filters.push({ department_id: query.departmentId });
@@ -114,16 +109,16 @@ export class EmployeeBscService {
 
   async findOne(actor: AuthUser, id: string) {
     const bsc = await this.requireBsc(id);
-    this.policy.assertCanView(actor, bsc);
+    await this.policy.assertCanView(actor, bsc);
     const visibleStages = new Set<string>();
-    if (actor.permissions.includes(BSC_PERMISSIONS.VIEW_PLAN_HISTORY)) visibleStages.add('PLAN');
-    if (actor.permissions.includes(BSC_PERMISSIONS.VIEW_EVALUATION_HISTORY)) visibleStages.add('EVALUATION');
+    if (this.policy.canViewStageHistory(actor, bsc, BSC_PERMISSIONS.VIEW_PLAN_HISTORY)) visibleStages.add('PLAN');
+    if (this.policy.canViewStageHistory(actor, bsc, BSC_PERMISSIONS.VIEW_EVALUATION_HISTORY)) visibleStages.add('EVALUATION');
     return { ...bsc, bsc_status_histories: bsc.bsc_status_histories.filter((history) => visibleStages.has(history.stage)) };
   }
 
   async scoringPreview(actor: AuthUser, id: string) {
     const bsc = await this.requireBsc(id);
-    this.policy.assertCanView(actor, bsc);
+    await this.policy.assertCanView(actor, bsc);
     const result = this.scoring.scoreBsc(bsc.employee_bsc_items.map((item) => ({
       itemId: item.id,
       calculationMethod: item.calculation_method,
@@ -137,13 +132,13 @@ export class EmployeeBscService {
 
   async versions(actor: AuthUser, id: string) {
     const bsc = await this.requireBsc(id);
-    this.policy.assertCanViewVersion(actor, bsc);
+    await this.policy.assertCanViewVersion(actor, bsc);
     return this.repository.findVersions(id);
   }
 
   async versionDetail(actor: AuthUser, id: string, versionId: string) {
     const bsc = await this.requireBsc(id);
-    this.policy.assertCanViewVersion(actor, bsc);
+    await this.policy.assertCanViewVersion(actor, bsc);
     const version = await this.repository.findVersion(id, versionId);
     if (!version) throw new NotFoundException({ code: 'BSC_VERSION_NOT_FOUND', message: 'Không tìm thấy phiên bản BSC.' });
     return {
@@ -162,6 +157,7 @@ export class EmployeeBscService {
   async createReopenRequest(actor: AuthUser, id: string, stage: 'PLAN' | 'EVALUATION', rawReason: string, metadata: AuditRequestMetadata) {
     const reason = this.normalizeReason(rawReason, 'BSC_REOPEN_REASON_REQUIRED');
     const bsc = await this.requireBsc(id);
+    await this.policy.assertActiveResource(bsc);
     this.policy.assertCanRequestReopen(actor, bsc);
     try {
       return await this.repository.createReopenRequest(actor, id, stage, reason, metadata, (snapshot) => {
@@ -190,29 +186,32 @@ export class EmployeeBscService {
 
   async reopenRequests(actor: AuthUser, bscId: string) {
     const bsc = await this.requireBsc(bscId);
-    this.policy.assertCanView(actor, bsc);
+    await this.policy.assertActiveResource(bsc);
+    if (actor.id === bsc.employee_id) this.policy.assertCanRequestReopen(actor, bsc);
+    else await this.policy.assertCanReview(actor, bsc, BSC_PERMISSIONS.REVIEW_REOPEN);
     return this.repository.findReopenRequestsForBsc(bscId);
   }
 
   pendingReopenRequests(actor: AuthUser, query: QueryReopenRequestDto) {
     if (!actor.permissions.includes(BSC_PERMISSIONS.REVIEW_REOPEN)) {
-      throw new BadRequestException({ code: 'BSC_ACCESS_DENIED', message: 'Không có quyền xử lý yêu cầu mở lại.' });
+      throw new ForbiddenException({ code: 'BSC_ACCESS_DENIED', message: 'Không có quyền xử lý yêu cầu mở lại.' });
     }
-    return this.repository.findPendingReopenRequests(actor.id, query);
+    return this.repository.findPendingReopenRequests(this.policy.pendingReopenWhere(actor), query);
   }
 
   async reopenRequestDetail(actor: AuthUser, requestId: string) {
     const request = await this.repository.findReopenRequest(requestId);
     if (!request) throw new NotFoundException({ code: 'BSC_REOPEN_REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu mở lại.' });
-    if (actor.id === request.requested_by) this.policy.assertCanView(actor, request.employee_bsc);
-    else this.policy.assertCanReviewReopen(actor, request.employee_bsc, request.reviewer_id);
+    await this.policy.assertActiveResource(request.employee_bsc);
+    if (actor.id === request.requested_by) this.policy.assertCanRequestReopen(actor, request.employee_bsc);
+    else await this.policy.assertCanReviewReopen(actor, request.employee_bsc, request.reviewer_id);
     return request;
   }
 
   async approveReopenRequest(actor: AuthUser, requestId: string, metadata: AuditRequestMetadata) {
     const request = await this.repository.findReopenRequest(requestId);
     if (!request) throw new NotFoundException({ code: 'BSC_REOPEN_REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu mở lại.' });
-    this.policy.assertCanReviewReopen(actor, request.employee_bsc, request.reviewer_id);
+    await this.policy.assertCanReviewReopen(actor, request.employee_bsc, request.reviewer_id, true);
     return this.repository.approveReopenRequest(actor, requestId, metadata, (snapshot) => this.assertReopenDecision(actor, snapshot));
   }
 
@@ -220,12 +219,13 @@ export class EmployeeBscService {
     const reason = this.normalizeReason(rawReason, 'BSC_REOPEN_REJECT_REASON_REQUIRED');
     const request = await this.repository.findReopenRequest(requestId);
     if (!request) throw new NotFoundException({ code: 'BSC_REOPEN_REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu mở lại.' });
-    this.policy.assertCanReviewReopen(actor, request.employee_bsc, request.reviewer_id);
+    await this.policy.assertCanReviewReopen(actor, request.employee_bsc, request.reviewer_id, true);
     return this.repository.rejectReopenRequest(actor, requestId, reason, metadata, (snapshot) => this.assertReopenDecision(actor, snapshot));
   }
 
   async duplicateOptions(actor: AuthUser, id: string) {
     const bsc = await this.requireBsc(id);
+    await this.policy.assertActiveResource(bsc);
     this.policy.assertCanDuplicateOwn(actor, bsc);
     const versions = await this.repository.findVersions(id);
     const latestPlan = versions.find((version) => version.versionType === 'PLAN_APPROVED');
@@ -236,6 +236,7 @@ export class EmployeeBscService {
 
   async duplicate(actor: AuthUser, id: string, targetCycleId: string, metadata: AuditRequestMetadata) {
     const bsc = await this.requireBsc(id);
+    await this.policy.assertActiveResource(bsc);
     this.policy.assertCanDuplicateOwn(actor, bsc);
     try {
       return await this.repository.duplicateFromApprovedPlan(actor, id, targetCycleId, metadata);
@@ -247,7 +248,11 @@ export class EmployeeBscService {
     }
   }
 
-  submitPlan(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
+  async submitPlan(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
+    const bsc = await this.requireBsc(id);
+    await this.policy.assertActiveResource(bsc);
+    this.policy.assertCanSubmitOwn(actor, bsc, BSC_PERMISSIONS.SUBMIT_PLAN_OWN);
+    await this.policy.assertHasActiveReviewer(bsc);
     return this.repository.submitPlanWorkflow(actor, id, metadata, (snapshot) => {
       this.workflow.assertCanSubmitPlan(actor, this.workflowContext(snapshot), this.planDefinition(snapshot));
     });
@@ -261,7 +266,11 @@ export class EmployeeBscService {
     return this.reviewPlan(actor, id, 'RETURN_PLAN', reason, metadata);
   }
 
-  submitEvaluation(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
+  async submitEvaluation(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
+    const bsc = await this.requireBsc(id);
+    await this.policy.assertActiveResource(bsc);
+    this.policy.assertCanSubmitOwn(actor, bsc, BSC_PERMISSIONS.SUBMIT_EVALUATION_OWN);
+    await this.policy.assertHasActiveReviewer(bsc);
     return this.repository.submitEvaluationWorkflow(actor, id, metadata, (snapshot) => {
       const result = this.scoreSnapshot(snapshot);
       this.workflow.assertCanSubmitEvaluation(actor, this.workflowContext(snapshot), result);
@@ -280,12 +289,14 @@ export class EmployeeBscService {
   async update(actor: AuthUser, id: string, dto: UpdateEmployeeBscDto, metadata: AuditRequestMetadata) {
     if (dto.employeeComment === undefined) this.noEditableFields();
     const bsc = await this.requireBsc(id);
+    await this.policy.assertActiveResource(bsc);
     this.policy.assertCanUpdateOwn(actor, bsc);
     return this.repository.updateDraftComment(actor, id, dto.employeeComment, metadata);
   }
 
   async delete(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
     const bsc = await this.requireBsc(id);
+    await this.policy.assertActiveResource(bsc);
     this.policy.assertCanDeleteOwn(actor, bsc);
     await this.repository.deleteDraft(actor, bsc, metadata);
     return { success: true };
@@ -295,7 +306,8 @@ export class EmployeeBscService {
     assertValidWeight(dto.weight);
     assertTargetCompatible(dto.calculationMethod, dto.targetValue);
     const bsc = await this.requireBsc(bscId);
-    this.policy.assertCanManageKpi(actor, bsc);
+    await this.policy.assertActiveResource(bsc);
+    await this.policy.assertCanManageKpi(actor, bsc);
     try {
       return await this.repository.createItem(actor, bscId, dto, metadata);
     } catch (error) {
@@ -307,7 +319,8 @@ export class EmployeeBscService {
     if (!Object.keys(dto).length) this.noEditableFields();
     if (dto.weight !== undefined) assertValidWeight(dto.weight);
     const [bsc, existingItem] = await Promise.all([this.requireBsc(bscId), this.requireItemInBsc(bscId, itemId)]);
-    this.policy.assertCanManageKpi(actor, bsc);
+    await this.policy.assertActiveResource(bsc);
+    await this.policy.assertCanManageKpi(actor, bsc);
     const calculationMethod = dto.calculationMethod ?? existingItem.calculation_method;
     assertTargetCompatible(calculationMethod, dto.targetValue ?? (existingItem.target_value === null ? undefined : Number(existingItem.target_value)));
     assertBinaryActual(calculationMethod, existingItem.actual_value === null ? undefined : Number(existingItem.actual_value));
@@ -321,6 +334,7 @@ export class EmployeeBscService {
   async updateActual(actor: AuthUser, bscId: string, itemId: string, dto: UpdateBscActualDto, metadata: AuditRequestMetadata) {
     if (!Object.keys(dto).length) this.noEditableFields();
     const [bsc, item] = await Promise.all([this.requireBsc(bscId), this.requireItemInBsc(bscId, itemId)]);
+    await this.policy.assertActiveResource(bsc);
     this.policy.assertCanUpdateActual(actor, bsc);
     assertBinaryActual(item.calculation_method, dto.actualValue);
     return this.repository.updateActual(actor, bscId, itemId, dto, metadata);
@@ -328,7 +342,8 @@ export class EmployeeBscService {
 
   async deleteItem(actor: AuthUser, bscId: string, itemId: string, metadata: AuditRequestMetadata) {
     const [bsc] = await Promise.all([this.requireBsc(bscId), this.requireItemInBsc(bscId, itemId)]);
-    this.policy.assertCanManageKpi(actor, bsc);
+    await this.policy.assertActiveResource(bsc);
+    await this.policy.assertCanManageKpi(actor, bsc);
     return this.repository.deleteItem(actor, bscId, itemId, metadata);
   }
 
@@ -345,7 +360,10 @@ export class EmployeeBscService {
     return item;
   }
 
-  private reviewPlan(actor: AuthUser, id: string, action: 'APPROVE_PLAN' | 'RETURN_PLAN', reason: string | undefined, metadata: AuditRequestMetadata) {
+  private async reviewPlan(actor: AuthUser, id: string, action: 'APPROVE_PLAN' | 'RETURN_PLAN', reason: string | undefined, metadata: AuditRequestMetadata) {
+    const bsc = await this.requireBsc(id);
+    await this.policy.assertCanReview(actor, bsc, action === 'APPROVE_PLAN'
+      ? BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE : BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE);
     return this.repository.reviewPlanWorkflow(actor, id, action, metadata, (snapshot) => {
       const normalizedReason = this.workflow.assertCanReviewPlan(actor, this.workflowContext(snapshot), action, reason);
       if (action === 'APPROVE_PLAN') this.workflow.assertPlanDefinitionComplete(this.planDefinition(snapshot));
@@ -353,7 +371,10 @@ export class EmployeeBscService {
     });
   }
 
-  private reviewEvaluation(actor: AuthUser, id: string, action: 'APPROVE_EVALUATION' | 'RETURN_EVALUATION', reason: string | undefined, metadata: AuditRequestMetadata) {
+  private async reviewEvaluation(actor: AuthUser, id: string, action: 'APPROVE_EVALUATION' | 'RETURN_EVALUATION', reason: string | undefined, metadata: AuditRequestMetadata) {
+    const bsc = await this.requireBsc(id);
+    await this.policy.assertCanReview(actor, bsc, action === 'APPROVE_EVALUATION'
+      ? BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE : BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE);
     return this.repository.reviewEvaluationWorkflow(actor, id, action, metadata, (snapshot) => {
       const result = this.scoreSnapshot(snapshot);
       const normalizedReason = this.workflow.assertCanReviewEvaluation(actor, this.workflowContext(snapshot), action, reason);
@@ -372,7 +393,7 @@ export class EmployeeBscService {
       targetText: item.target_text, weight: Number(item.weight), calculationMethod: item.calculation_method })) };
   }
 
-  private workflowContext(snapshot: any) {
+  private workflowContext(snapshot: WorkflowSnapshot) {
     return {
       employeeId: snapshot.employee_id, directManagerId: snapshot.direct_manager_id, departmentId: snapshot.department_id,
       planStatus: snapshot.plan_status, evaluationStatus: snapshot.evaluation_status, cycleStatus: snapshot.cycle_status,
@@ -384,30 +405,7 @@ export class EmployeeBscService {
     };
   }
 
-  private listAccessWhere(actor: AuthUser): Prisma.employee_bscWhereInput {
-    const clauses: Prisma.employee_bscWhereInput[] = [];
-    if (actor.permissions.includes(BSC_PERMISSIONS.VIEW_OWN)) clauses.push({ employee_id: actor.id });
-    if (actor.permissions.includes(BSC_PERMISSIONS.VIEW_SUBORDINATE)) {
-      const departments = actor.roles.filter((role) => role.scopeType === 'DEPARTMENT' && role.scopeId).map((role) => role.scopeId!);
-      if (actor.roles.some((role) => role.scopeType === 'GLOBAL')) clauses.push({ direct_manager_id: actor.id });
-      else if (departments.length) clauses.push({ direct_manager_id: actor.id, department_id: { in: departments } });
-    }
-    if (actor.permissions.includes(BSC_PERMISSIONS.VIEW_UNIT)) {
-      if (actor.roles.some((role) => role.scopeType === 'GLOBAL')) return {};
-      const departments = actor.roles.filter((role) => role.scopeType === 'DEPARTMENT' && role.scopeId).map((role) => role.scopeId!);
-      if (departments.length) clauses.push({ department_id: { in: departments } });
-    }
-    if (!clauses.length) throw new BadRequestException({ code: 'BSC_ACCESS_DENIED', message: 'Không có phạm vi xem BSC phù hợp.' });
-    return { OR: clauses };
-  }
-
-  private canUseDepartmentFilter(actor: AuthUser, departmentId: string): boolean {
-    return actor.roles.some((role) => role.scopeType === 'GLOBAL')
-      || actor.roles.some((role) => role.scopeType === 'DEPARTMENT' && role.scopeId === departmentId)
-      || (actor.permissions.includes(BSC_PERMISSIONS.VIEW_OWN) && actor.departmentId === departmentId);
-  }
-
-  private assertReopenDecision(actor: AuthUser, request: any): void {
+  private assertReopenDecision(actor: AuthUser, request: ReopenDecisionSnapshot): void {
     if (request.status !== 'PENDING') throw new ConflictException({ code: 'BSC_REOPEN_REQUEST_NOT_PENDING', message: 'Yêu cầu không còn ở trạng thái chờ xử lý.' });
     if (request.reviewer_id !== actor.id || request.direct_manager_id !== actor.id
       || request.owner_current_manager_id !== actor.id) {

@@ -4,6 +4,7 @@ export interface AuthRoleScope {
   code: string;
   scopeType: AuthScopeType;
   scopeId: string | null;
+  permissions?: readonly string[];
 }
 
 export interface AuthUser {

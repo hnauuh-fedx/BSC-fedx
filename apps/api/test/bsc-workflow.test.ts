@@ -5,6 +5,7 @@ import { ResourceScopePolicy } from '../src/common/policies/resource-scope.polic
 import { AuthUser } from '../src/common/types/auth-user.type';
 import { BSC_PERMISSIONS, BscAccessPolicy } from '../src/modules/employee-bsc/policies/bsc-access.policy';
 import { BscWorkflowService, WorkflowBscContext } from '../src/modules/employee-bsc/services/bsc-workflow.service';
+import { PrismaService } from '../src/database/prisma.service';
 
 const employeeId = '00000000-0000-4000-8000-000000000001';
 const managerId = '00000000-0000-4000-8000-000000000002';
@@ -94,14 +95,17 @@ test('stage reviews require direct reviewer, stage permission and stage-specific
   assert.throws(() => workflow.assertCanReviewEvaluation(manager, context({ planStatus: 'APPROVED', evaluationStatus: 'SUBMITTED' }), 'RETURN_EVALUATION', ' '), (e: any) => e.response.code === 'BSC_EVALUATION_RETURN_REASON_REQUIRED');
 });
 
-test('field locking keeps definition and evaluation result groups independent', () => {
-  const policy = new BscAccessPolicy(scope);
-  const manager = actor({ id: managerId, roles: [{ code: 'MANAGER', scopeType: 'DEPARTMENT', scopeId: departmentId }], permissions: [BSC_PERMISSIONS.MANAGE_KPI] });
-  const owner = actor({ permissions: [BSC_PERMISSIONS.UPDATE_ACTUAL] });
+test('field locking keeps definition and evaluation result groups independent', async () => {
+  const relationshipDb = { manager_relationships: { count: async () => 1 } } as unknown as PrismaService;
+  const policy = new BscAccessPolicy(relationshipDb);
+  const manager = actor({ id: managerId, roles: [{ code: 'MANAGER', scopeType: 'DEPARTMENT', scopeId: departmentId,
+    permissions: [BSC_PERMISSIONS.MANAGE_KPI] }], permissions: [BSC_PERMISSIONS.MANAGE_KPI] });
+  const owner = actor({ roles: [{ code: 'EMPLOYEE', scopeType: 'SELF', scopeId: null,
+    permissions: [BSC_PERMISSIONS.UPDATE_ACTUAL] }], permissions: [BSC_PERMISSIONS.UPDATE_ACTUAL] });
   const base = { employee_id: employeeId, department_id: departmentId, direct_manager_id: managerId, status: 'DRAFT' };
 
-  assert.doesNotThrow(() => policy.assertCanEditPlanDefinition(manager, { ...base, plan_status: 'DRAFT', evaluation_status: 'NOT_STARTED' }));
-  assert.throws(() => policy.assertCanEditPlanDefinition(manager, { ...base, plan_status: 'APPROVED', evaluation_status: 'DRAFT' }), (e: any) => e.response.code === 'BSC_FIELD_NOT_EDITABLE_IN_CURRENT_STAGE');
+  await assert.doesNotReject(policy.assertCanEditPlanDefinition(manager, { ...base, plan_status: 'DRAFT', evaluation_status: 'NOT_STARTED' }));
+  await assert.rejects(policy.assertCanEditPlanDefinition(manager, { ...base, plan_status: 'APPROVED', evaluation_status: 'DRAFT' }), (e: any) => e.response.code === 'BSC_FIELD_NOT_EDITABLE_IN_CURRENT_STAGE');
   assert.doesNotThrow(() => policy.assertCanEditEvaluationResult(owner, { ...base, plan_status: 'APPROVED', evaluation_status: 'DRAFT' }));
   assert.doesNotThrow(() => policy.assertCanEditEvaluationResult(owner, { ...base, plan_status: 'APPROVED', evaluation_status: 'RETURNED' }));
   assert.throws(() => policy.assertCanEditEvaluationResult(owner, { ...base, plan_status: 'SUBMITTED', evaluation_status: 'NOT_STARTED' }), (e: any) => e.response.code === 'BSC_FIELD_NOT_EDITABLE_IN_CURRENT_STAGE');

@@ -99,6 +99,11 @@ test('Phase 3B.1 BSC Draft Core integration', { skip: safeDatabase() ? false : '
   const outsider = await createUser('OUTSIDER', departmentB.id, employeeRole.id, 'SELF', null, otherManager.id);
   const director = await createUser('DIRECTOR', departmentA.id, directorRole.id, 'GLOBAL', null, globalViewer.id);
   const noPermission = await createUser('NO_PERMISSION', departmentA.id, noPermissionRole.id, 'SELF', null, manager.id);
+  await prisma.manager_relationships.createMany({ data: [
+    { employee_id: employee.id, manager_id: manager.id, is_primary: true, start_date: new Date('2026-01-01') },
+    { employee_id: employee2.id, manager_id: manager.id, is_primary: true, start_date: new Date('2026-01-01') },
+    { employee_id: outsider.id, manager_id: otherManager.id, is_primary: true, start_date: new Date('2026-01-01') },
+  ] });
   const cycle = await prisma.bsc_cycles.create({ data: { code: `${marker}_2026_07`, name: `${marker} July`, cycle_type: 'MONTH', year: 2026, month: 7, start_date: new Date('2026-07-01'), end_date: new Date('2026-07-31'), submission_deadline: new Date('2026-07-31T17:00:00Z'), status: 'OPEN', created_by: globalViewer.id } });
   tracked.cycles.push(cycle.id);
 

@@ -93,6 +93,11 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
     const employeeWithoutBsc = await makeUser('NO_BSC', employeeRole.id, department.id, 'SELF', manager.id);
     const crossDepartmentEmployee = await makeUser('CROSS_EMPLOYEE', employeeRole.id, outsideDepartment.id, 'SELF', manager.id);
     const outsideEmployee = await makeUser('OUT_EMPLOYEE', employeeRole.id, outsideDepartment.id, 'SELF', outsideManager.id);
+    await prisma.manager_relationships.createMany({ data: [
+      ...[employee, employee2, employee3, employeeWithoutBsc].map((owner) => ({ employee_id: owner.id, manager_id: manager.id, is_primary: true, start_date: new Date('2020-01-01') })),
+      { employee_id: crossDepartmentEmployee.id, manager_id: manager.id, is_primary: true, start_date: new Date('2020-01-01') },
+      { employee_id: outsideEmployee.id, manager_id: outsideManager.id, is_primary: true, start_date: new Date('2020-01-01') },
+    ] });
     const cycle = await prisma.bsc_cycles.create({ data: { code: `${marker}_C1`, name: `${marker} Cycle 1`, cycle_type: 'MONTH', year: 2099, month: 1, start_date: new Date('2099-01-01'), end_date: new Date('2099-01-31'), submission_deadline: new Date('2099-01-31T23:59:59Z'), status: 'OPEN', created_by: admin.id } });
     const otherCycle = await prisma.bsc_cycles.create({ data: { code: `${marker}_C2`, name: `${marker} Cycle 2`, cycle_type: 'MONTH', year: 2099, month: 2, start_date: new Date('2099-02-01'), end_date: new Date('2099-02-28'), submission_deadline: new Date('2099-02-28T23:59:59Z'), status: 'OPEN', created_by: admin.id } });
     const makeBsc = async (name: string, owner: typeof employee, ownerManager: typeof manager, data: { plan: string; evaluation: string; score?: number; grade?: string; cycleId?: string }) => {
@@ -105,7 +110,7 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
     const approved = await makeBsc('APPROVED', employee, manager, { plan: 'APPROVED', evaluation: 'APPROVED', score: 95, grade: 'A' });
     await makeBsc('DRAFT_PREVIEW', employee2, manager, { plan: 'APPROVED', evaluation: 'DRAFT', score: 130, grade: 'A++' });
     await makeBsc('OUTSIDE', outsideEmployee, outsideManager, { plan: 'APPROVED', evaluation: 'APPROVED', score: 111, grade: 'A++' });
-    const crossDepartmentBsc = await makeBsc('CROSS_DEPARTMENT', crossDepartmentEmployee, manager, { plan: 'APPROVED', evaluation: 'APPROVED', score: 90, grade: 'A', cycleId: otherCycle.id });
+    await makeBsc('CROSS_DEPARTMENT', crossDepartmentEmployee, manager, { plan: 'APPROVED', evaluation: 'APPROVED', score: 90, grade: 'A', cycleId: otherCycle.id });
     await makeBsc('PENDING', employee3, manager, { plan: 'SUBMITTED', evaluation: 'NOT_STARTED' });
     await makeBsc('MGR_PENDING', manager, admin, { plan: 'SUBMITTED', evaluation: 'NOT_STARTED' });
     await makeBsc('OTHER_CYCLE', employee2, manager, { plan: 'SUBMITTED', evaluation: 'NOT_STARTED', cycleId: otherCycle.id });
@@ -131,8 +136,8 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
       const report = await request(server).get(`/bsc-reports?cycleId=${cycle.id}&departmentId=${department.id}&planStatus=APPROVED&evaluationStatus=APPROVED&finalGrade=A&search=${marker}_EMPLOYEE&sortBy=final_score&sortOrder=desc`).set(auth(tokens.manager)).expect(200);
       assert.equal(report.body.total, 1);
       assert.equal(report.body.items[0].id, approved.id);
-      const crossDepartment = await request(server).get(`/bsc-reports?departmentId=${outsideDepartment.id}`).set(auth(tokens.manager)).expect(200);
-      assert.deepEqual(crossDepartment.body.items.map((row: { id: string }) => row.id), [crossDepartmentBsc.id]);
+      const crossDepartment = await request(server).get(`/bsc-reports?departmentId=${outsideDepartment.id}`).set(auth(tokens.manager)).expect(403);
+      assert.equal(crossDepartment.body.code, 'AUTH_SCOPE_DENIED');
       const unrelated = await request(server).get(`/bsc-reports?departmentId=${unrelatedDepartment.id}`).set(auth(tokens.manager)).expect(403);
       assert.equal(unrelated.body.code, 'AUTH_SCOPE_DENIED');
       const outsideView = await request(server).get('/bsc-reports').set(auth(tokens.outsideManager)).expect(200);

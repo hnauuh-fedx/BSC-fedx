@@ -180,6 +180,7 @@ export class EmployeeBscRepository {
     return this.serializable(async (db) => {
       const snapshot = await this.workflowSnapshot(db, id);
       if (!snapshot) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC.' });
+      await this.requireActiveReviewer(db, snapshot.employee_id, snapshot.direct_manager_id);
       validate(snapshot);
       const now = new Date();
       const changed = await db.employee_bsc.updateMany({
@@ -213,7 +214,10 @@ export class EmployeeBscRepository {
     return this.serializable(async (db) => {
       const snapshot = await this.workflowSnapshot(db, id);
       if (!snapshot) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC.' });
-      const reason = validate(snapshot);
+      const reviewerRole = await this.requireActiveReviewer(db, snapshot.employee_id, actor.id);
+      const effectiveSnapshot = { ...snapshot, direct_manager_id: actor.id, reviewer_status: 'ACTIVE', reviewer_deleted_at: null,
+        reviewer_organization_active: true, reviewer_matches_owner: true, reviewer_role: reviewerRole };
+      const reason = validate(effectiveSnapshot);
       const now = new Date();
       const targetStatus = action === 'APPROVE_PLAN' ? 'APPROVED' : 'RETURNED';
       const changed = await db.employee_bsc.updateMany({
@@ -221,11 +225,13 @@ export class EmployeeBscRepository {
         data: action === 'APPROVE_PLAN'
           ? {
               plan_status: targetStatus, plan_approved_at: now, plan_approved_by: actor.id,
+              direct_manager_id: actor.id,
               evaluation_status: snapshot.evaluation_status === 'NOT_STARTED' ? 'DRAFT' : snapshot.evaluation_status,
               updated_at: now,
             }
           : {
               plan_status: targetStatus, plan_approved_at: null, plan_approved_by: null, evaluation_status: 'NOT_STARTED', updated_at: now,
+              direct_manager_id: actor.id,
             },
       });
       if (changed.count !== 1) this.workflowConflict();
@@ -236,11 +242,11 @@ export class EmployeeBscRepository {
       } });
       await db.bsc_approval_steps.update({
         where: { employee_bsc_id_stage_step_order: { employee_bsc_id: id, stage: 'PLAN', step_order: 1 } },
-        data: { status: targetStatus, comment: reason, acted_at: now },
+        data: { approver_id: actor.id, approver_role: reviewerRole, status: targetStatus, comment: reason, acted_at: now },
       });
       const review = await db.bsc_reviews.create({ data: {
         employee_bsc_id: id, stage: 'PLAN', reviewer_id: actor.id,
-        reviewer_role: snapshot.reviewer_role,
+        reviewer_role: reviewerRole,
         review_level: 1, action: action === 'APPROVE_PLAN' ? 'APPROVE' : 'RETURN', score_before: null, score_after: null,
         comment: reason, reviewed_at: now,
       } });
@@ -259,6 +265,7 @@ export class EmployeeBscRepository {
     return this.serializable(async (db) => {
       const snapshot = await this.workflowSnapshot(db, id);
       if (!snapshot) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC.' });
+      await this.requireActiveReviewer(db, snapshot.employee_id, snapshot.direct_manager_id);
       const scoring = validate(snapshot);
       const now = new Date();
       const changed = await db.employee_bsc.updateMany({
@@ -286,7 +293,10 @@ export class EmployeeBscRepository {
     return this.serializable(async (db) => {
       const snapshot = await this.workflowSnapshot(db, id);
       if (!snapshot) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC.' });
-      const { scoring, reason } = validate(snapshot);
+      const reviewerRole = await this.requireActiveReviewer(db, snapshot.employee_id, actor.id);
+      const effectiveSnapshot = { ...snapshot, direct_manager_id: actor.id, reviewer_status: 'ACTIVE', reviewer_deleted_at: null,
+        reviewer_organization_active: true, reviewer_matches_owner: true, reviewer_role: reviewerRole };
+      const { scoring, reason } = validate(effectiveSnapshot);
       const now = new Date();
       const approved = action === 'APPROVE_EVALUATION';
       const targetStatus = approved ? 'APPROVED' : 'RETURNED';
@@ -294,10 +304,12 @@ export class EmployeeBscRepository {
         where: { id, plan_status: 'APPROVED', evaluation_status: 'SUBMITTED' },
         data: approved ? {
           evaluation_status: targetStatus, evaluation_approved_at: now, evaluation_approved_by: actor.id, locked_at: now,
+          direct_manager_id: actor.id,
           manager_total_score: scoring.canonicalTotalWeightedScore, final_score: scoring.canonicalTotalWeightedScore,
           final_grade: scoring.classification, updated_at: now,
         } : {
           evaluation_status: targetStatus, evaluation_approved_at: null, evaluation_approved_by: null, locked_at: null,
+          direct_manager_id: actor.id,
           manager_total_score: null, final_score: null, final_grade: null, updated_at: now,
         },
       });
@@ -305,8 +317,8 @@ export class EmployeeBscRepository {
       await db.bsc_status_histories.create({ data: { employee_bsc_id: id, stage: 'EVALUATION', from_status: 'SUBMITTED', to_status: targetStatus,
         action, comment: reason, changed_by: actor.id, changed_at: now, ip_address: metadata.ipAddress, user_agent: metadata.userAgent } });
       await db.bsc_approval_steps.update({ where: { employee_bsc_id_stage_step_order: { employee_bsc_id: id, stage: 'EVALUATION', step_order: 1 } },
-        data: { status: targetStatus, comment: reason, acted_at: now } });
-      const review = await db.bsc_reviews.create({ data: { employee_bsc_id: id, stage: 'EVALUATION', reviewer_id: actor.id, reviewer_role: snapshot.reviewer_role,
+        data: { approver_id: actor.id, approver_role: reviewerRole, status: targetStatus, comment: reason, acted_at: now } });
+      const review = await db.bsc_reviews.create({ data: { employee_bsc_id: id, stage: 'EVALUATION', reviewer_id: actor.id, reviewer_role: reviewerRole,
         review_level: 1, action: approved ? 'APPROVE' : 'RETURN', score_before: snapshot.final_score,
         score_after: approved ? scoring.canonicalTotalWeightedScore : null, comment: reason, reviewed_at: now } });
       if (approved) {
@@ -403,9 +415,9 @@ export class EmployeeBscRepository {
     });
   }
 
-  async findPendingReopenRequests(reviewerId: string, query: QueryReopenRequestDto) {
+  async findPendingReopenRequests(access: Prisma.bsc_unlock_requestsWhereInput, query: QueryReopenRequestDto) {
     const where: Prisma.bsc_unlock_requestsWhereInput = {
-      reviewer_id: reviewerId,
+      AND: [access],
       ...(query.stage ? { stage: query.stage } : {}),
       status: query.status ?? 'PENDING',
     };
@@ -444,6 +456,12 @@ export class EmployeeBscRepository {
       if (!latestApprovedVersion || latestApprovedVersion.id !== request.source_version_id) {
         this.reopenConflict('BSC_REOPEN_SOURCE_VERSION_STALE');
       }
+      const now = new Date();
+      const changed = await db.bsc_unlock_requests.updateMany({
+        where: { id: request.id, status: 'PENDING' },
+        data: { status: 'APPROVED', reviewed_by: actor.id, review_comment: null, reviewed_at: now },
+      });
+      if (changed.count !== 1) this.reopenConflict('BSC_REOPEN_REQUEST_NOT_PENDING');
       const version = await this.createVersion(
         db,
         request.employee_bsc_id,
@@ -453,12 +471,10 @@ export class EmployeeBscRepository {
         metadata,
         { sourceReopenRequestId: request.id },
       );
-      const now = new Date();
-      const changed = await db.bsc_unlock_requests.updateMany({
-        where: { id: request.id, status: 'PENDING' },
-        data: { status: 'APPROVED', reviewed_by: actor.id, review_comment: null, reviewed_at: now, resulting_version_id: version.id },
+      await db.bsc_unlock_requests.update({
+        where: { id: request.id },
+        data: { resulting_version_id: version.id },
       });
-      if (changed.count !== 1) this.reopenConflict('BSC_REOPEN_REQUEST_NOT_PENDING');
 
       if (request.stage === 'PLAN') {
         await db.bsc_unlock_requests.updateMany({
@@ -1021,6 +1037,37 @@ export class EmployeeBscRepository {
       items: bsc.employee_bsc_items,
       reviewer_matches_owner: bsc.users_employee_bsc_employee_idTousers.direct_manager_id === bsc.direct_manager_id,
     }) : null);
+  }
+
+  private async requireActiveReviewer(db: Transaction, employeeId: string, managerId: string): Promise<'DIRECTOR' | 'MANAGER'> {
+    const now = new Date();
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const relationship = await db.manager_relationships.findFirst({ where: {
+      employee_id: employeeId,
+      manager_id: managerId,
+      is_primary: true,
+      start_date: { lte: date },
+      OR: [{ end_date: null }, { end_date: { gte: date } }],
+      users_manager_relationships_employee_idTousers: {
+        direct_manager_id: managerId, status: 'ACTIVE', deleted_at: null,
+        departments: { status: 'ACTIVE' }, positions: { status: 'ACTIVE' },
+      },
+      users_manager_relationships_manager_idTousers: {
+        status: 'ACTIVE', deleted_at: null, departments: { status: 'ACTIVE' }, positions: { status: 'ACTIVE' },
+      },
+    }, select: {
+      users_manager_relationships_manager_idTousers: { select: {
+        user_roles_user_roles_user_idTousers: {
+          where: { OR: [{ expires_at: null }, { expires_at: { gt: now } }], roles: { status: 'ACTIVE' } },
+          select: { roles: { select: { code: true } } },
+        },
+      } },
+    } });
+    if (!relationship) throw new ForbiddenException({ code: 'BSC_ACTIVE_REVIEWER_REQUIRED', message: 'KhÃ´ng xÃ¡c Ä‘á»‹nh Ä‘Æ°á»£c ngÆ°á»i duyá»‡t trá»±c tiáº¿p Ä‘ang cÃ³ hiá»‡u lá»±c.' });
+    const role = relationship.users_manager_relationships_manager_idTousers.user_roles_user_roles_user_idTousers
+      .map((assignment) => assignment.roles.code)
+      .find((code) => code === 'DIRECTOR' || code === 'MANAGER');
+    return role === 'DIRECTOR' ? 'DIRECTOR' : 'MANAGER';
   }
 
   private workflowConflict(): never {

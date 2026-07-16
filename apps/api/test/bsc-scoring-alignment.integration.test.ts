@@ -89,6 +89,12 @@ test('Phase 3B.4 scoring alignment integration', {
     const employee = await user('EMPLOYEE', employeeRole.id, 'SELF', manager.id);
     const outsider = await user('OUTSIDER', employeeRole.id, 'SELF', manager.id);
     const noAccess = await user('NO_ACCESS', noAccessRole.id, 'SELF', manager.id);
+    await prisma.manager_relationships.create({ data: {
+      employee_id: employee.id,
+      manager_id: manager.id,
+      is_primary: true,
+      start_date: new Date('2026-01-01'),
+    } });
     let sequence = 0;
     const makeBsc = async (name: string, items: Array<{ target?: string | number | null; actual?: string | number | null; weight: string | number; method?: string }>, state: 'DRAFT' | 'EVALUATION' = 'EVALUATION') => {
       sequence += 1;

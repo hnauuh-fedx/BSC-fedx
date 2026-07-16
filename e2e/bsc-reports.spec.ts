@@ -42,7 +42,7 @@ test('manager opens dashboard, filters report and downloads Excel', async ({ bro
 test('manager outside scope cannot see another department report rows', async ({ browser }) => {
   const session = await login(browser, fixture.outsideManager);
   await session.page.goto('/reports/bsc');
-  await expect(session.page.getByText('Không có dữ liệu BSC phù hợp.')).toBeVisible();
+  await expect(session.page.getByRole('link', { name: new RegExp(`${fixture.marker}_OUTSIDE`) }).first()).toBeVisible();
   await expect(session.page.getByRole('link', { name: new RegExp(`${fixture.marker}_(?:PERF|REOPEN|DUPLICATE)`) })).toHaveCount(0);
   await session.context.close();
 });

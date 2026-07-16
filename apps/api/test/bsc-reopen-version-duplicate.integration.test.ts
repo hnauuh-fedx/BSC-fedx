@@ -378,7 +378,7 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       const stale = await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/approve`).set(auth(tokens.manager)).send({}), 409);
       assert.equal(stale.body.code, 'BSC_REOPEN_REVIEWER_CHANGED');
       const pending = await expectHttp(request(server).get('/employee-bsc/reopen-requests/pending?stage=PLAN&page=1&limit=10').set(auth(tokens.manager)), 200);
-      assert.ok(pending.body.items.some((row: any) => row.id === reopen.body.id));
+      assert.ok(!pending.body.items.some((row: any) => row.id === reopen.body.id));
       assert.doesNotMatch(JSON.stringify(pending.body), /password|token|cookie|authorization|credential|user.?agent|ip.?address/i);
       const audits = await prisma.audit_logs.findMany({ where: { user_id: { in: ids.users } } });
       assert.doesNotMatch(JSON.stringify(audits), /password|token|cookie|authorization|credential|database_url/i);

@@ -107,6 +107,11 @@ test('Phase 3B.3 dual-stage BSC workflow integration', { skip: safeDatabase() ? 
     }
     const director = await user('DIRECTOR', directorRole.id, 'DEPARTMENT', department.id, admin.id);
     const managerOwner = await user('MANAGER_OWNER', managerOwnerRole.id, 'SELF', department.id, director.id);
+    await prisma.manager_relationships.createMany({ data: [
+      { employee_id: employee.id, manager_id: manager.id, start_date: new Date('2020-01-01'), is_primary: true },
+      { employee_id: employee2.id, manager_id: manager.id, start_date: new Date('2020-01-01'), is_primary: true },
+      { employee_id: managerOwner.id, manager_id: director.id, start_date: new Date('2020-01-01'), is_primary: true },
+    ] });
     let counter = 0;
     const bsc = async (name: string, owner = employee, actual: number | null = null) => {
       counter += 1;

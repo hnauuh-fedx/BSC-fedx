@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ValidationPipe } from '@nestjs/common';
-import { ResourceScopePolicy } from '../src/common/policies/resource-scope.policy';
 import { AuthUser } from '../src/common/types/auth-user.type';
 import {
   BSC_PERMISSIONS,
@@ -15,6 +14,7 @@ import {
 } from '../src/modules/employee-bsc/validators/bsc-item.validator';
 import { UpdateBscActualDto } from '../src/modules/employee-bsc/dto/bsc-item.dto';
 import { QueryEmployeeBscDto } from '../src/modules/employee-bsc/dto/query-employee-bsc.dto';
+import { PrismaService } from '../src/database/prisma.service';
 
 const user = (overrides: Partial<AuthUser> = {}): AuthUser => ({
   id: '00000000-0000-4000-8000-000000000001',
@@ -23,7 +23,8 @@ const user = (overrides: Partial<AuthUser> = {}): AuthUser => ({
   email: 'employee@example.test',
   departmentId: '00000000-0000-4000-8000-000000000010',
   status: 'ACTIVE',
-  roles: [{ code: 'EMPLOYEE', scopeType: 'SELF', scopeId: null }],
+  roles: [{ code: 'EMPLOYEE', scopeType: 'SELF', scopeId: null,
+    permissions: [BSC_PERMISSIONS.CREATE_OWN, BSC_PERMISSIONS.VIEW_OWN, BSC_PERMISSIONS.EDIT_OWN] }],
   permissions: [BSC_PERMISSIONS.CREATE_OWN, BSC_PERMISSIONS.VIEW_OWN, BSC_PERMISSIONS.EDIT_OWN],
   ...overrides,
 });
@@ -38,33 +39,41 @@ const draft = {
   evaluation_status: 'NOT_STARTED',
 };
 
-test('BSC policy enforces owner, direct manager, scope, permission and DRAFT state', () => {
-  const policy = new BscAccessPolicy(new ResourceScopePolicy());
+test('BSC policy enforces owner, direct manager, scope, permission and DRAFT state', async () => {
+  const relationshipDb = {
+    manager_relationships: { count: async ({ where }: { where: { manager_id: string; employee_id: string } }) =>
+      Number(where.manager_id === draft.direct_manager_id && where.employee_id === draft.employee_id) },
+    users: { count: async () => 1 },
+  } as unknown as PrismaService;
+  const policy = new BscAccessPolicy(relationshipDb);
   const employee = user();
   policy.assertCanCreateOwn(employee);
-  policy.assertCanView(employee, draft);
+  await policy.assertCanView(employee, draft);
   policy.assertCanUpdateActual(employee, { ...draft, plan_status: 'APPROVED', evaluation_status: 'DRAFT' });
 
   const manager = user({
     id: draft.direct_manager_id,
-    roles: [{ code: 'MANAGER', scopeType: 'DEPARTMENT', scopeId: draft.department_id }],
+    roles: [{ code: 'MANAGER', scopeType: 'DEPARTMENT', scopeId: draft.department_id,
+      permissions: [BSC_PERMISSIONS.VIEW_SUBORDINATE, BSC_PERMISSIONS.MANAGE_KPI] }],
     permissions: [BSC_PERMISSIONS.VIEW_SUBORDINATE, BSC_PERMISSIONS.MANAGE_KPI],
   });
-  policy.assertCanView(manager, draft);
-  policy.assertCanManageKpi(manager, draft);
+  await policy.assertCanView(manager, draft);
+  await policy.assertCanManageKpi(manager, draft);
 
-  assert.throws(() => policy.assertCanManageKpi(employee, draft), (error: any) => error.response.code === 'BSC_ACCESS_DENIED');
-  assert.throws(() => policy.assertCanManageKpi({ ...manager, id: '00000000-0000-4000-8000-000000000099' }, draft));
-  assert.throws(() => policy.assertCanView({ ...manager, id: '00000000-0000-4000-8000-000000000099' }, draft));
-  policy.assertCanView(user({ roles: [{ code: 'DIRECTOR', scopeType: 'GLOBAL', scopeId: null }], permissions: [BSC_PERMISSIONS.VIEW_UNIT] }), draft);
+  await assert.rejects(policy.assertCanManageKpi(employee, draft), (error: any) => error.response.code === 'BSC_ACCESS_DENIED');
+  await assert.rejects(policy.assertCanManageKpi({ ...manager, id: '00000000-0000-4000-8000-000000000099' }, draft));
+  await assert.rejects(policy.assertCanView({ ...manager, id: '00000000-0000-4000-8000-000000000099' }, draft));
+  await policy.assertCanView(user({ roles: [{ code: 'DIRECTOR', scopeType: 'GLOBAL', scopeId: null,
+    permissions: [BSC_PERMISSIONS.VIEW_UNIT] }], permissions: [BSC_PERMISSIONS.VIEW_UNIT] }), draft);
   assert.throws(() => policy.assertCanUpdateActual(employee, { ...draft, plan_status: 'SUBMITTED' }), (error: any) => error.response.code === 'BSC_FIELD_NOT_EDITABLE_IN_CURRENT_STAGE');
 });
 
 test('BSC policy rejects DIRECTOR and ADMIN personal BSC creation', () => {
-  const policy = new BscAccessPolicy(new ResourceScopePolicy());
+  const policy = new BscAccessPolicy({} as PrismaService);
   for (const code of ['DIRECTOR', 'ADMIN']) {
     assert.throws(
-      () => policy.assertCanCreateOwn(user({ roles: [{ code, scopeType: 'GLOBAL', scopeId: null }] })),
+      () => policy.assertCanCreateOwn(user({ roles: [{ code, scopeType: 'GLOBAL', scopeId: null,
+        permissions: [BSC_PERMISSIONS.CREATE_OWN] }] })),
       (error: any) => error.response.code === (code === 'DIRECTOR' ? 'BSC_DIRECTOR_NOT_ELIGIBLE' : 'BSC_OWNER_NOT_ELIGIBLE'),
     );
   }

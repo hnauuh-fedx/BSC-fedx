@@ -57,9 +57,9 @@ export class BscReportsService {
       this.prisma.employee_bsc.groupBy({ by: ['evaluation_status'], where, _count: { _all: true } }),
       this.prisma.employee_bsc.groupBy({ by: ['final_grade'], where: approvedWhere, _count: { _all: true } }),
       this.prisma.employee_bsc.aggregate({ where: approvedWhere, _avg: { final_score: true } }),
-      this.prisma.bsc_approval_steps.count({ where: { approver_id: actor.id, stage: 'PLAN', status: 'PENDING', employee_bsc: { is: where } } }),
-      this.prisma.bsc_approval_steps.count({ where: { approver_id: actor.id, stage: 'EVALUATION', status: 'PENDING', employee_bsc: { is: where } } }),
-      this.prisma.bsc_unlock_requests.count({ where: { status: 'PENDING', reviewer_id: actor.id, employee_bsc: where } }),
+      this.prisma.bsc_approval_steps.count({ where: { approver_id: actor.id, stage: 'PLAN', status: 'PENDING', employee_bsc: { is: { AND: [where, this.activeManagerWhere(actor.id)] } } } }),
+      this.prisma.bsc_approval_steps.count({ where: { approver_id: actor.id, stage: 'EVALUATION', status: 'PENDING', employee_bsc: { is: { AND: [where, this.activeManagerWhere(actor.id)] } } } }),
+      this.prisma.bsc_unlock_requests.count({ where: { status: 'PENDING', reviewer_id: actor.id, employee_bsc: { AND: [where, this.activeManagerWhere(actor.id)] } } }),
       this.departmentProgress(where),
     ]);
     return {
@@ -84,9 +84,10 @@ export class BscReportsService {
       : await this.prisma.bsc_cycles.findFirst({ where: { status: 'OPEN', start_date: { lte: now }, end_date: { gte: now } }, orderBy: { start_date: 'desc' }, select: cycleSelect })
         ?? await this.prisma.bsc_cycles.findFirst({ where: { status: 'OPEN' }, orderBy: [{ start_date: 'desc' }, { created_at: 'desc' }], select: cycleSelect });
     if (access.personal && !access.management) {
+      const active = this.activeOrganizationWhere();
       const [recentRecords, currentRecord] = await Promise.all([
-        this.prisma.employee_bsc.findMany({ where: { employee_id: actor.id }, select: reportSelect, orderBy: { created_at: 'desc' }, take: 6 }),
-        cycle ? this.prisma.employee_bsc.findFirst({ where: { employee_id: actor.id, cycle_id: cycle.id }, select: reportSelect }) : Promise.resolve(null),
+        this.prisma.employee_bsc.findMany({ where: { AND: [{ employee_id: actor.id }, active] }, select: reportSelect, orderBy: { created_at: 'desc' }, take: 6 }),
+        cycle ? this.prisma.employee_bsc.findFirst({ where: { AND: [{ employee_id: actor.id, cycle_id: cycle.id }, active] }, select: reportSelect }) : Promise.resolve(null),
       ]);
       const records = currentRecord && !recentRecords.some(record => record.id === currentRecord.id) ? [currentRecord, ...recentRecords] : recentRecords;
       const rows = await this.rows(records);
@@ -103,7 +104,7 @@ export class BscReportsService {
   async options(actor: AuthUser) {
     const access = await this.reportAccess(actor);
     const scope = this.scopeWhere(actor, access);
-    const bscs = await this.prisma.employee_bsc.findMany({ where: scope, distinct: ['employee_id'], select: { employee_id: true, department_id: true } });
+    const bscs = await this.prisma.employee_bsc.findMany({ where: { AND: [scope, this.activeOrganizationWhere()] }, distinct: ['employee_id'], select: { employee_id: true, department_id: true } });
     const employeeIds = bscs.map(row => row.employee_id);
     const departmentIds = [...new Set(bscs.map(row => row.department_id))];
     const [cycles, departments, employees] = await Promise.all([
@@ -146,7 +147,7 @@ export class BscReportsService {
 
   private async where(actor: AuthUser, query: BscReportFilterDto, access: ReportAccess): Promise<Prisma.employee_bscWhereInput> {
     if (query.departmentId) await this.assertDepartmentAccess(actor, query.departmentId, access);
-    const filters: Prisma.employee_bscWhereInput[] = [this.scopeWhere(actor, access)];
+    const filters: Prisma.employee_bscWhereInput[] = [this.scopeWhere(actor, access), this.activeOrganizationWhere()];
     if (query.cycleId) filters.push({ cycle_id: query.cycleId });
     if (query.departmentId) filters.push({ department_id: query.departmentId });
     if (query.employeeId) filters.push({ employee_id: query.employeeId });
@@ -163,10 +164,29 @@ export class BscReportsService {
     if (access.management) {
       if (access.global) return {};
       if (access.departmentIds.length) clauses.push({ department_id: { in: access.departmentIds } });
-      clauses.push({ direct_manager_id: actor.id });
     }
     if (!clauses.length) throw new ForbiddenException({ code: 'AUTH_PERMISSION_DENIED', message: 'Bạn không có quyền xem báo cáo BSC.' });
     return clauses.length === 1 ? clauses[0] : { OR: clauses };
+  }
+
+  private activeOrganizationWhere(): Prisma.employee_bscWhereInput {
+    return {
+      users_employee_bsc_employee_idTousers: { status: 'ACTIVE', deleted_at: null },
+      departments: { status: 'ACTIVE' },
+      positions: { status: 'ACTIVE' },
+    };
+  }
+
+  private activeManagerWhere(managerId: string): Prisma.employee_bscWhereInput {
+    const now = new Date();
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    return { users_employee_bsc_employee_idTousers: {
+      direct_manager_id: managerId,
+      manager_relationships_manager_relationships_employee_idTousers: { some: {
+        manager_id: managerId, is_primary: true, start_date: { lte: date }, OR: [{ end_date: null }, { end_date: { gte: date } }],
+        users_manager_relationships_manager_idTousers: { status: 'ACTIVE', deleted_at: null, departments: { status: 'ACTIVE' }, positions: { status: 'ACTIVE' } },
+      } },
+    } };
   }
 
   private async rows(records: ReportRecord[]) {
@@ -203,8 +223,11 @@ export class BscReportsService {
   }
 
   private async notCreated(actor: AuthUser, cycleId: string, access: ReportAccess) {
-    const userScope: Prisma.usersWhereInput = access.global ? {} : { OR: [{ department_id: { in: access.departmentIds } }, { direct_manager_id: actor.id }] };
-    const eligible = await this.prisma.users.findMany({ where: { AND: [userScope, { status: 'ACTIVE', deleted_at: null, user_roles_user_roles_user_idTousers: { some: { roles: { code: { in: ['EMPLOYEE', 'MANAGER'] } } } } }] }, select: { id: true } });
+    const userScope: Prisma.usersWhereInput = access.global ? {} : { department_id: { in: access.departmentIds } };
+    const eligible = await this.prisma.users.findMany({ where: { AND: [userScope, {
+      status: 'ACTIVE', deleted_at: null, departments: { status: 'ACTIVE' }, positions: { status: 'ACTIVE' },
+      user_roles_user_roles_user_idTousers: { some: { roles: { code: { in: ['EMPLOYEE', 'MANAGER'] } } } },
+    }] }, select: { id: true } });
     if (!eligible.length) return 0;
     const existing = await this.prisma.employee_bsc.findMany({ where: { cycle_id: cycleId, employee_id: { in: eligible.map(row => row.id) } }, select: { employee_id: true } });
     return eligible.length - new Set(existing.map(row => row.employee_id)).size;
@@ -229,9 +252,8 @@ export class BscReportsService {
       const permissions = new Set(assignment.roles.role_permissions.map(item => item.permissions.code));
       if (permissions.has(BSC_REPORT_PERMISSIONS.PERSONAL)) personal = true;
       if (permissions.has(BSC_REPORT_PERMISSIONS.UNIT) || permissions.has(BSC_REPORT_PERMISSIONS.ORGANIZATION)) {
-        management = true;
-        if (assignment.scope_type === 'GLOBAL') global = true;
-        if (assignment.scope_type === 'DEPARTMENT' && assignment.scope_id) departmentIds.add(assignment.scope_id);
+        if (assignment.scope_type === 'GLOBAL') { management = true; global = true; }
+        if (assignment.scope_type === 'DEPARTMENT' && assignment.scope_id) { management = true; departmentIds.add(assignment.scope_id); }
       }
       if (permissions.has(BSC_REPORT_PERMISSIONS.EXPORT)) {
         canExport = true;
@@ -259,10 +281,7 @@ export class BscReportsService {
 
   private async assertDepartmentAccess(actor: AuthUser, departmentId: string, access: ReportAccess) {
     if (access.global || access.departmentIds.includes(departmentId)) return;
-    const directBsc = access.management
-      ? await this.prisma.employee_bsc.count({ where: { department_id: departmentId, direct_manager_id: actor.id } })
-      : 0;
-    if (!directBsc && !(access.personal && actor.departmentId === departmentId)) {
+    if (!(access.personal && actor.departmentId === departmentId)) {
       throw new ForbiddenException({ code: 'AUTH_SCOPE_DENIED', message: 'Bạn không có quyền truy cập đơn vị này.' });
     }
   }

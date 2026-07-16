@@ -14,7 +14,10 @@ async function login(browser: Browser, user: { email: string }, password = fixtu
   await page.getByLabel(/Mật khẩu/i).fill(password);
   await page.getByRole('button', { name: /Đăng nhập/i }).click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole('heading', { name: new RegExp(user === fixture.employee ? 'Employee' : user === fixture.manager ? 'Manager' : 'Outside') })).toBeVisible();
+  const expectedName = user === fixture.employee ? 'Employee'
+    : user === fixture.manager ? 'Manager'
+      : user === fixture.director ? 'Director' : 'Outside';
+  await expect(page.getByText(new RegExp(`${fixture.marker} ${expectedName}`)).first()).toBeVisible();
   return { context, page };
 }
 
@@ -228,6 +231,42 @@ test('quản lý ngoài phạm vi không thấy danh sách và không mở đư�
   await session.page.goto(`/employee-bsc/${fixture.cycleIds.performance[0]}`);
   await expect(session.page.getByRole('alert')).toBeVisible();
   await expect(session.page.getByRole('button', { name: /Duyệt|Trả lại/ })).toHaveCount(0);
+  await session.context.close();
+});
+
+test('DIRECTOR duyệt PLAN của MANAGER trực thuộc nhưng manager ngoài phạm vi không thể mở URL trực tiếp', async ({ browser }) => {
+  const directorSession = await login(browser, fixture.director);
+  await directorSession.page.goto('/management/bsc-reviews');
+  await expect(directorSession.page.getByRole('link', { name: new RegExp(`${fixture.marker}_MANAGER_PLAN`) })).toBeVisible();
+  await directorSession.page.goto(`/employee-bsc/${fixture.bscIds.managerApproval}`);
+  directorSession.page.on('dialog', (dialog) => void dialog.accept());
+  await directorSession.page.getByRole('button', { name: 'Duyệt BSC' }).click();
+  await expect(directorSession.page.getByLabel('Trạng thái Đã duyệt').first()).toBeVisible();
+  const apiLogin = await directorSession.page.request.post('/api/auth/login', {
+    data: { email: fixture.director.email, password: fixture.password },
+  });
+  const accessToken = (await apiLogin.json() as { accessToken: string }).accessToken;
+  const crossScope = await directorSession.page.request.post(`/api/employee-bsc/${fixture.bscIds.outsideManagerApproval}/plan/approve`, {
+    data: {}, headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  expect(crossScope.status()).toBe(403);
+
+  const outsideSession = await login(browser, fixture.outsideManager);
+  await outsideSession.page.goto(`/employee-bsc/${fixture.bscIds.managerApproval}`);
+  await expect(outsideSession.page.getByRole('alert')).toBeVisible();
+  await expect(outsideSession.page.getByRole('button', { name: /Duyệt|Trả lại/ })).toHaveCount(0);
+  await directorSession.context.close();
+  await outsideSession.context.close();
+});
+
+test('Manager A không thấy Employee B trong list hoặc pending và URL trực tiếp bị từ chối', async ({ browser }) => {
+  const session = await login(browser, fixture.manager);
+  await session.page.goto('/employee-bsc');
+  await expect(session.page.getByRole('link', { name: new RegExp(`${fixture.marker}_OUTSIDE_EMPLOYEE_PLAN`) })).toHaveCount(0);
+  await session.page.goto('/management/bsc-reviews');
+  await expect(session.page.getByRole('link', { name: new RegExp(`${fixture.marker}_OUTSIDE_EMPLOYEE_PLAN`) })).toHaveCount(0);
+  await session.page.goto(`/employee-bsc/${fixture.bscIds.outsideEmployee}`);
+  await expect(session.page.getByRole('alert')).toBeVisible();
   await session.context.close();
 });
 

@@ -17,6 +17,11 @@ const managerPermissions = [
   'bsc.reopen.subordinate', 'bsc.version.view',
   'bsc.statistics.unit', 'bsc.report.export',
 ];
+const directorPermissions = [
+  'bsc.view.subordinate', 'bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate',
+  'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate',
+  'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.version.view',
+];
 
 export default async function globalSetup() {
   const db = prisma();
@@ -37,7 +42,7 @@ export default async function globalSetup() {
       const position = await tx.positions.create({ data: { code: `${marker}_P1`, name: `${marker} Position`, level: 2 } });
       const createdPermissionIds: string[] = [];
       const permissions = new Map<string, string>();
-      for (const code of [...new Set([...employeePermissions, ...managerPermissions])]) {
+      for (const code of [...new Set([...employeePermissions, ...managerPermissions, ...directorPermissions])]) {
         const existing = await tx.permissions.findUnique({ where: { code }, select: { id: true } });
         const permission = existing ?? await tx.permissions.create({ data: { code, name: code, module: 'employee-bsc' }, select: { id: true } });
         if (!existing) createdPermissionIds.push(permission.id);
@@ -45,19 +50,32 @@ export default async function globalSetup() {
       }
       const employeeRole = await tx.roles.create({ data: { code: `${marker}_EMP`, name: `${marker} Employee`, hierarchy_level: 1, is_system: false } });
       const managerRole = await tx.roles.create({ data: { code: `${marker}_MGR`, name: `${marker} Manager`, hierarchy_level: 2, is_system: false } });
+      const directorRole = await tx.roles.create({ data: { code: `${marker}_DIRECTOR`, name: `${marker} Director`, hierarchy_level: 3, is_system: false } });
       await tx.role_permissions.createMany({ data: [
         ...employeePermissions.map((code) => ({ role_id: employeeRole.id, permission_id: permissions.get(code)! })),
         ...managerPermissions.map((code) => ({ role_id: managerRole.id, permission_id: permissions.get(code)! })),
+        ...directorPermissions.map((code) => ({ role_id: directorRole.id, permission_id: permissions.get(code)! })),
       ] });
-      const manager = await tx.users.create({ data: { employee_code: `${marker}_MGR`, full_name: `${marker} Manager`, email: `${marker.toLowerCase()}_manager@example.test`, password_hash: passwordHash, department_id: mainDepartment.id, position_id: position.id } });
+      const director = await tx.users.create({ data: { employee_code: `${marker}_DIR`, full_name: `${marker} Director`, email: `${marker.toLowerCase()}_director@example.test`, password_hash: passwordHash, department_id: mainDepartment.id, position_id: position.id } });
+      const outsideDirector = await tx.users.create({ data: { employee_code: `${marker}_OUT_DIR`, full_name: `${marker} Outside Director`, email: `${marker.toLowerCase()}_outside_director@example.test`, password_hash: passwordHash, department_id: otherDepartment.id, position_id: position.id } });
+      const manager = await tx.users.create({ data: { employee_code: `${marker}_MGR`, full_name: `${marker} Manager`, email: `${marker.toLowerCase()}_manager@example.test`, password_hash: passwordHash, department_id: mainDepartment.id, position_id: position.id, direct_manager_id: director.id } });
       const employee = await tx.users.create({ data: { employee_code: `${marker}_EMP`, full_name: `${marker} Employee`, email: `${marker.toLowerCase()}_employee@example.test`, password_hash: passwordHash, department_id: mainDepartment.id, position_id: position.id, direct_manager_id: manager.id } });
-      const outsideManager = await tx.users.create({ data: { employee_code: `${marker}_OUT`, full_name: `${marker} Outside`, email: `${marker.toLowerCase()}_outside@example.test`, password_hash: passwordHash, department_id: otherDepartment.id, position_id: position.id } });
+      const outsideManager = await tx.users.create({ data: { employee_code: `${marker}_OUT`, full_name: `${marker} Outside`, email: `${marker.toLowerCase()}_outside@example.test`, password_hash: passwordHash, department_id: otherDepartment.id, position_id: position.id, direct_manager_id: outsideDirector.id } });
+      const outsideEmployee = await tx.users.create({ data: { employee_code: `${marker}_OUT_EMP`, full_name: `${marker} Outside Employee`, email: `${marker.toLowerCase()}_outside_employee@example.test`, password_hash: passwordHash, department_id: otherDepartment.id, position_id: position.id, direct_manager_id: outsideManager.id } });
       await tx.user_roles.createMany({ data: [
         { user_id: employee.id, role_id: employeeRole.id, scope_type: 'SELF', scope_id: null },
         { user_id: manager.id, role_id: managerRole.id, scope_type: 'DEPARTMENT', scope_id: mainDepartment.id },
+        { user_id: director.id, role_id: directorRole.id, scope_type: 'DEPARTMENT', scope_id: mainDepartment.id },
+        { user_id: outsideDirector.id, role_id: directorRole.id, scope_type: 'DEPARTMENT', scope_id: otherDepartment.id },
         { user_id: outsideManager.id, role_id: managerRole.id, scope_type: 'DEPARTMENT', scope_id: otherDepartment.id },
+        { user_id: outsideEmployee.id, role_id: employeeRole.id, scope_type: 'SELF', scope_id: null },
       ] });
-      await tx.manager_relationships.create({ data: { employee_id: employee.id, manager_id: manager.id, start_date: new Date(), is_primary: true } });
+      await tx.manager_relationships.createMany({ data: [
+        { employee_id: employee.id, manager_id: manager.id, start_date: new Date(), is_primary: true },
+        { employee_id: manager.id, manager_id: director.id, start_date: new Date(), is_primary: true },
+        { employee_id: outsideManager.id, manager_id: outsideDirector.id, start_date: new Date(), is_primary: true },
+        { employee_id: outsideEmployee.id, manager_id: outsideManager.id, start_date: new Date(), is_primary: true },
+      ] });
       const year = 2090 + Math.floor(Math.random() * 9);
       const cycles: Array<{
         id: string;
@@ -148,13 +166,52 @@ export default async function globalSetup() {
       const reopenEvaluation = await approvedFixture(23, 'REOPEN_EVAL', true);
       const reopenPlan = await approvedFixture(24, 'REOPEN_PLAN', true);
       const duplicateSource = await approvedFixture(25, 'DUPLICATE_SOURCE', false);
+      const managerApproval = await tx.employee_bsc.create({ data: {
+        bsc_code: `${marker}_MANAGER_PLAN`, cycle_id: cycles[27].id,
+        employee_id: manager.id, department_id: mainDepartment.id, position_id: position.id,
+        direct_manager_id: director.id, created_by: manager.id,
+        plan_status: 'SUBMITTED', plan_submitted_at: new Date(), evaluation_status: 'NOT_STARTED',
+      } });
+      await tx.employee_bsc_items.create({ data: {
+        employee_bsc_id: managerApproval.id, kpi_code: `${marker}_MANAGER_KPI`.slice(0, 50), kpi_name: 'Manager approval KPI',
+        measurement_unit: '%', target_value: 100, weight: 100,
+        calculation_method: 'ACTUAL_DIV_TARGET', assigned_by: director.id,
+      } });
+      await tx.bsc_approval_steps.create({ data: {
+        employee_bsc_id: managerApproval.id,
+        stage: 'PLAN',
+        step_order: 1,
+        approver_id: director.id,
+        approver_role: 'DIRECTOR',
+        status: 'PENDING',
+      } });
+      const outsideEmployeeBsc = await tx.employee_bsc.create({ data: {
+        bsc_code: `${marker}_OUTSIDE_EMPLOYEE_PLAN`.slice(0, 50), cycle_id: cycles[0].id,
+        employee_id: outsideEmployee.id, department_id: otherDepartment.id, position_id: position.id,
+        direct_manager_id: outsideManager.id, created_by: outsideEmployee.id,
+        plan_status: 'SUBMITTED', plan_submitted_at: new Date(), evaluation_status: 'NOT_STARTED',
+      } });
+      const outsideManagerApproval = await tx.employee_bsc.create({ data: {
+        bsc_code: `${marker}_OUTSIDE_MANAGER_PLAN`.slice(0, 50), cycle_id: cycles[1].id,
+        employee_id: outsideManager.id, department_id: otherDepartment.id, position_id: position.id,
+        direct_manager_id: outsideDirector.id, created_by: outsideManager.id,
+        plan_status: 'SUBMITTED', plan_submitted_at: new Date(), evaluation_status: 'NOT_STARTED',
+      } });
+      for (const [bsc, approver, roleCode] of [[outsideEmployeeBsc, outsideManager, 'MANAGER'], [outsideManagerApproval, outsideDirector, 'DIRECTOR']] as const) {
+        await tx.employee_bsc_items.create({ data: { employee_bsc_id: bsc.id, kpi_code: `${marker}_${roleCode}_OUT_KPI`.slice(0, 50), kpi_name: 'Outside approval KPI', target_value: 100, weight: 100, calculation_method: 'ACTUAL_DIV_TARGET', assigned_by: approver.id } });
+        await tx.bsc_approval_steps.create({ data: { employee_bsc_id: bsc.id, stage: 'PLAN', step_order: 1, approver_id: approver.id, approver_role: roleCode, status: 'PENDING' } });
+      }
       return {
         marker, password: PASSWORD, mainDepartmentId: mainDepartment.id, otherDepartmentId: otherDepartment.id,
         positionId: position.id,
         manager: { id: manager.id, email: manager.email }, employee: { id: employee.id, email: employee.email },
+        director: { id: director.id, email: director.email },
+        outsideDirector: { id: outsideDirector.id, email: outsideDirector.email },
         outsideManager: { id: outsideManager.id, email: outsideManager.email },
+        outsideEmployee: { id: outsideEmployee.id, email: outsideEmployee.email },
         cycleIds: { flow: cycles[0].id, underweight: cycles[1].id, performance, duplicateTargets: [cycles[26].id, cycles[27].id] },
-        bscIds: { reopenEvaluation, reopenPlan, duplicateSource }, createdPermissionIds,
+        bscIds: { reopenEvaluation, reopenPlan, duplicateSource, managerApproval: managerApproval.id,
+          outsideEmployee: outsideEmployeeBsc.id, outsideManagerApproval: outsideManagerApproval.id }, createdPermissionIds,
       } satisfies FixtureState;
     }, { timeout: 30_000 });
     await saveState(state);
