@@ -2,6 +2,21 @@
 
 Use one status for every row: `PASS`, `FAIL`, `BLOCKED`, `READY`, `OUT_OF_SCOPE`. Put evidence or limitations in `NOTE`. A `FAIL` or `BLOCKED` prevents pilot go-live unless the named decision owner accepts it in writing.
 
+## Staging deployment / USER UAT gate (2026-07-16)
+
+| Gate | Status | Note / evidence |
+|---|---|---|
+| Approved staging target and secret-managed configuration | BLOCKED | `.env.staging` and real Web/API/database targets are not available in this workspace; only placeholders exist. Local configuration was not substituted. See `staging-uat-results.md` (`UAT-ENV-001`). |
+| Pre-deploy backup and restore rehearsal | BLOCKED | Cannot run safely until the staging database, backup destination, maintenance window, operator, approver and rollback owner are supplied. |
+| Staging migration, seed, API and Web deployment | BLOCKED | No deployment host, pipeline, Git remote or Kubernetes context is configured. |
+| ADMIN representative USER UAT | BLOCKED | NOT RUN — requires deployed staging and a real user representative. |
+| DIRECTOR representative USER UAT | BLOCKED | NOT RUN — requires deployed staging and a real user representative. |
+| MANAGER representative USER UAT | BLOCKED | NOT RUN — requires deployed staging and a real user representative. |
+| EMPLOYEE representative USER UAT | BLOCKED | NOT RUN — requires deployed staging and a real user representative. |
+| Mandatory Workflow 1 and Workflow 2 | BLOCKED | NOT RUN — real users must complete both workflows on staging. |
+
+Current staging decision: **NO-GO**. This does not invalidate the developer-operated local runtime smoke below; it records that staging deployment and USER UAT have not occurred.
+
 ## Landing & Navigation
 
 | Actor | Scenario | Expected result | Status | Note / evidence |
