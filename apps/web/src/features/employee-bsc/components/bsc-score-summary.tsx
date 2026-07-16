@@ -1,13 +1,4 @@
 import React from 'react';
 import { BscScoringPreview } from '../types/employee-bsc.types';
 
-export const BscScoreSummary: React.FC<{ preview: BscScoringPreview }> = ({ preview }) => <section>
-  <h2>Điểm dự kiến</h2>
-  <dl>
-    <dt>Tổng trọng số</dt><dd>{preview.totalWeight.toFixed(2)}%</dd>
-    <dt>Trọng số đã có kết quả</dt><dd>{preview.scoredWeight.toFixed(2)}%</dd>
-    <dt>Tổng điểm tạm tính</dt><dd>{preview.totalWeightedScore.toFixed(4)}</dd>
-    <dt>Xếp loại dự kiến</dt><dd>{preview.isComplete ? preview.classification : 'Chưa đủ dữ liệu'}</dd>
-  </dl>
-  {!preview.isComplete && <p>Điểm hiện tại chỉ là tạm tính. BSC chưa đủ dữ liệu để xếp loại.</p>}
-</section>;
+export const BscScoreSummary: React.FC<{ preview: BscScoringPreview; isOfficial?: boolean }> = ({ preview, isOfficial = false }) => <section className="score-summary" aria-labelledby="preview-score-title"><div className="section-heading"><div><h2 id="preview-score-title">{isOfficial ? 'Điểm chính thức' : 'Điểm dự kiến'}</h2><p>{isOfficial ? 'Kết quả đã được duyệt và khóa.' : 'Điểm chỉ trở thành chính thức sau khi đánh giá kết quả được duyệt.'}</p></div><span className="status-badge">{isOfficial ? 'Đã duyệt' : 'Dự kiến'}</span></div><dl><dt>Tổng trọng số</dt><dd>{preview.totalWeight.toFixed(2)}%</dd><dt>Trọng số đã có kết quả</dt><dd>{preview.scoredWeight.toFixed(2)}%</dd><dt>{isOfficial ? 'Tổng điểm chính thức' : 'Tổng điểm tạm tính'}</dt><dd>{preview.totalWeightedScore.toFixed(4)}</dd><dt>{isOfficial ? 'Xếp loại chính thức' : 'Xếp loại dự kiến'}</dt><dd>{preview.isComplete ? preview.classification : 'Chưa đủ dữ liệu'}</dd></dl>{!preview.isComplete && <p role="status">BSC chưa đủ dữ liệu để xác định xếp loại {isOfficial ? 'chính thức' : 'dự kiến'}.</p>}</section>;

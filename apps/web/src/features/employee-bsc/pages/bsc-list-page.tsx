@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PermissionGate } from '../../auth/components/permission-gate';
-import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SearchInput } from '../../organization/management-ui';
+import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SearchInput, TableContainer } from '../../organization/management-ui';
 import { BscStatusBadge } from '../components/bsc-status-badge';
 import { BSC_PERMISSIONS } from '../constants/employee-bsc.constants';
 import { employeeBscApi } from '../services/employee-bsc.service';
@@ -24,17 +24,17 @@ export const BscListPage: React.FC = () => {
   }, [search, planStatus, evaluationStatus, page, reload]);
 
   return <main>
-    <PageHeader title="BSC cá nhân" action={<><PermissionGate anyOf={REVIEW_PERMISSIONS}><Link to="/management/bsc-reviews">BSC chờ duyệt</Link>{' '}</PermissionGate><PermissionGate permission={BSC_PERMISSIONS.REVIEW_REOPEN}><Link to="/management/bsc-reopen-requests">Yêu cầu mở lại</Link>{' '}</PermissionGate><PermissionGate permission={BSC_PERMISSIONS.CREATE_OWN}><Link to="/employee-bsc/new">Tạo BSC nháp</Link></PermissionGate></>}/>
-    <SearchInput value={search} onChange={value => { setSearch(value); setPage(1); }}/>
+    <PageHeader title="BSC cá nhân" description="Theo dõi riêng trạng thái kế hoạch và đánh giá kết quả của từng kỳ." action={<><PermissionGate anyOf={REVIEW_PERMISSIONS}><Link to="/management/bsc-reviews">BSC chờ duyệt</Link>{' '}</PermissionGate><PermissionGate permission={BSC_PERMISSIONS.REVIEW_REOPEN}><Link to="/management/bsc-reopen-requests">Yêu cầu mở lại</Link>{' '}</PermissionGate><PermissionGate permission={BSC_PERMISSIONS.CREATE_OWN}><Link to="/employee-bsc/new">Tạo BSC nháp</Link></PermissionGate></>}/>
+    <div className="filter-bar"><SearchInput value={search} onChange={value => { setSearch(value); setPage(1); }}/>
     <select aria-label="Duyệt nội dung BSC" value={planStatus} onChange={event => { setPlanStatus(event.target.value); setPage(1); }}>
       <option value="">Tất cả kế hoạch</option><option value="DRAFT">Nháp</option><option value="SUBMITTED">Chờ duyệt</option><option value="RETURNED">Bị trả lại</option><option value="APPROVED">Đã duyệt</option>
-    </select>
+    </select></div>
     <select aria-label="Đánh giá kết quả" value={evaluationStatus} onChange={event => { setEvaluationStatus(event.target.value); setPage(1); }}>
       <option value="">Tất cả đánh giá</option><option value="NOT_STARTED">Chưa bắt đầu</option><option value="DRAFT">Đang tự đánh giá</option><option value="SUBMITTED">Chờ duyệt kết quả</option><option value="RETURNED">Bị trả lại</option><option value="APPROVED">Đã duyệt</option>
     </select>
     {loading ? <LoadingState/> : error ? <><ErrorState error={error}/><button onClick={() => setReload(value => value + 1)}>Thử lại</button></> : items.length === 0 ? <EmptyState message="Chưa có BSC trong phạm vi của bạn."/> :
-      <table><thead><tr><th>Mã BSC</th><th>Nhân viên</th><th>Kỳ</th><th>Đơn vị</th><th>KPI</th><th>Duyệt nội dung BSC</th><th>Đánh giá kết quả</th><th>Điểm</th><th>Xếp loại</th></tr></thead>
-      <tbody>{items.map(item => <tr key={item.id}><td><Link to={`/employee-bsc/${item.id}`}>{item.bsc_code}</Link></td><td>{item.users_employee_bsc_employee_idTousers.full_name}</td><td>{item.bsc_cycles.name}</td><td>{item.departments.name}</td><td>{item._count?.employee_bsc_items ?? 0}</td><td><BscStatusBadge status={item.plan_status}/></td><td><BscStatusBadge status={item.evaluation_status}/></td><td>{item.evaluation_status === 'APPROVED' ? item.final_score ?? '—' : '—'}</td><td>{item.evaluation_status === 'APPROVED' ? item.final_grade ?? '—' : '—'}</td></tr>)}</tbody></table>}
+      <TableContainer label="Danh sách BSC"><table><thead><tr><th scope="col">Mã BSC</th><th scope="col">Nhân viên</th><th scope="col">Kỳ</th><th scope="col">Đơn vị</th><th scope="col">KPI</th><th scope="col">Duyệt nội dung BSC</th><th scope="col">Đánh giá kết quả</th><th scope="col">Điểm chính thức</th><th scope="col">Xếp loại chính thức</th></tr></thead>
+      <tbody>{items.map(item => <tr key={item.id}><td><Link to={`/employee-bsc/${item.id}`}>{item.bsc_code}</Link></td><td>{item.users_employee_bsc_employee_idTousers.full_name}</td><td>{item.bsc_cycles.name}</td><td>{item.departments.name}</td><td>{item._count?.employee_bsc_items ?? 0}</td><td><BscStatusBadge status={item.plan_status}/></td><td><BscStatusBadge status={item.evaluation_status}/></td><td>{item.evaluation_status === 'APPROVED' ? item.final_score ?? '—' : '—'}</td><td>{item.evaluation_status === 'APPROVED' ? item.final_grade ?? '—' : '—'}</td></tr>)}</tbody></table></TableContainer>}
     <Pagination page={page} total={total} limit={20} onChange={setPage}/>
   </main>;
 };

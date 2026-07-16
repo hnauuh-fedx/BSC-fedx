@@ -47,7 +47,11 @@ test('luồng PLAN/EVALUATION thật giữ khóa trường, return/resubmit, ref
   await expect(managerSession.page.getByLabel(new RegExp(`Trọng số ${fixture.marker}_FLOW_KPI`))).toBeVisible();
 
   const employee = employeeSession.page;
-  await employee.goto(`/employee-bsc/${bscId}`);
+  await employee.goto('/employee-bsc');
+  const detailLink = employee.getByRole('link', { name: bscCode });
+  await detailLink.focus();
+  await employee.keyboard.press('Enter');
+  await expect(employee).toHaveURL(new RegExp(`/employee-bsc/${bscId}$`));
   await expect(employee.getByRole('button', { name: 'Gửi duyệt BSC' })).toBeEnabled();
   let submitPlanPosts = 0;
   let failNextDetail = false;
@@ -62,7 +66,9 @@ test('luồng PLAN/EVALUATION thật giữ khóa trường, return/resubmit, ref
     else await route.continue();
   });
   employee.on('dialog', (dialog) => void dialog.accept());
-  await employee.getByRole('button', { name: 'Gửi duyệt BSC' }).dblclick();
+  const submitPlan = employee.getByRole('button', { name: 'Gửi duyệt BSC' });
+  await submitPlan.focus();
+  await employee.keyboard.press('Enter');
   await expect(employee.getByRole('button', { name: 'Thử lại' })).toBeVisible();
   await expect(employee.getByRole('button', { name: 'Gửi duyệt BSC' })).toHaveCount(0);
   expect(submitPlanPosts).toBe(1);
@@ -83,7 +89,7 @@ test('luồng PLAN/EVALUATION thật giữ khóa trường, return/resubmit, ref
   manager.on('request', (request) => { if (request.method() === 'POST' && request.url().endsWith(`/employee-bsc/${bscId}/plan/approve`)) approvePlanPosts += 1; });
   manager.on('dialog', (dialog) => void dialog.accept());
   await manager.getByRole('button', { name: 'Duyệt BSC' }).dblclick();
-  await expect(manager.getByLabel('Trạng thái APPROVED').first()).toBeVisible();
+  await expect(manager.getByLabel('Trạng thái Đã duyệt').first()).toBeVisible();
   expect(approvePlanPosts).toBe(1);
   await manager.goto('/management/bsc-reviews');
   await expect(manager.getByRole('link', { name: bscCode })).toHaveCount(0);
@@ -127,7 +133,7 @@ test('luồng PLAN/EVALUATION thật giữ khóa trường, return/resubmit, ref
   await expect(returnDialog.getByRole('button', { name: 'Xác nhận' })).toBeDisabled();
   await returnDialog.getByLabel('Lý do').fill('Cần bổ sung thuyết minh E2E');
   await returnDialog.getByRole('button', { name: 'Xác nhận' }).click();
-  await expect(manager.getByLabel('Trạng thái RETURNED').first()).toBeVisible();
+  await expect(manager.getByLabel('Trạng thái Bị trả lại').first()).toBeVisible();
 
   await employee.reload();
   await expect(employee.getByText('Cần bổ sung thuyết minh E2E', { exact: true })).toBeVisible();
@@ -149,16 +155,16 @@ test('luồng PLAN/EVALUATION thật giữ khóa trường, return/resubmit, ref
   let approveEvaluationPosts = 0;
   manager.on('request', (request) => { if (request.method() === 'POST' && request.url().endsWith(`/employee-bsc/${bscId}/evaluation/approve`)) approveEvaluationPosts += 1; });
   await manager.getByRole('button', { name: 'Duyệt kết quả' }).dblclick();
-  await expect(manager.getByText('Điểm chính thức')).toBeVisible();
+  await expect(manager.getByRole('heading', { name: 'Điểm chính thức' })).toBeVisible();
   expect(approveEvaluationPosts).toBe(1);
 
   await employee.reload();
-  await expect(employee.getByText('Điểm chính thức')).toBeVisible();
-  await expect(employee.getByText('Điểm chính thức').locator('xpath=following-sibling::dd[1]')).toHaveText('100');
+  await expect(employee.getByText('Điểm chính thức', { exact: true }).first()).toBeVisible();
+  await expect(employee.getByText('Điểm chính thức', { exact: true }).first().locator('xpath=following-sibling::dd[1]')).toHaveText('100');
   await expect(employee.getByText('Xếp loại', { exact: true }).locator('xpath=following-sibling::dd[1]')).toHaveText('A');
   await expect(employee.getByRole('button', { name: /Gửi duyệt|Duyệt|Trả lại/ })).toHaveCount(0);
   await employee.reload();
-  await expect(employee.getByText('Điểm chính thức')).toBeVisible();
+  await expect(employee.getByRole('heading', { name: 'Điểm chính thức' })).toBeVisible();
   await employeeSession.context.close();
   await managerSession.context.close();
 });
@@ -172,7 +178,7 @@ test('không cho nộp PLAN khi tổng trọng số khác 100%', async ({ browse
   const submit = employeeSession.page.getByRole('button', { name: 'Gửi duyệt BSC' });
   await expect(submit).toBeDisabled();
   await expect(submit).toHaveAttribute('title', /100%/);
-  await expect(employeeSession.page.getByLabel('Trạng thái DRAFT').first()).toBeVisible();
+  await expect(employeeSession.page.getByLabel('Trạng thái Nháp').first()).toBeVisible();
   await employeeSession.context.close(); await managerSession.context.close();
 });
 
@@ -245,7 +251,7 @@ test('mở lại EVALUATION giữ version cũ, chỉ mở kết quả và duyệ
   const employeeSession = await login(browser, fixture.employee), managerSession = await login(browser, fixture.manager);
   const employee = employeeSession.page, manager = managerSession.page, bscId = fixture.bscIds.reopenEvaluation;
   await employee.goto(`/employee-bsc/${bscId}`);
-  await expect(employee.getByText('Điểm chính thức')).toBeVisible();
+  await expect(employee.getByText('Điểm chính thức', { exact: true }).first()).toBeVisible();
   await employee.getByRole('button', { name: 'Yêu cầu sửa kết quả đánh giá' }).click();
   const requestDialog = employee.getByRole('dialog');
   await expect(requestDialog.getByRole('button', { name: 'Gửi yêu cầu' })).toBeDisabled();
@@ -267,7 +273,7 @@ test('mở lại EVALUATION giữ version cũ, chỉ mở kết quả và duyệ
   await expect(manager.getByText('Sửa kết quả E2E')).toBeVisible();
   expect(detailCalls).toBe(0);
   await manager.getByRole('button', { name: 'Chi tiết' }).click();
-  await expect(manager.getByText('Chi tiết yêu cầu EVALUATION')).toBeVisible();
+  await expect(manager.getByText('Chi tiết yêu cầu Đánh giá kết quả')).toBeVisible();
   expect(detailCalls).toBe(1); expect(listCalls).toBeGreaterThanOrEqual(1);
   await manager.getByRole('dialog').getByRole('button', { name: 'Xem phiên bản nguồn' }).click();
   await expect(manager.getByRole('heading', { name: /Phiên bản nguồn/ })).toBeVisible();
@@ -291,14 +297,14 @@ test('mở lại EVALUATION giữ version cũ, chỉ mở kết quả và duyệ
   expect(approveCalls).toBe(1);
 
   await employee.reload();
-  await expect(employee.getByLabel('Trạng thái REOPENED').first()).toBeVisible();
-  await expect(employee.getByText('Điểm chính thức')).toHaveCount(0);
+  await expect(employee.getByLabel('Trạng thái Được mở lại').first()).toBeVisible();
+  await expect(employee.getByText('Điểm chính thức', { exact: true })).toHaveCount(0);
   await expect(employee.getByRole('heading', { name: 'Điểm dự kiến' })).toBeVisible();
   await expect(employee.getByLabel(new RegExp(`Chỉ tiêu ${fixture.marker}_REOPEN_EVAL_KPI`))).toHaveCount(0);
   const actual = employee.getByLabel(new RegExp(`Kết quả ${fixture.marker}_REOPEN_EVAL_KPI`));
   await expect(actual).toHaveValue('90');
-  await employee.getByRole('listitem').filter({ hasText: 'EVALUATION_APPROVED' }).getByRole('button', { name: 'Xem chi tiết' }).click();
-  await expect(employee.getByRole('dialog').getByText(/EVALUATION_APPROVED/)).toBeVisible();
+  await employee.getByRole('listitem').filter({ hasText: 'Kết quả đã duyệt' }).getByRole('button', { name: 'Xem chi tiết' }).click();
+  await expect(employee.getByRole('dialog')).toHaveAccessibleDescription(/Kết quả đã duyệt/);
   await employee.getByRole('dialog').getByRole('button', { name: 'Đóng' }).click();
   await actual.fill('100');
   await employee.getByLabel(new RegExp(`TM KQTH ${fixture.marker}_REOPEN_EVAL_KPI`)).fill('Kết quả mới');
@@ -309,7 +315,7 @@ test('mở lại EVALUATION giữ version cũ, chỉ mở kết quả và duyệ
   await manager.goto(`/employee-bsc/${bscId}`);
   await manager.getByRole('button', { name: 'Duyệt kết quả' }).click();
   await employee.reload();
-  await expect(employee.getByText('Điểm chính thức').locator('xpath=following-sibling::dd[1]')).toHaveText('100');
+  await expect(employee.getByText('Điểm chính thức', { exact: true }).first().locator('xpath=following-sibling::dd[1]')).toHaveText('100');
   await expect(employee.getByText('Phiên bản 4')).toBeVisible();
   await employeeSession.context.close(); await managerSession.context.close();
 });
@@ -323,12 +329,12 @@ test('mở lại PLAN reset evaluation, mở definition và yêu cầu duyệt k
   await employee.getByRole('dialog').getByRole('button', { name: 'Gửi yêu cầu' }).click();
   await manager.goto('/management/bsc-reopen-requests');
   await expect(manager.getByText('Đổi target E2E')).toBeVisible();
-  manager.on('dialog', dialog => void dialog.accept());
-  await manager.getByRole('button', { name: 'Duyệt mở lại' }).dblclick();
+  await manager.getByRole('button', { name: 'Duyệt mở lại' }).click();
+  await manager.getByRole('dialog', { name: /Duyệt mở lại/ }).getByRole('button', { name: 'Xác nhận duyệt' }).click();
   await expect(manager.getByText('Không có yêu cầu mở lại đang chờ xử lý.')).toBeVisible();
   await employee.reload();
-  await expect(employee.getByLabel('Trạng thái REOPENED').first()).toBeVisible();
-  await expect(employee.getByLabel('Trạng thái NOT_STARTED')).toBeVisible();
+  await expect(employee.getByLabel('Trạng thái Được mở lại').first()).toBeVisible();
+  await expect(employee.getByLabel('Trạng thái Chưa bắt đầu')).toBeVisible();
   await expect(employee.getByText('E2E actual')).toHaveCount(0);
   const target = employee.getByLabel(new RegExp(`Chỉ tiêu ${fixture.marker}_REOPEN_PLAN_KPI`));
   await expect(target).toBeVisible(); await target.fill('120');
@@ -337,9 +343,10 @@ test('mở lại PLAN reset evaluation, mở definition và yêu cầu duyệt k
   employee.on('dialog', dialog => void dialog.accept());
   await employee.getByRole('button', { name: 'Gửi duyệt BSC' }).click();
   await manager.goto(`/employee-bsc/${bscId}`);
+  manager.once('dialog', dialog => void dialog.accept());
   await manager.getByRole('button', { name: 'Duyệt BSC' }).click();
   await employee.reload();
-  await expect(employee.getByLabel('Trạng thái DRAFT').first()).toBeVisible();
+  await expect(employee.getByLabel('Trạng thái Nháp').first()).toBeVisible();
   await expect(employee.getByLabel(new RegExp(`Kết quả ${fixture.marker}_REOPEN_PLAN_KPI`))).toHaveValue('');
   await employeeSession.context.close(); await managerSession.context.close();
 });
@@ -356,12 +363,12 @@ test('duplicate dùng approved PLAN, gợi ý kỳ OPEN và chống double-click
   await dialog.getByRole('button', { name: 'Xác nhận sao chép' }).dblclick();
   await expect(page).toHaveURL(/\/employee-bsc\/[0-9a-f-]+$/);
   expect(duplicateCalls).toBe(1);
-  await expect(page.getByLabel('Trạng thái DRAFT')).toBeVisible();
-  await expect(page.getByLabel('Trạng thái NOT_STARTED')).toBeVisible();
+  await expect(page.getByLabel('Trạng thái Nháp')).toBeVisible();
+  await expect(page.getByLabel('Trạng thái Chưa bắt đầu')).toBeVisible();
   await expect(page.getByText('DUPLICATE_SOURCE KPI')).toBeVisible();
   await expect(page.getByText('Nguồn sao chép')).toBeVisible();
   await expect(page.getByText('E2E actual')).toHaveCount(0);
-  await expect(page.getByText('Điểm chính thức')).toHaveCount(0);
+  await expect(page.getByText('Điểm chính thức', { exact: true })).toHaveCount(0);
   await session.context.close();
 });
 

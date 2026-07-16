@@ -72,6 +72,8 @@ export const LoginPage: React.FC = () => {
               value={form.email}
               onChange={handleChange}
               className="login-input"
+              aria-invalid={Boolean(form.error)}
+              aria-describedby={form.error ? 'login-error' : undefined}
               placeholder="ten@cong-ty.vn"
             />
           </div>
@@ -90,12 +92,14 @@ export const LoginPage: React.FC = () => {
               value={form.password}
               onChange={handleChange}
               className="login-input"
+              aria-invalid={Boolean(form.error)}
+              aria-describedby={form.error ? 'login-error' : undefined}
               placeholder="••••••••"
             />
           </div>
 
           {form.error && (
-            <div className="login-error" role="alert" aria-live="assertive">
+            <div id="login-error" className="login-error" role="alert" aria-live="assertive">
               {form.error}
             </div>
           )}
@@ -104,6 +108,7 @@ export const LoginPage: React.FC = () => {
             id="login-submit"
             type="submit"
             disabled={form.isSubmitting}
+            aria-busy={form.isSubmitting}
             className="login-btn"
           >
             {form.isSubmitting ? (
