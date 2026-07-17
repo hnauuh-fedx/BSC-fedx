@@ -20,8 +20,7 @@ const actor = (overrides: Partial<AuthUser> = {}): AuthUser => ({
 
 const context = (overrides: Partial<WorkflowBscContext> = {}): WorkflowBscContext => ({
   employeeId, directManagerId: managerId, departmentId, planStatus: 'DRAFT', evaluationStatus: 'NOT_STARTED',
-  cycleStatus: 'OPEN', submissionDeadline: new Date('2099-12-31T23:59:59.000Z'), ownerActive: true,
-  startDate: new Date('2020-01-01'), endDate: new Date('2199-12-31'), reviewDeadline: new Date('2099-12-31T23:59:59.000Z'),
+  cycleStatus: 'OPEN', ownerActive: true,
   ownerOrganizationActive: true, reviewerActive: true, ...overrides,
 });
 

@@ -39,7 +39,6 @@ async function cleanup() {
   await prisma.positions.deleteMany({ where: { code: { startsWith: marker } } });
 }
 
-const iso = (date: string, time: string) => new Date(`${date}T${time}+07:00`).toISOString();
 const day = (offset: number) => {
   const now = new Date();
   const vn = new Date(now.getTime() + 7 * 60 * 60 * 1000);
@@ -48,8 +47,7 @@ const day = (offset: number) => {
 };
 const cyclePayload = (code: string) => ({
   code, name: `Kỳ ${code}`, cycleType: 'MONTH', year: Number(day(0).slice(0, 4)), month: Number(day(0).slice(5, 7)),
-  startDate: day(-2), endDate: day(30),
-  evaluationSubmissionDeadline: iso(day(20), '12:00:00'),
+  startDate: day(-2),
 });
 
 test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: safeDatabase() ? false : 'TEST_DATABASE_URL must target exact bsc_organization_test' }, async (t) => {
@@ -60,10 +58,11 @@ test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: saf
     const position = await prisma.positions.create({ data: { code: `${marker}_POS`, name: marker, level: 1 } });
     const managerPermissions = ['bsc.period.view', 'bsc.period.manage', BSC_PERMISSIONS.VIEW_SUBORDINATE, BSC_PERMISSIONS.MANAGE_KPI,
       BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
-      BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE];
+      BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE,
+      BSC_PERMISSIONS.REVIEW_REOPEN];
     const employeePermissions = [BSC_PERMISSIONS.CREATE_OWN, BSC_PERMISSIONS.VIEW_OWN, BSC_PERMISSIONS.EDIT_OWN,
       BSC_PERMISSIONS.SUBMIT_PLAN_OWN, BSC_PERMISSIONS.UPDATE_ACTUAL, BSC_PERMISSIONS.SUBMIT_EVALUATION_OWN,
-      BSC_PERMISSIONS.DUPLICATE_OWN];
+      BSC_PERMISSIONS.DUPLICATE_OWN, BSC_PERMISSIONS.REQUEST_REOPEN];
     const permissionCodes = [...managerPermissions, ...employeePermissions];
     for (const code of permissionCodes) {
       const existing = await prisma.permissions.findUnique({ where: { code } });
@@ -124,12 +123,12 @@ test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: saf
       await request(server).get('/bsc-cycles').set(auth(tokens.noPermission)).expect(403);
     });
 
-    await t.test('create validates required fields and the evaluation submission deadline', async () => {
+    await t.test('create requires period identity but no planned end date or evaluation deadline', async () => {
       await request(server).post('/bsc-cycles').set(auth(tokens.manager)).send({ name: 'Thiếu dữ liệu' }).expect(400);
-      const invalid = cyclePayload(`${marker}_INVALID`);
-      invalid.evaluationSubmissionDeadline = iso(day(31), '12:00:00');
-      const response = await request(server).post('/bsc-cycles').set(auth(tokens.manager)).send(invalid).expect(400);
-      assert.equal(response.body.code, 'BSC_CYCLE_TIMELINE_INVALID');
+      const created = await request(server).post('/bsc-cycles').set(auth(tokens.manager))
+        .send(cyclePayload(`${marker}_NO_DEADLINE`)).expect(201);
+      assert.equal(created.body.endDate, null);
+      assert.equal('evaluationSubmissionDeadline' in created.body, false);
     });
 
     await t.test('CRUD, audit, summary and optimistic state transitions are consistent', async () => {
@@ -146,12 +145,23 @@ test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: saf
       const detail = await request(server).get(`/bsc-cycles/${created.body.id}`).set(auth(tokens.viewer)).expect(200);
       assert.equal(detail.body.status, 'OPEN'); assert.equal(detail.body.summary.totalBsc, 0);
       const editedOpen = await request(server).patch(`/bsc-cycles/${created.body.id}`).set(auth(tokens.manager))
-        .send({ ...cyclePayload(`${marker}_CRUD`), name: 'Kỳ đang mở đã sửa deadline', expectedVersion: detail.body.version }).expect(200);
+        .send({ ...cyclePayload(`${marker}_CRUD`), name: 'Kỳ đang mở đã sửa', expectedVersion: detail.body.version }).expect(200);
       const locked = await request(server).post(`/bsc-cycles/${created.body.id}/lock`).set(auth(tokens.manager)).send({ expectedVersion: editedOpen.body.version }).expect(200);
       await request(server).post(`/bsc-cycles/${created.body.id}/open`).set(auth(tokens.manager)).send({ expectedVersion: locked.body.version }).expect(400);
       const reopened = await request(server).post(`/bsc-cycles/${created.body.id}/open`).set(auth(tokens.manager)).send({ expectedVersion: locked.body.version, reason: 'Tiếp tục kỳ' }).expect(200);
+      const missingCloseReason = await request(server).post(`/bsc-cycles/${created.body.id}/close`).set(auth(tokens.manager))
+        .send({ expectedVersion: reopened.body.version, reason: '   ' }).expect(400);
+      assert.equal(missingCloseReason.body.code, 'BSC_CYCLE_CLOSE_REASON_REQUIRED');
+      const closed = await request(server).post(`/bsc-cycles/${created.body.id}/close`).set(auth(tokens.manager))
+        .send({ expectedVersion: reopened.body.version, reason: '  Hoàn tất xử lý trong kỳ  ' }).expect(200);
+      assert.equal(closed.body.status, 'CLOSED');
+      assert.match(closed.body.endDate, /^\d{4}-\d{2}-\d{2}T/);
       const audits = await prisma.audit_logs.findMany({ where: { entity_id: created.body.id }, orderBy: { created_at: 'asc' } });
-      assert.deepEqual(audits.map(row => row.action), ['BSC_CYCLE_CREATED', 'BSC_CYCLE_UPDATED', 'BSC_CYCLE_OPEN', 'BSC_CYCLE_UPDATED', 'BSC_CYCLE_LOCKED', 'BSC_CYCLE_UNLOCKED']);
+      assert.deepEqual(audits.map(row => row.action), ['BSC_CYCLE_CREATED', 'BSC_CYCLE_UPDATED', 'BSC_CYCLE_OPEN', 'BSC_CYCLE_UPDATED', 'BSC_CYCLE_LOCKED', 'BSC_CYCLE_UNLOCKED', 'BSC_CYCLE_CLOSED']);
+      const closeAudit = audits.at(-1);
+      assert.equal((closeAudit?.old_data as { endDate?: string | null }).endDate, null);
+      assert.match(String((closeAudit?.new_data as { endDate?: string | null }).endDate), /^\d{4}-\d{2}-\d{2}T/);
+      assert.equal((closeAudit?.new_data as { reason?: string }).reason, 'Hoàn tất xử lý trong kỳ');
     });
 
     await t.test('DRAFT and LOCKED cycles reject owner work while OPEN accepts it', async () => {
@@ -164,16 +174,23 @@ test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: saf
       await request(server).patch(`/employee-bsc/${bsc.body.id}`).set(auth(tokens.employee)).send({ employeeComment: 'blocked' }).expect(400);
       const reopened = await request(server).post(`/bsc-cycles/${draft.body.id}/open`).set(auth(tokens.manager)).send({ expectedVersion: locked.body.version, reason: 'Tiếp tục workflow' }).expect(200);
       await request(server).patch(`/employee-bsc/${bsc.body.id}`).set(auth(tokens.employee)).send({ employeeComment: 'continued' }).expect(200);
+      const closed = await request(server).post(`/bsc-cycles/${draft.body.id}/close`).set(auth(tokens.manager))
+        .send({ expectedVersion: reopened.body.version, reason: 'Hoàn tất kỳ' }).expect(200);
+      const blocked = await request(server).patch(`/employee-bsc/${bsc.body.id}`).set(auth(tokens.employee))
+        .send({ employeeComment: 'closed' }).expect(400);
+      assert.equal(blocked.body.code, 'BSC_CYCLE_CLOSED');
     });
 
     await t.test('canonical PLAN, EVALUATION, review, duplicate and unlock rules work together', async () => {
-      const pastDeadlinePayload = cyclePayload(`${marker}_CANONICAL`);
-      pastDeadlinePayload.startDate = day(-5);
-      pastDeadlinePayload.evaluationSubmissionDeadline = iso(day(-1), '12:00:00');
-      const cycle = await createCycle('CANONICAL', pastDeadlinePayload);
+      const canonicalPayload = cyclePayload(`${marker}_CANONICAL`);
+      canonicalPayload.startDate = day(-5);
+      const cycle = await createCycle('CANONICAL', canonicalPayload);
       const source = await createPlan(cycle.body.id, 'CANONICAL');
 
       await request(server).post(`/employee-bsc/${source.bsc.id}/plan/submit`).set(auth(tokens.employee)).send({}).expect(200);
+      const pendingClose = await request(server).post(`/bsc-cycles/${cycle.body.id}/close`).set(auth(tokens.manager))
+        .send({ expectedVersion: cycle.body.version, reason: 'Kết thúc kỳ' }).expect(400);
+      assert.equal(pendingClose.body.code, 'BSC_CYCLE_PENDING_REVIEW');
       const locked = await request(server).post(`/bsc-cycles/${cycle.body.id}/lock`).set(auth(tokens.manager))
         .send({ expectedVersion: cycle.body.version }).expect(200);
       await request(server).post(`/employee-bsc/${source.bsc.id}/plan/approve`).set(auth(tokens.manager)).send({}).expect(200);
@@ -186,26 +203,27 @@ test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: saf
 
       await request(server).patch(`/employee-bsc/${source.bsc.id}/items/${source.item.id}/actual`).set(auth(tokens.employee))
         .send({ actualValue: 100, employeeNote: 'Hoàn thành' }).expect(200);
-      await prisma.bsc_cycles.update({ where: { id: cycle.body.id }, data: { submission_deadline: new Date(Date.now() + 60_000) } });
       await request(server).post(`/employee-bsc/${source.bsc.id}/evaluation/submit`).set(auth(tokens.employee)).send({}).expect(200);
 
       const targetPayload = cyclePayload(`${marker}_TARGET`);
       targetPayload.startDate = day(1);
       const target = await createCycle('TARGET', targetPayload);
+      const earlyClose = await request(server).post(`/bsc-cycles/${target.body.id}/close`).set(auth(tokens.manager))
+        .send({ expectedVersion: target.body.version, reason: 'Kết thúc sớm' }).expect(400);
+      assert.equal(earlyClose.body.code, 'BSC_CYCLE_NOT_STARTED');
       await request(server).post(`/employee-bsc/${source.bsc.id}/duplicate`).set(auth(tokens.employee))
         .send({ targetCycleId: target.body.id }).expect(201);
       await request(server).post(`/employee-bsc/${source.bsc.id}/duplicate`).set(auth(tokens.employee))
         .send({ targetCycleId: target.body.id }).expect(409);
 
-      const lateCycle = await createCycle('LATE');
-      const late = await createPlan(lateCycle.body.id, 'LATE');
-      await request(server).post(`/employee-bsc/${late.bsc.id}/plan/submit`).set(auth(tokens.employee)).send({}).expect(200);
-      await request(server).post(`/employee-bsc/${late.bsc.id}/plan/approve`).set(auth(tokens.manager)).send({}).expect(200);
-      await request(server).patch(`/employee-bsc/${late.bsc.id}/items/${late.item.id}/actual`).set(auth(tokens.employee))
+      const legacyDeadlineCycle = await createCycle('LEGACY_DEADLINE');
+      const legacyDeadline = await createPlan(legacyDeadlineCycle.body.id, 'LEGACY_DEADLINE');
+      await request(server).post(`/employee-bsc/${legacyDeadline.bsc.id}/plan/submit`).set(auth(tokens.employee)).send({}).expect(200);
+      await request(server).post(`/employee-bsc/${legacyDeadline.bsc.id}/plan/approve`).set(auth(tokens.manager)).send({}).expect(200);
+      await request(server).patch(`/employee-bsc/${legacyDeadline.bsc.id}/items/${legacyDeadline.item.id}/actual`).set(auth(tokens.employee))
         .send({ actualValue: 100 }).expect(200);
-      await prisma.bsc_cycles.update({ where: { id: lateCycle.body.id }, data: { submission_deadline: new Date(Date.now() - 1_000) } });
-      const lateSubmit = await request(server).post(`/employee-bsc/${late.bsc.id}/evaluation/submit`).set(auth(tokens.employee)).send({}).expect(400);
-      assert.equal(lateSubmit.body.code, 'BSC_EVALUATION_SUBMISSION_DEADLINE_PASSED');
+      await prisma.bsc_cycles.update({ where: { id: legacyDeadlineCycle.body.id }, data: { submission_deadline: new Date(Date.now() - 1_000) } });
+      await request(server).post(`/employee-bsc/${legacyDeadline.bsc.id}/evaluation/submit`).set(auth(tokens.employee)).send({}).expect(200);
 
       const lockedPlanCycle = await createCycle('LOCKED_PLAN');
       const lockedPlan = await createPlan(lockedPlanCycle.body.id, 'LOCKED_PLAN');
@@ -216,6 +234,23 @@ test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: saf
       const unlockAudit = await prisma.audit_logs.findFirst({ where: { entity_id: cycle.body.id, action: 'BSC_CYCLE_UNLOCKED' } });
       assert.equal((unlockAudit?.new_data as { reason?: string } | null)?.reason, 'Tiếp tục nhập kết quả');
       assert.equal(unlocked.body.status, 'OPEN');
+
+      await request(server).post(`/employee-bsc/${source.bsc.id}/evaluation/approve`).set(auth(tokens.manager)).send({}).expect(200);
+      const reopen = await request(server).post(`/employee-bsc/${source.bsc.id}/reopen-requests`).set(auth(tokens.employee))
+        .send({ stage: 'EVALUATION', reason: 'Cần sửa kết quả' }).expect(201);
+      const pendingReopenClose = await request(server).post(`/bsc-cycles/${cycle.body.id}/close`).set(auth(tokens.manager))
+        .send({ expectedVersion: unlocked.body.version, reason: 'Kết thúc kỳ' }).expect(400);
+      assert.equal(pendingReopenClose.body.code, 'BSC_CYCLE_PENDING_REOPEN_REQUEST');
+      await request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/reject`).set(auth(tokens.manager))
+        .send({ reason: 'Không mở lại' }).expect(200);
+      await request(server).post(`/bsc-cycles/${cycle.body.id}/close`).set(auth(tokens.manager))
+        .send({ expectedVersion: unlocked.body.version, reason: 'Kết thúc kỳ' }).expect(200);
+      await prisma.bsc_unlock_requests.update({ where: { id: reopen.body.id }, data: {
+        status: 'PENDING', reviewed_by: null, review_comment: null, reviewed_at: null,
+      } });
+      const closedCycleApproval = await request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/approve`)
+        .set(auth(tokens.manager)).send({}).expect(409);
+      assert.equal(closedCycleApproval.body.code, 'BSC_CYCLE_CLOSED');
     });
   } finally {
     if (app) await app.close();

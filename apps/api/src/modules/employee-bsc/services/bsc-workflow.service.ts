@@ -17,9 +17,6 @@ export interface WorkflowBscContext {
   planStatus: string;
   evaluationStatus: string;
   cycleStatus: string;
-  submissionDeadline: Date;
-  startDate: Date;
-  endDate: Date;
   ownerActive: boolean;
   ownerOrganizationActive: boolean;
   reviewerActive: boolean;
@@ -63,7 +60,7 @@ export class BscWorkflowService {
     return target;
   }
 
-  assertCanSubmitPlan(actor: AuthUser, bsc: WorkflowBscContext, definition: PlanDefinitionValidation, now = new Date()): void {
+  assertCanSubmitPlan(actor: AuthUser, bsc: WorkflowBscContext, definition: PlanDefinitionValidation): void {
     this.assertOwner(actor, bsc, BSC_PERMISSIONS.SUBMIT_PLAN_OWN);
     this.assertPlanTransition(bsc.planStatus, 'SUBMIT_PLAN');
     this.cyclePolicy.assertCycleAllowsPlanWork(this.cycleTiming(bsc));
@@ -93,11 +90,11 @@ export class BscWorkflowService {
     if (scoring.items.some((item) => !item.isScorable)) this.badRequest('BSC_EVALUATION_NOT_SCORABLE', 'Có KPI không thể tính điểm.');
   }
 
-  assertCanSubmitEvaluation(actor: AuthUser, bsc: WorkflowBscContext, scoring: BscScoringResult, now = new Date()): void {
+  assertCanSubmitEvaluation(actor: AuthUser, bsc: WorkflowBscContext, scoring: BscScoringResult): void {
     this.assertOwner(actor, bsc, BSC_PERMISSIONS.SUBMIT_EVALUATION_OWN);
     if (bsc.planStatus !== 'APPROVED') this.badRequest('BSC_EVALUATION_NOT_AVAILABLE', 'Chỉ được đánh giá sau khi kế hoạch được duyệt.');
     this.assertEvaluationTransition(bsc.evaluationStatus, 'SUBMIT_EVALUATION');
-    this.cyclePolicy.assertCycleAllowsEvaluationSubmit(this.cycleTiming(bsc), now);
+    this.cyclePolicy.assertCycleAllowsEvaluationSubmit(this.cycleTiming(bsc));
     this.assertCommonActiveContext(bsc);
     this.assertEvaluationScoringComplete(scoring);
   }
@@ -137,10 +134,7 @@ export class BscWorkflowService {
   }
 
   private cycleTiming(bsc: WorkflowBscContext): CycleTiming {
-    return {
-      status: bsc.cycleStatus, startDate: bsc.startDate, endDate: bsc.endDate,
-      submissionDeadline: bsc.submissionDeadline,
-    };
+    return { status: bsc.cycleStatus };
   }
 
   private normalizeReturnReason(reason: string | undefined, code: string): string {

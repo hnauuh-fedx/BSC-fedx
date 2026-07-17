@@ -8,13 +8,13 @@ export type BscCycleSummary = {
 };
 export type BscCycle = {
   id: string; code: string; name: string; cycleType: CycleType; year: number; month: number | null; quarter: number | null;
-  status: CycleStatus; version: number; startDate: string; endDate: string;
-  evaluationSubmissionDeadline: string; createdAt: string; updatedAt: string;
+  status: CycleStatus; version: number; startDate: string; endDate: string | null;
+  createdAt: string; updatedAt: string;
   createdBy?: { id: string; employeeCode: string; fullName: string }; summary?: BscCycleSummary;
 };
 export type CyclePayload = {
   code: string; name: string; cycleType: CycleType; year: number; month: number;
-  startDate: string; endDate: string; evaluationSubmissionDeadline: string;
+  startDate: string;
 };
 export type CyclePage = { items: BscCycle[]; page: number; limit: number; total: number };
 
@@ -30,7 +30,7 @@ export const bscCyclesApi = {
   detail: (id: string) => httpClient.get<BscCycle>(`/bsc-cycles/${id}`),
   create: (payload: CyclePayload) => httpClient.post<BscCycle>('/bsc-cycles', payload),
   update: (id: string, payload: Partial<CyclePayload> & { expectedVersion: number }) => httpClient.patch<BscCycle>(`/bsc-cycles/${id}`, payload),
-  transition: (id: string, action: 'open' | 'lock', expectedVersion: number, reason?: string) =>
+  transition: (id: string, action: 'open' | 'lock' | 'close', expectedVersion: number, reason?: string) =>
     httpClient.post<BscCycle>(`/bsc-cycles/${id}/${action}`, { expectedVersion, ...(reason ? { reason } : {}) }),
 };
 

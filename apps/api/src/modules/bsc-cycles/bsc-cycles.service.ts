@@ -4,13 +4,13 @@ import { AuthUser } from '../../common/types/auth-user.type';
 import { PrismaService } from '../../database/prisma.service';
 import { AuditRequestMetadata } from '../employee-bsc/employee-bsc.types';
 import { BSC_PERMISSIONS } from '../employee-bsc/policies/bsc-access.policy';
-import { BSC_CYCLE_PERMISSIONS, BscCyclePolicy, BscCycleStatus, CycleTiming } from './bsc-cycle.policy';
+import { BSC_CYCLE_PERMISSIONS, BscCyclePolicy, BscCycleStatus } from './bsc-cycle.policy';
 import { CreateBscCycleDto, QueryBscCycleDto, UpdateBscCycleDto } from './dto/bsc-cycle.dto';
 import { BscCyclePage, BscCycleResponse, BscCycleSummary } from './bsc-cycles.types';
 
 const cycleSelect = {
   id: true, code: true, name: true, cycle_type: true, year: true, month: true, quarter: true,
-  start_date: true, end_date: true, submission_deadline: true, review_deadline: true,
+  start_date: true, end_date: true,
   status: true, version: true, created_at: true, updated_at: true,
   users: { select: { id: true, employee_code: true, full_name: true } },
   _count: { select: { employee_bsc: true } },
@@ -74,16 +74,14 @@ export class BscCyclesService {
   async create(actor: AuthUser, dto: CreateBscCycleDto, metadata: AuditRequestMetadata): Promise<BscCycleResponse> {
     this.policy.assertCanManageCycle(actor);
     this.assertPeriodShape(dto.cycleType, dto.month);
-    const timing = this.timingFromDto(dto, 'DRAFT');
-    this.policy.assertValidTimeline(timing);
     try {
       return await this.prisma.$transaction(async (db) => {
         const cycle = await db.bsc_cycles.create({ data: {
           code: dto.code.toUpperCase(), name: dto.name, cycle_type: dto.cycleType, year: dto.year,
           month: dto.month,
           quarter: null,
-          start_date: this.dateOnly(dto.startDate), end_date: this.dateOnly(dto.endDate),
-          submission_deadline: new Date(dto.evaluationSubmissionDeadline),
+          start_date: this.dateOnly(dto.startDate), end_date: null,
+          submission_deadline: null,
           review_deadline: null,
           status: 'DRAFT', created_by: actor.id,
         }, select: cycleSelect });
@@ -111,15 +109,13 @@ export class BscCyclesService {
           throw new ConflictException({ code: 'BSC_CYCLE_NOT_EDITABLE', message: 'Chỉ được sửa kỳ nháp hoặc kỳ đang mở.' });
         }
         if ((current.status !== 'DRAFT' || current._count.employee_bsc > 0) && this.hasIdentityChange(current, dto)) {
-          throw new ConflictException({ code: 'BSC_CYCLE_IDENTITY_LOCKED', message: 'Không thể đổi loại, kỳ hoặc khoảng ngày sau khi kỳ đã mở hay đã có BSC.' });
+          throw new ConflictException({ code: 'BSC_CYCLE_IDENTITY_LOCKED', message: 'Không thể đổi loại, tháng hoặc ngày bắt đầu sau khi kỳ đã mở hay đã có BSC.' });
         }
         const nextType = dto.cycleType ?? current.cycle_type;
         const nextMonth = nextType === 'MONTH'
           ? dto.month ?? (current.cycle_type === 'MONTH' ? current.month ?? undefined : undefined)
           : undefined;
         this.assertPeriodShape(nextType, nextMonth, undefined);
-        const timing = this.mergeTiming(current, dto);
-        this.policy.assertValidTimeline(timing);
         const changed = await db.bsc_cycles.updateMany({
           where: { id, status: current.status, version: dto.expectedVersion },
           data: {
@@ -130,10 +126,6 @@ export class BscCyclesService {
             ...(dto.cycleType !== undefined || dto.month !== undefined ? { month: nextType === 'MONTH' ? nextMonth : null } : {}),
             ...(dto.cycleType !== undefined ? { quarter: null } : {}),
             ...(dto.startDate !== undefined ? { start_date: this.dateOnly(dto.startDate) } : {}),
-            ...(dto.endDate !== undefined ? { end_date: this.dateOnly(dto.endDate) } : {}),
-            ...(dto.evaluationSubmissionDeadline !== undefined ? {
-              submission_deadline: new Date(dto.evaluationSubmissionDeadline),
-            } : {}),
             version: { increment: 1 }, updated_at: new Date(),
           },
         });
@@ -159,19 +151,51 @@ export class BscCyclesService {
         if (!current) this.notFound();
         this.policy.assertCanTransitionCycle(actor, current.status, target);
         const unlocking = current.status === 'LOCKED' && target === 'OPEN';
-        if (unlocking && !reason?.trim()) {
-          throw new BadRequestException({ code: 'BSC_CYCLE_UNLOCK_REASON_REQUIRED', message: 'Phải nhập lý do mở lại kỳ BSC.' });
+        if ((unlocking || target === 'CLOSED') && !reason?.trim()) {
+          throw new BadRequestException({
+            code: unlocking ? 'BSC_CYCLE_UNLOCK_REASON_REQUIRED' : 'BSC_CYCLE_CLOSE_REASON_REQUIRED',
+            message: unlocking ? 'Phải nhập lý do mở lại kỳ BSC.' : 'Phải nhập lý do kết thúc kỳ BSC.',
+          });
         }
-        if (target === 'OPEN') this.policy.assertValidTimeline(this.toTiming(current));
+        if (target === 'CLOSED') {
+          const closeDate = this.vietnamDate(new Date());
+          if (closeDate < current.start_date) {
+            throw new BadRequestException({ code: 'BSC_CYCLE_NOT_STARTED', message: 'Không thể kết thúc kỳ trước ngày bắt đầu.' });
+          }
+          const [pendingReviews, pendingReopenRequests] = await Promise.all([
+            db.employee_bsc.count({ where: {
+              cycle_id: id,
+              OR: [{ plan_status: 'SUBMITTED' }, { evaluation_status: 'SUBMITTED' }],
+            } }),
+            db.bsc_unlock_requests.count({ where: { status: 'PENDING', employee_bsc: { cycle_id: id } } }),
+          ]);
+          if (pendingReviews > 0) {
+            throw new BadRequestException({
+              code: 'BSC_CYCLE_PENDING_REVIEW',
+              message: `Không thể kết thúc kỳ khi còn ${pendingReviews} BSC chờ duyệt.`,
+            });
+          }
+          if (pendingReopenRequests > 0) {
+            throw new BadRequestException({
+              code: 'BSC_CYCLE_PENDING_REOPEN_REQUEST',
+              message: `Không thể kết thúc kỳ khi còn ${pendingReopenRequests} yêu cầu mở lại chờ xử lý.`,
+            });
+          }
+        }
+        const now = new Date();
         const changed = await db.bsc_cycles.updateMany({
           where: { id, status: current.status, version: expectedVersion },
-          data: { status: target, version: { increment: 1 }, updated_at: new Date() },
+          data: {
+            status: target,
+            ...(target === 'CLOSED' ? { end_date: this.vietnamDate(now) } : {}),
+            version: { increment: 1 }, updated_at: now,
+          },
         });
         if (changed.count !== 1) this.stale();
         const updated = await db.bsc_cycles.findUniqueOrThrow({ where: { id }, select: cycleSelect });
         await this.audit(db, actor, unlocking ? 'BSC_CYCLE_UNLOCKED' : `BSC_CYCLE_${target}`, id,
-          { status: current.status, version: current.version },
-          { status: updated.status, version: updated.version, ...(reason ? { reason: reason.trim() } : {}) }, metadata);
+          { status: current.status, version: current.version, endDate: current.end_date },
+          { status: updated.status, version: updated.version, endDate: updated.end_date, ...(reason ? { reason: reason.trim() } : {}) }, metadata);
         return this.toResponse(updated, { totalBsc: updated._count.employee_bsc });
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
@@ -227,36 +251,12 @@ export class BscCyclesService {
       && owner.direct_manager_id && owner.users?.status === 'ACTIVE' && !owner.users.deleted_at);
   }
 
-  private timingFromDto(dto: CreateBscCycleDto, status: string): CycleTiming {
-    return {
-      status, startDate: this.dateOnly(dto.startDate), endDate: this.dateOnly(dto.endDate),
-      submissionDeadline: new Date(dto.evaluationSubmissionDeadline),
-    };
-  }
-
-  private mergeTiming(current: CycleRecord, dto: UpdateBscCycleDto): CycleTiming {
-    return {
-      status: current.status,
-      startDate: dto.startDate ? this.dateOnly(dto.startDate) : current.start_date,
-      endDate: dto.endDate ? this.dateOnly(dto.endDate) : current.end_date,
-      submissionDeadline: dto.evaluationSubmissionDeadline ? new Date(dto.evaluationSubmissionDeadline) : current.submission_deadline,
-    };
-  }
-
-  private toTiming(cycle: CycleRecord): CycleTiming {
-    return {
-      status: cycle.status, startDate: cycle.start_date, endDate: cycle.end_date,
-      submissionDeadline: cycle.submission_deadline,
-    };
-  }
-
   private hasIdentityChange(current: CycleRecord, dto: UpdateBscCycleDto): boolean {
     return (dto.code !== undefined && dto.code.toUpperCase() !== current.code)
       || (dto.cycleType !== undefined && dto.cycleType !== current.cycle_type)
       || (dto.year !== undefined && dto.year !== current.year)
       || (dto.month !== undefined && dto.month !== current.month)
-      || (dto.startDate !== undefined && this.dateOnly(dto.startDate).getTime() !== current.start_date.getTime())
-      || (dto.endDate !== undefined && this.dateOnly(dto.endDate).getTime() !== current.end_date.getTime());
+      || (dto.startDate !== undefined && this.dateOnly(dto.startDate).getTime() !== current.start_date.getTime());
   }
 
   private toResponse(cycle: CycleRecord, summary?: Partial<BscCycleSummary>): BscCycleResponse {
@@ -264,7 +264,6 @@ export class BscCyclesService {
       id: cycle.id, code: cycle.code, name: cycle.name, cycleType: cycle.cycle_type,
       year: cycle.year, month: cycle.month, quarter: cycle.quarter, status: cycle.status, version: cycle.version,
       startDate: cycle.start_date, endDate: cycle.end_date,
-      evaluationSubmissionDeadline: cycle.submission_deadline,
       createdAt: cycle.created_at, updatedAt: cycle.updated_at,
       createdBy: { id: cycle.users.id, employeeCode: cycle.users.employee_code, fullName: cycle.users.full_name },
       ...(summary ? { summary: {
@@ -283,7 +282,6 @@ export class BscCyclesService {
       code: cycle.code, name: cycle.name, cycleType: cycle.cycle_type, year: cycle.year,
       month: cycle.month, quarter: cycle.quarter, status: cycle.status, version: cycle.version,
       startDate: cycle.start_date, endDate: cycle.end_date,
-      evaluationSubmissionDeadline: cycle.submission_deadline,
     };
   }
 
@@ -318,6 +316,10 @@ export class BscCyclesService {
   }
 
   private dateOnly(value: string): Date { return new Date(`${value}T00:00:00.000Z`); }
+  private vietnamDate(value: Date): Date {
+    const shifted = new Date(value.getTime() + 7 * 60 * 60 * 1000);
+    return this.dateOnly(shifted.toISOString().slice(0, 10));
+  }
   private notFound(): never { throw new NotFoundException({ code: 'BSC_CYCLE_NOT_FOUND', message: 'Không tìm thấy kỳ BSC.' }); }
   private stale(): never { throw new ConflictException({ code: 'BSC_CYCLE_STALE', message: 'Kỳ BSC đã thay đổi; vui lòng tải lại dữ liệu.' }); }
   private deny(): never { throw new ForbiddenException({ code: 'BSC_CYCLE_ACCESS_DENIED', message: 'Bạn không có quyền quản lý kỳ BSC.' }); }

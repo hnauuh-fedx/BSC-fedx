@@ -16,7 +16,7 @@ export type EmployeeBsc = {
   final_score?: string | null; final_grade?: string | null;
   bsc_cycles: {
     id: string; code: string; name: string; year: number; month: number | null; status: string;
-    start_date?: string; end_date?: string; submission_deadline: string;
+      start_date?: string; end_date?: string | null;
   };
   users_employee_bsc_employee_idTousers: { id: string; employee_code: string; full_name: string; email: string };
   users_employee_bsc_direct_manager_idTousers?: { id: string; employee_code: string; full_name: string; email?: string };

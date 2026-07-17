@@ -396,8 +396,6 @@ export class EmployeeBscService {
     return {
       employeeId: snapshot.employee_id, directManagerId: snapshot.direct_manager_id, departmentId: snapshot.department_id,
       planStatus: snapshot.plan_status, evaluationStatus: snapshot.evaluation_status, cycleStatus: snapshot.cycle_status,
-      submissionDeadline: snapshot.submission_deadline,
-      startDate: snapshot.start_date, endDate: snapshot.end_date,
       ownerActive: snapshot.owner_status === 'ACTIVE' && snapshot.owner_deleted_at === null,
       ownerOrganizationActive: snapshot.department_status === 'ACTIVE' && snapshot.position_status === 'ACTIVE',
       reviewerActive: snapshot.reviewer_status === 'ACTIVE' && snapshot.reviewer_deleted_at === null
@@ -407,6 +405,9 @@ export class EmployeeBscService {
 
   private assertReopenDecision(actor: AuthUser, request: ReopenDecisionSnapshot): void {
     if (request.status !== 'PENDING') throw new ConflictException({ code: 'BSC_REOPEN_REQUEST_NOT_PENDING', message: 'Yêu cầu không còn ở trạng thái chờ xử lý.' });
+    if (request.cycle_status === 'CLOSED') {
+      throw new ConflictException({ code: 'BSC_CYCLE_CLOSED', message: 'Kỳ BSC đã kết thúc nên không thể phê duyệt yêu cầu mở lại.' });
+    }
     if (request.reviewer_id !== actor.id || request.direct_manager_id !== actor.id
       || request.owner_current_manager_id !== actor.id) {
       throw new ConflictException({ code: 'BSC_REOPEN_REVIEWER_CHANGED', message: 'Người duyệt trực tiếp đã thay đổi; yêu cầu cũ không thể xử lý.' });

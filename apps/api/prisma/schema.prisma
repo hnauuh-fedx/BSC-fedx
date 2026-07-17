@@ -66,8 +66,8 @@ model bsc_cycles {
   month               Int?
   quarter             Int?
   start_date          DateTime       @db.Date
-  end_date            DateTime       @db.Date
-  submission_deadline DateTime       @db.Timestamptz(6)
+  end_date            DateTime?      @db.Date
+  submission_deadline DateTime?      @db.Timestamptz(6)
   review_deadline     DateTime?      @db.Timestamptz(6)
   status              String         @default("DRAFT") @db.VarChar(20)
   version             Int            @default(1)

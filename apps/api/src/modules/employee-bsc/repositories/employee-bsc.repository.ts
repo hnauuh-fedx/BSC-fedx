@@ -45,7 +45,7 @@ const bscDetailSelect = {
   updated_at: true,
   bsc_cycles: { select: {
     id: true, code: true, name: true, cycle_type: true, year: true, month: true, quarter: true, status: true,
-    start_date: true, end_date: true, submission_deadline: true,
+    start_date: true, end_date: true,
   } },
   users_employee_bsc_employee_idTousers: { select: { id: true, employee_code: true, full_name: true, email: true } },
   departments: { select: { id: true, code: true, name: true } },
@@ -139,7 +139,6 @@ export class EmployeeBscRepository {
           updated_at: true,
           bsc_cycles: { select: {
             id: true, code: true, name: true, year: true, month: true, status: true,
-            submission_deadline: true,
           } },
           users_employee_bsc_employee_idTousers: { select: { id: true, employee_code: true, full_name: true, email: true } },
           departments: { select: { id: true, code: true, name: true } },
@@ -962,6 +961,7 @@ export class EmployeeBscRepository {
       employee_bsc: { select: {
         ...bscAccessSelect,
         cycle_id: true,
+        bsc_cycles: { select: { status: true } },
         users_employee_bsc_employee_idTousers: { select: { direct_manager_id: true, status: true, deleted_at: true } },
         users_employee_bsc_direct_manager_idTousers: { select: { status: true, deleted_at: true } },
         departments: { select: { status: true } },
@@ -974,6 +974,7 @@ export class EmployeeBscRepository {
       direct_manager_id: request.employee_bsc.direct_manager_id,
       plan_status: request.employee_bsc.plan_status,
       evaluation_status: request.employee_bsc.evaluation_status,
+      cycle_status: request.employee_bsc.bsc_cycles.status,
       owner_current_manager_id: request.employee_bsc.users_employee_bsc_employee_idTousers.direct_manager_id,
       owner_active: request.employee_bsc.users_employee_bsc_employee_idTousers.status === 'ACTIVE'
         && request.employee_bsc.users_employee_bsc_employee_idTousers.deleted_at === null,
@@ -1017,9 +1018,7 @@ export class EmployeeBscRepository {
     return db.employee_bsc.findUnique({ where: { id }, select: {
       id: true, employee_id: true, department_id: true, direct_manager_id: true,
       plan_status: true, evaluation_status: true, final_score: true,
-      bsc_cycles: { select: {
-        status: true, start_date: true, end_date: true, submission_deadline: true,
-      } },
+      bsc_cycles: { select: { status: true } },
       users_employee_bsc_employee_idTousers: { select: { status: true, deleted_at: true, direct_manager_id: true } },
       users_employee_bsc_direct_manager_idTousers: { select: {
         status: true, deleted_at: true,
@@ -1035,8 +1034,7 @@ export class EmployeeBscRepository {
       id: bsc.id, employee_id: bsc.employee_id, department_id: bsc.department_id,
       direct_manager_id: bsc.direct_manager_id, plan_status: bsc.plan_status,
       evaluation_status: bsc.evaluation_status, final_score: bsc.final_score,
-      cycle_status: bsc.bsc_cycles.status, submission_deadline: bsc.bsc_cycles.submission_deadline,
-      start_date: bsc.bsc_cycles.start_date, end_date: bsc.bsc_cycles.end_date,
+      cycle_status: bsc.bsc_cycles.status,
       owner_status: bsc.users_employee_bsc_employee_idTousers.status,
       owner_deleted_at: bsc.users_employee_bsc_employee_idTousers.deleted_at,
       reviewer_status: bsc.users_employee_bsc_direct_manager_idTousers.status,
@@ -1118,19 +1116,14 @@ export class EmployeeBscRepository {
     cycleId: string,
     action: BscCycleBusinessAction,
   ): Promise<void> {
-    const cycle = await db.bsc_cycles.findUnique({ where: { id: cycleId }, select: {
-      status: true, start_date: true, end_date: true, submission_deadline: true,
-    } });
+    const cycle = await db.bsc_cycles.findUnique({ where: { id: cycleId }, select: { status: true } });
     if (!cycle) throw new NotFoundException({ code: 'BSC_CYCLE_NOT_FOUND', message: 'Không tìm thấy kỳ BSC.' });
     this.cyclePolicy.assertBusinessAction(this.cycleTiming(cycle), action);
   }
 
-  private cycleTiming(cycle: {
-    status: string; start_date: Date; end_date: Date; submission_deadline: Date;
-  }): CycleTiming {
+  private cycleTiming(cycle: { status: string }): CycleTiming {
     return {
-      status: cycle.status, startDate: cycle.start_date, endDate: cycle.end_date,
-      submissionDeadline: cycle.submission_deadline,
+      status: cycle.status,
     };
   }
 

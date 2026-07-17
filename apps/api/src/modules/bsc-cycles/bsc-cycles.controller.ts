@@ -67,6 +67,13 @@ export class BscCyclesController {
     return this.service.transition(actor, id, 'LOCKED', dto.expectedVersion, metadata(request), dto.reason);
   }
 
+  @Post(':id/close')
+  @HttpCode(200)
+  @RequirePermissions(BSC_CYCLE_PERMISSIONS.MANAGE)
+  close(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() dto: TransitionBscCycleDto, @Req() request: Request) {
+    return this.service.transition(actor, id, 'CLOSED', dto.expectedVersion, metadata(request), dto.reason);
+  }
+
 }
 
 function metadata(request: Request): AuditRequestMetadata {

@@ -1,5 +1,5 @@
 import { Transform, Type } from 'class-transformer';
-import { IsIn, IsInt, IsISO8601, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { BscCycleStatus, BscCycleType } from '../bsc-cycle.policy';
 
 const trim = ({ value }: { value: unknown }) => typeof value === 'string' ? value.trim() : value;
@@ -23,11 +23,6 @@ export class CreateBscCycleDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   startDate!: string;
 
-  @Matches(/^\d{4}-\d{2}-\d{2}$/)
-  endDate!: string;
-
-  @IsISO8601({ strict: true })
-  evaluationSubmissionDeadline!: string;
 }
 
 export class UpdateBscCycleDto {
@@ -49,12 +44,6 @@ export class UpdateBscCycleDto {
   @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/)
   startDate?: string;
 
-  @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/)
-  endDate?: string;
-
-  @IsOptional() @IsISO8601({ strict: true })
-  evaluationSubmissionDeadline?: string;
-
   @Type(() => Number) @IsInt() @Min(1)
   expectedVersion!: number;
 }
@@ -63,7 +52,7 @@ export class TransitionBscCycleDto {
   @Type(() => Number) @IsInt() @Min(1)
   expectedVersion!: number;
 
-  @IsOptional() @Transform(trim) @IsString() @MinLength(1) @MaxLength(500)
+  @IsOptional() @Transform(trim) @IsString() @MaxLength(500)
   reason?: string;
 }
 

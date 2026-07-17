@@ -81,7 +81,9 @@ export class BscReportsService {
     const now = new Date();
     const cycle = query.cycleId
       ? await this.prisma.bsc_cycles.findUnique({ where: { id: query.cycleId }, select: cycleSelect })
-      : await this.prisma.bsc_cycles.findFirst({ where: { status: 'OPEN', start_date: { lte: now }, end_date: { gte: now } }, orderBy: { start_date: 'desc' }, select: cycleSelect })
+      : await this.prisma.bsc_cycles.findFirst({ where: {
+        status: 'OPEN', start_date: { lte: now },
+      }, orderBy: { start_date: 'desc' }, select: cycleSelect })
         ?? await this.prisma.bsc_cycles.findFirst({ where: { status: 'OPEN' }, orderBy: [{ start_date: 'desc' }, { created_at: 'desc' }], select: cycleSelect });
     if (access.personal && !access.management) {
       const active = this.activeOrganizationWhere();

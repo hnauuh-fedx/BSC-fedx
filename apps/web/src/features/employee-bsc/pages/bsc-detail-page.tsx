@@ -110,20 +110,17 @@ export const BscDetailPage: React.FC = () => {
 
   const isOwner = state.user?.id === bsc.employee_id, isReviewer = state.user?.id === bsc.direct_manager_id;
   const cycleOpen = bsc.bsc_cycles.status === 'OPEN';
-  const currentTime = Date.now();
-  const beforeDeadline = (value?: string | null) => !value || currentTime <= new Date(value).getTime();
-  const evaluationSubmitWindow = beforeDeadline(bsc.bsc_cycles.submission_deadline);
   const cycleBlockReason = bsc.bsc_cycles.status === 'LOCKED' ? 'Kỳ BSC đang bị khóa. Chủ sở hữu tạm thời không thể tạo, sửa hoặc nộp BSC.'
     : bsc.bsc_cycles.status === 'CLOSED' ? 'Kỳ BSC đang ở trạng thái CLOSED lịch sử.'
     : bsc.bsc_cycles.status === 'DRAFT' ? 'Kỳ BSC chưa mở.'
-    : !evaluationSubmitWindow && ['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.evaluation_status) ? 'Đã quá hạn nộp kết quả đánh giá.' : null;
+    : null;
   const planEditable = ['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.plan_status) && bsc.evaluation_status === 'NOT_STARTED';
   const evaluationEditable = bsc.plan_status === 'APPROVED' && ['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.evaluation_status);
   const canManage = cycleOpen && planEditable && ((isOwner && permissions.includes(BSC_PERMISSIONS.EDIT_OWN))
     || (bsc.plan_status !== 'REOPENED' && isReviewer && permissions.includes(BSC_PERMISSIONS.MANAGE_KPI)));
   const canActual = cycleOpen && evaluationEditable && isOwner && permissions.some(value => value === BSC_PERMISSIONS.EDIT_OWN || value === BSC_PERMISSIONS.UPDATE_ACTUAL);
   const canSubmitPlan = cycleOpen && planEditable && isOwner && permissions.includes(BSC_PERMISSIONS.SUBMIT_PLAN_OWN);
-  const canSubmitEvaluation = cycleOpen && evaluationSubmitWindow && evaluationEditable && isOwner && permissions.includes(BSC_PERMISSIONS.SUBMIT_EVALUATION_OWN);
+  const canSubmitEvaluation = cycleOpen && evaluationEditable && isOwner && permissions.includes(BSC_PERMISSIONS.SUBMIT_EVALUATION_OWN);
   const reviewCycleAllowed = ['OPEN', 'LOCKED'].includes(bsc.bsc_cycles.status);
   const canApprovePlan = reviewCycleAllowed && bsc.plan_status === 'SUBMITTED' && isReviewer && permissions.includes(BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE);
   const canReturnPlan = reviewCycleAllowed && bsc.plan_status === 'SUBMITTED' && isReviewer && permissions.includes(BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE);
@@ -150,7 +147,7 @@ export const BscDetailPage: React.FC = () => {
     {bsc.evaluation_status === 'RETURNED' && evaluationReturn && <section role="alert"><h2>Kết quả đánh giá bị trả lại</h2><p>{evaluationReturn.comment}</p><p>Bởi {evaluationReturn.users.full_name}, {formatDate(evaluationReturn.changed_at)}</p></section>}
     {bsc.plan_status === 'REOPENED' && <p role="alert">Kế hoạch đã được mở lại. Dữ liệu đánh giá active đã đặt lại; hãy sửa và gửi duyệt kế hoạch lại.</p>}
     {bsc.evaluation_status === 'REOPENED' && <p role="alert">Kết quả đã được mở lại. Định nghĩa KPI vẫn khóa và điểm hiện tại chỉ là dự kiến.</p>}
-    <section aria-labelledby="general-information"><h2 id="general-information">Thông tin chung</h2><dl><dt>Nhân viên</dt><dd>{bsc.users_employee_bsc_employee_idTousers.full_name}</dd><dt>Kỳ</dt><dd>{bsc.bsc_cycles.name} · {bsc.bsc_cycles.status}</dd><dt>Hạn nộp kết quả đánh giá</dt><dd>{formatDate(bsc.bsc_cycles.submission_deadline)}</dd><dt>Đơn vị</dt><dd>{bsc.departments.name}</dd>
+    <section aria-labelledby="general-information"><h2 id="general-information">Thông tin chung</h2><dl><dt>Nhân viên</dt><dd>{bsc.users_employee_bsc_employee_idTousers.full_name}</dd><dt>Kỳ</dt><dd>{bsc.bsc_cycles.name} · {bsc.bsc_cycles.status}</dd><dt>Ngày kết thúc thực tế</dt><dd>{formatDate(bsc.bsc_cycles.end_date)}</dd><dt>Đơn vị</dt><dd>{bsc.departments.name}</dd>
       <dt>Duyệt nội dung BSC</dt><dd><BscStatusBadge status={bsc.plan_status}/></dd><dt>Đánh giá kết quả</dt><dd><BscStatusBadge status={bsc.evaluation_status}/></dd>
       <dt>Quản lý trực tiếp</dt><dd>{bsc.users_employee_bsc_direct_manager_idTousers?.full_name ?? '—'}</dd><dt>Ngày gửi nội dung</dt><dd>{formatDate(bsc.plan_submitted_at)}</dd><dt>Ngày duyệt nội dung</dt><dd>{formatDate(bsc.plan_approved_at)}</dd>
       <dt>Ngày gửi kết quả</dt><dd>{formatDate(bsc.evaluation_submitted_at)}</dd><dt>Ngày duyệt kết quả</dt><dd>{formatDate(bsc.evaluation_approved_at)}</dd>

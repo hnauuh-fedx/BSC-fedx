@@ -20,7 +20,7 @@ export const ADMINISTRATION_DESTINATIONS = [
   {
     permissions: ['bsc.period.view', 'bsc.period.manage'],
     label: 'Kỳ BSC',
-    description: 'Cấu hình timeline, mở, khóa và đóng kỳ BSC.',
+    description: 'Tạo, mở, khóa và chủ động kết thúc kỳ BSC.',
     href: '/management/bsc-cycles',
   },
   {

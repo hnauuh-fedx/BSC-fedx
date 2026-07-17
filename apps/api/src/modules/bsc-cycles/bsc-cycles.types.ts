@@ -22,8 +22,7 @@ export interface BscCycleResponse {
   status: string;
   version: number;
   startDate: Date;
-  endDate: Date;
-  evaluationSubmissionDeadline: Date;
+  endDate: Date | null;
   createdAt: Date;
   updatedAt: Date;
   createdBy?: { id: string; employeeCode: string; fullName: string };

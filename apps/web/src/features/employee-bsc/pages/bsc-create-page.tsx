@@ -6,7 +6,7 @@ import { employeeBscApi } from '../services/employee-bsc.service';
 
 const cycleLabel = (cycle: BscCycle) => {
   const period = cycle.month ? `${String(cycle.month).padStart(2, '0')}/${cycle.year}` : String(cycle.year);
-  return `${cycle.name} — ${period} (${new Date(cycle.startDate).toLocaleDateString('vi-VN')}–${new Date(cycle.endDate).toLocaleDateString('vi-VN')})`;
+  return `${cycle.name} — ${period} (mở từ ${new Date(cycle.startDate).toLocaleDateString('vi-VN')})`;
 };
 
 export const BscCreatePage: React.FC = () => {
