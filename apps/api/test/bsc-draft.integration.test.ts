@@ -122,6 +122,8 @@ test('Phase 3B.1 BSC Draft Core integration', { skip: safeDatabase() ? false : '
       const unknownField = await request(server).post('/employee-bsc').set(auth(tokens.employee)).send({ cycleId: cycle.id, employeeId: outsider.id }).expect(400); assert.equal(unknownField.body.code, 'VALIDATION_ERROR');
       const created = await request(server).post('/employee-bsc').set(auth(tokens.employee)).set('User-Agent', 'BSC-Integration').send({ cycleId: cycle.id }).expect(201);
       firstBscId = created.body.id; tracked.bscs.push(firstBscId);
+      const ownerKpi = await request(server).post(`/employee-bsc/${firstBscId}/items`).set(auth(tokens.employee)).send({ kpiCode: `${marker}_OWNER_KPI`, kpiName: 'KPI cá nhân', targetValue: 100, weight: 10, calculationMethod: 'ACTUAL_DIV_TARGET', sortOrder: 0 }).expect(201);
+      await request(server).delete(`/employee-bsc/${firstBscId}/items/${ownerKpi.body.id}`).set(auth(tokens.employee)).expect(200);
       const second = await request(server).post('/employee-bsc').set(auth(tokens.employee2)).send({ cycleId: cycle.id }).expect(201); secondBscId = second.body.id; tracked.bscs.push(secondBscId);
       assert.equal(created.body.status, 'DRAFT'); assert.equal(created.body.employee_id, employee.id); assert.equal(created.body.department_id, departmentA.id); assert.equal(created.body.position_id, position.id); assert.equal(created.body.direct_manager_id, manager.id);
       const duplicate = await request(server).post('/employee-bsc').set(auth(tokens.employee)).send({ cycleId: cycle.id }).expect(409); assert.equal(duplicate.body.code, 'BSC_ALREADY_EXISTS_FOR_CYCLE');
@@ -142,12 +144,12 @@ test('Phase 3B.1 BSC Draft Core integration', { skip: safeDatabase() ? false : '
       await request(server).get('/employee-bsc?sortBy=status').set(auth(tokens.employee)).expect(400);
     });
 
-    await t.test('manager KPI definition and employee actual fields stay separated with atomic weight limits', async () => {
+    await t.test('owner and manager can maintain KPI definitions while actual fields stay stage-separated', async () => {
       const baseItem = { kpiCode: `${marker}_KPI_1`, kpiName: 'KPI 1', targetValue: 100, weight: 60, calculationMethod: 'ACTUAL_DIV_TARGET', sortOrder: 1 };
       const created = await request(server).post(`/employee-bsc/${firstBscId}/items`).set(auth(tokens.manager)).send(baseItem).expect(201); firstItemId = created.body.id;
       const duplicateItem = await request(server).post(`/employee-bsc/${firstBscId}/items`).set(auth(tokens.manager)).send({ ...baseItem, weight: 1 }).expect(409); assert.equal(duplicateItem.body.code, 'BSC_ITEM_CODE_EXISTS');
-      await request(server).post(`/employee-bsc/${firstBscId}/items`).set(auth(tokens.employee)).send({ ...baseItem, kpiCode: `${marker}_EMPLOYEE` }).expect(403);
-      await request(server).delete(`/employee-bsc/${firstBscId}/items/${firstItemId}`).set(auth(tokens.employee)).expect(403);
+      const ownerItem = await request(server).post(`/employee-bsc/${firstBscId}/items`).set(auth(tokens.employee)).send({ ...baseItem, kpiCode: `${marker}_EMPLOYEE`, weight: 1 }).expect(201);
+      await request(server).delete(`/employee-bsc/${firstBscId}/items/${ownerItem.body.id}`).set(auth(tokens.employee)).expect(200);
       const wrongManager = await request(server).post(`/employee-bsc/${firstBscId}/items`).set(auth(tokens.otherManager)).send({ ...baseItem, kpiCode: `${marker}_OTHER_MANAGER` }).expect(403); assert.equal(wrongManager.body.code, 'BSC_ACCESS_DENIED');
       for (const weight of [0, -1, 100.01]) { const invalid = await request(server).post(`/employee-bsc/${firstBscId}/items`).set(auth(tokens.manager)).send({ ...baseItem, kpiCode: `${marker}_BAD_${String(weight).replace('.', '_')}`, weight }).expect(400); assert.equal(invalid.body.code, 'BSC_WEIGHT_INVALID'); }
       const zeroTarget = await request(server).post(`/employee-bsc/${firstBscId}/items`).set(auth(tokens.manager)).send({ ...baseItem, kpiCode: `${marker}_ZERO_TARGET`, targetValue: 0, weight: 1 }).expect(400); assert.equal(zeroTarget.body.code, 'BSC_TARGET_INVALID');
@@ -160,7 +162,8 @@ test('Phase 3B.1 BSC Draft Core integration', { skip: safeDatabase() ? false : '
       assert.equal(concurrent.find((response) => response.status === 400)?.body.code, 'BSC_TOTAL_WEIGHT_EXCEEDED');
       const concurrentItem = concurrent.find((response) => response.status === 201)?.body.id as string;
       await request(server).patch(`/employee-bsc/${firstBscId}/items/${firstItemId}`).set(auth(tokens.manager)).send({ targetValue: 120, weight: 55 }).expect(200);
-      await request(server).patch(`/employee-bsc/${firstBscId}/items/${firstItemId}`).set(auth(tokens.employee)).send({ targetValue: 999 }).expect(403);
+      await request(server).patch(`/employee-bsc/${firstBscId}/items/${firstItemId}`).set(auth(tokens.employee)).send({ targetValue: 121 }).expect(200);
+      await request(server).patch(`/employee-bsc/${firstBscId}/items/${firstItemId}`).set(auth(tokens.manager)).send({ targetValue: 120 }).expect(200);
       await request(server).delete(`/employee-bsc/${firstBscId}/items/${concurrentItem}`).set(auth(tokens.manager)).expect(200);
       const secondItem = await request(server).post(`/employee-bsc/${secondBscId}/items`).set(auth(tokens.manager)).send({ ...baseItem, kpiCode: `${marker}_SECOND`, weight: 20 }).expect(201);
       await prisma.employee_bsc.updateMany({

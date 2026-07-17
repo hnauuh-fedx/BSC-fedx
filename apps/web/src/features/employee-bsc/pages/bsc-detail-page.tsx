@@ -119,8 +119,8 @@ export const BscDetailPage: React.FC = () => {
     : !evaluationSubmitWindow && ['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.evaluation_status) ? 'Đã quá hạn nộp kết quả đánh giá.' : null;
   const planEditable = ['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.plan_status) && bsc.evaluation_status === 'NOT_STARTED';
   const evaluationEditable = bsc.plan_status === 'APPROVED' && ['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.evaluation_status);
-  const canManage = cycleOpen && planEditable && ((bsc.plan_status === 'REOPENED' && isOwner && permissions.includes(BSC_PERMISSIONS.EDIT_OWN))
-    || (isReviewer && permissions.includes(BSC_PERMISSIONS.MANAGE_KPI)));
+  const canManage = cycleOpen && planEditable && ((isOwner && permissions.includes(BSC_PERMISSIONS.EDIT_OWN))
+    || (bsc.plan_status !== 'REOPENED' && isReviewer && permissions.includes(BSC_PERMISSIONS.MANAGE_KPI)));
   const canActual = cycleOpen && evaluationEditable && isOwner && permissions.some(value => value === BSC_PERMISSIONS.EDIT_OWN || value === BSC_PERMISSIONS.UPDATE_ACTUAL);
   const canSubmitPlan = cycleOpen && planEditable && isOwner && permissions.includes(BSC_PERMISSIONS.SUBMIT_PLAN_OWN);
   const canSubmitEvaluation = cycleOpen && evaluationSubmitWindow && evaluationEditable && isOwner && permissions.includes(BSC_PERMISSIONS.SUBMIT_EVALUATION_OWN);

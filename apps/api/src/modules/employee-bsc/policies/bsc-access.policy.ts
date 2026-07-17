@@ -171,11 +171,9 @@ export class BscAccessPolicy {
 
   async assertCanEditPlanDefinition(actor: AuthUser, bsc: BscAccessResource): Promise<void> {
     if (!['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.plan_status)) this.fieldLocked();
-    if (bsc.plan_status === 'REOPENED') {
-      if (bsc.employee_id !== actor.id
-        || !this.hasScopedPermission(actor, BSC_PERMISSIONS.EDIT_OWN, bsc.employee_id, bsc.department_id)) this.deny();
-      return;
-    }
+    if (bsc.employee_id === actor.id
+      && this.hasScopedPermission(actor, BSC_PERMISSIONS.EDIT_OWN, bsc.employee_id, bsc.department_id)) return;
+    if (bsc.plan_status === 'REOPENED') this.deny();
     if (!this.hasBusinessPermission(actor, BSC_PERMISSIONS.MANAGE_KPI, bsc.department_id)
       || !await this.hasActiveManagerRelationship(actor.id, bsc.employee_id)) this.deny();
   }
