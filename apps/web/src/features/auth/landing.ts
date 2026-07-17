@@ -91,7 +91,9 @@ export function canAccessWorkspacePath(pathname: string, permissions: readonly s
   if (pathname === '/management/organization') {
     return hasAnyWorkspacePermission(permissions, ['user.view', 'department.view', 'position.view']);
   }
-  if (pathname === '/management/users/new') return permissions.includes('user.create');
+  if (pathname === '/management/users/new') {
+    return permissions.includes('user.create') && permissions.includes('permission.assign');
+  }
   if (/^\/management\/users\/[^/]+\/edit$/.test(pathname)) {
     return permissions.includes('user.update');
   }

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
-import { RequirePermissions } from '../../../common/decorators/require-permissions.decorator';
+import { RequireAnyPermission, RequirePermissions } from '../../../common/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { AuthUser } from '../../../common/types/auth-user.type';
 import { JwtAccessGuard } from '../../auth/guards/jwt-access.guard';
@@ -19,13 +19,13 @@ export class RolesController {
   constructor(private readonly service: RolesService) {}
 
   @Get('roles')
-  @RequirePermissions('role.view')
+  @RequireAnyPermission('role.view', 'permission.assign')
   findAll() {
     return this.service.findAll();
   }
 
   @Get('roles/:id')
-  @RequirePermissions('role.view')
+  @RequireAnyPermission('role.view', 'permission.assign')
   findOne(@Param('id') id: string) {
     return this.service.findOne(id);
   }

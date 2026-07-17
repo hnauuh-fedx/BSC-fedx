@@ -13,7 +13,7 @@ export class UsersController {
   constructor(private readonly service: UsersService) {}
   @Get() @RequirePermissions('user.view') findAll(@CurrentUser() u: AuthUser, @Query() q: UserQueryDto) { return this.service.findAll(u, q); }
   @Get(':id') @RequirePermissions('user.view') one(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.service.findOne(u, id); }
-  @Post() @RequirePermissions('user.create') create(@CurrentUser() u: AuthUser, @Body() d: CreateUserDto) { return this.service.create(u, d); }
+  @Post() @RequirePermissions('user.create', 'permission.assign') create(@CurrentUser() u: AuthUser, @Body() d: CreateUserDto) { return this.service.create(u, d); }
   @Patch(':id') @RequirePermissions('user.update') update(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: UpdateUserDto) { return this.service.update(u, id, d); }
   @Post(':id/activate') @RequirePermissions('user.update') activate(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.service.setStatus(u, id, 'ACTIVE'); }
   @Post(':id/deactivate') @RequirePermissions('user.lock') deactivate(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.service.setStatus(u, id, 'INACTIVE'); }
