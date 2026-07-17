@@ -23,6 +23,9 @@ describe('PositionsPage', () => {
   it('labels and explains the organizational rank column', async () => {
     render(<MemoryRouter><PositionsPage /></MemoryRouter>);
 
+    expect(screen.getByRole('heading', { level: 1, name: 'Quản lý chức danh' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 2, name: 'Thêm chức danh' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 2, name: 'Danh sách chức danh' })).toBeVisible();
     expect(await screen.findByRole('columnheader', { name: /Thứ bậc/ })).toBeVisible();
     expect(screen.getByTitle('Chỉ dùng để sắp xếp chức danh, không đại diện cho quyền hệ thống.')).toBeVisible();
     expect(screen.queryByRole('columnheader', { name: 'Cấp' })).not.toBeInTheDocument();
