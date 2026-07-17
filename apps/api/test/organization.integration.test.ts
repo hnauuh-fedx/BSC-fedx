@@ -70,8 +70,26 @@ test('Organization API integration', { skip: integrationEnabled ? false : 'TEST_
     await t.test('positions enforce validation, dependencies, normalization, filters and audit', async () => {
       await request(server).get('/positions').expect(401); await request(server).get('/positions').set(auth(noPermissionToken)).expect(403);
       const created = await request(server).post('/positions').set(auth(adminToken)).send({ code: `${marker.toLowerCase()}_pos_created`, name: 'Position', level: 2 }).expect(201); ids.positions.push(created.body.id); assert.equal(created.body.code, `${marker}_POS_CREATED`);
+      const updated = await request(server).patch(`/positions/${created.body.id}`).set(auth(adminToken)).send({ level: 999 }).expect(200); assert.equal(updated.body.level, 999);
+      const replaced = await request(server).put(`/positions/${created.body.id}`).set(auth(adminToken)).send({ code: `${marker}_POS_CREATED`, name: 'Position updated', level: 100 }).expect(200); assert.equal(replaced.body.level, 100);
+      await request(server).patch(`/positions/${created.body.id}`).set(auth(adminToken)).send({ level: null }).expect(400);
       const duplicate = await request(server).post('/positions').set(auth(adminToken)).send({ code: `${marker}_POS_CREATED`, name: 'Position', level: 2 }).expect(409); assert.equal(duplicate.body.code, 'POSITION_CODE_EXISTS');
-      await request(server).post('/positions').set(auth(adminToken)).send({ code: `${marker}_ZERO`, name: 'Zero', level: 0 }).expect(400); await request(server).post('/positions').set(auth(adminToken)).send({ code: `${marker}_NEG`, name: 'Neg', level: -1 }).expect(400);
+      for (const [suffix, level] of [['ZERO', 0], ['NEG', -1], ['DECIMAL', 1.5], ['TOO_HIGH', 1000], ['NULL', null], ['TEXT', 'không hợp lệ'], ['BLANK', '   '], ['BOOLEAN', true], ['ARRAY', [1]]] as const) {
+        const response = await request(server).post('/positions').set(auth(adminToken)).send({ code: `${marker}_${suffix}`, name: suffix, level }).expect(400);
+        assert.match(JSON.stringify(response.body), /thứ bậc tổ chức/i);
+      }
+      await request(server).post('/positions').set(auth(adminToken)).send({ code: ' ADMIN ', name: 'Quản trị hệ thống', level: 100 }).expect(400);
+      for (const [suffix, name, level] of [['SORT_LOW', 'Zulu', 10], ['SORT_HIGH_Z', 'Zulu', 30], ['SORT_HIGH_A', 'Alpha', 30]] as const) {
+        const item = await prisma.positions.create({ data: { code: `${marker}_${suffix}`, name: `${marker} ${name}`, level } }); ids.positions.push(item.id);
+      }
+      const sorted = await request(server).get(`/positions?search=${marker}&page=1&limit=100`).set(auth(adminToken)).expect(200);
+      const sortRows = sorted.body.items.filter((item: { code: string }) => item.code.includes('_SORT_'));
+      assert.deepEqual(sortRows.map((item: { code: string }) => item.code), [`${marker}_SORT_HIGH_A`, `${marker}_SORT_HIGH_Z`, `${marker}_SORT_LOW`]);
+      const existingLegacyAdmin = await prisma.positions.findFirst({ where: { code: { equals: ' ADMIN ', mode: 'insensitive' } } });
+      const legacyAdmin = existingLegacyAdmin ?? await prisma.positions.create({ data: { code: ' ADMIN ', name: 'Quản trị hệ thống', level: 100 } });
+      const validPositions = await request(server).get('/positions?page=1&limit=100').set(auth(adminToken)).expect(200);
+      assert.ok(validPositions.body.items.every((item: { id: string }) => item.id !== legacyAdmin.id));
+      if (!existingLegacyAdmin) await prisma.positions.delete({ where: { id: legacyAdmin.id } });
       const dependentPosition = await createPosition('HAS_USER_POS'); const dependent = await createUser('POSITION_DEPENDENT', departmentA.id, dependentPosition.id);
       const conflict = await request(server).post(`/positions/${dependentPosition.id}/deactivate`).set(auth(adminToken)).expect(400); assert.equal(conflict.body.code, 'POSITION_HAS_ACTIVE_USERS');
       await prisma.users.update({ where: { id: dependent.id }, data: { status: 'INACTIVE' } }); await request(server).post(`/positions/${dependentPosition.id}/deactivate`).set(auth(adminToken)).expect(201); await request(server).post(`/positions/${dependentPosition.id}/activate`).set(auth(adminToken)).expect(201);

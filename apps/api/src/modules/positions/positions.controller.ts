@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -12,6 +12,7 @@ export class PositionsController { constructor(private readonly service: Positio
   @Get(':id') @RequirePermissions('position.view') one(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.service.findOne(u, id); }
   @Post() @RequirePermissions('position.manage') create(@CurrentUser() u: AuthUser, @Body() d: PositionMutationDto) { return this.service.create(u, d); }
   @Patch(':id') @RequirePermissions('position.manage') update(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: UpdatePositionDto) { return this.service.update(u, id, d); }
+  @Put(':id') @RequirePermissions('position.manage') replace(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: PositionMutationDto) { return this.service.update(u, id, d); }
   @Post(':id/activate') @RequirePermissions('position.manage') activate(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.service.setStatus(u, id, 'ACTIVE'); }
   @Post(':id/deactivate') @RequirePermissions('position.manage') deactivate(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.service.setStatus(u, id, 'INACTIVE'); }
 }

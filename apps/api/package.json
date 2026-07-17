@@ -19,7 +19,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node ./test/run-tests.js",
     "prisma:test:deploy": "node ./test/run-organization-integration.js --deploy-only",
-    "prisma:test:fresh-verify": "node ./test/verify-fresh-migrations.js",
+    "prisma:test:fresh-verify": "prisma generate && node ./test/verify-fresh-migrations.js",
     "test:integration:organization": "node ./test/run-organization-integration.js",
     "test:integration:bsc-draft": "node ./test/run-bsc-draft-integration.js",
     "test:integration:bsc-scoring": "node ./test/run-bsc-scoring-integration.js",
@@ -32,6 +32,7 @@
     "report:bsc-scoring-alignment": "dotenv -e ../../.env -- ts-node scripts/report-bsc-scoring-alignment.ts",
     "report:bsc-version-backfill": "dotenv -e ../../.env.test.local -e ../../.env -- ts-node scripts/report-bsc-version-backfill.ts"
     ,"report:bsc-workflow-backfill-issues": "dotenv -e ../../.env.test.local -e ../../.env -- ts-node scripts/report-bsc-workflow-backfill-issues.ts"
+    ,"cleanup:legacy-admin-position": "dotenv -e ../../.env -- ts-node scripts/cleanup-legacy-admin-position.ts"
     ,"rehearsal:migration": "dotenv -e ../../.env.test.local -e ../../.env -- ts-node scripts/database-rehearsal.ts"
     ,"rehearsal:backup-restore": "dotenv -e ../../.env.test.local -e ../../.env -- ts-node scripts/database-rehearsal.ts --restore"
     ,"smoke:security": "dotenv -e ../../.env.test.local -e ../../.env -- ts-node scripts/security-smoke.ts"

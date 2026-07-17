@@ -100,7 +100,7 @@ export async function seedPermissions(client: Prisma.TransactionClient): Promise
 const BOOTSTRAP_KEYS = [
   'BOOTSTRAP_ADMIN_EMAIL', 'BOOTSTRAP_ADMIN_PASSWORD', 'BOOTSTRAP_ADMIN_EMPLOYEE_CODE',
   'BOOTSTRAP_ADMIN_FULL_NAME', 'BOOTSTRAP_ADMIN_DEPARTMENT_CODE', 'BOOTSTRAP_ADMIN_DEPARTMENT_NAME',
-  'BOOTSTRAP_ADMIN_POSITION_CODE', 'BOOTSTRAP_ADMIN_POSITION_NAME',
+  'BOOTSTRAP_ADMIN_POSITION_CODE', 'BOOTSTRAP_ADMIN_POSITION_NAME', 'BOOTSTRAP_ADMIN_POSITION_LEVEL',
 ] as const;
 
 export async function ensureBootstrapAdmin(client: PrismaClient, env: NodeJS.ProcessEnv = process.env): Promise<'created' | 'preserved'> {
@@ -117,6 +117,10 @@ export async function ensureBootstrapAdmin(client: PrismaClient, env: NodeJS.Pro
   if (missing.length) throw new Error(`No active ADMIN exists. Missing bootstrap environment variables: ${missing.join(', ')}`);
   const password = String(env.BOOTSTRAP_ADMIN_PASSWORD);
   if (password.length < 12) throw new Error('BOOTSTRAP_ADMIN_PASSWORD must contain at least 12 characters');
+  const positionCode = String(env.BOOTSTRAP_ADMIN_POSITION_CODE).trim().toUpperCase();
+  if (positionCode === 'ADMIN') throw new Error('BOOTSTRAP_ADMIN_POSITION_CODE must be a professional position code, not the ADMIN system role');
+  const positionLevel = Number(String(env.BOOTSTRAP_ADMIN_POSITION_LEVEL).trim());
+  if (!Number.isInteger(positionLevel) || positionLevel < 1 || positionLevel > 999) throw new Error('BOOTSTRAP_ADMIN_POSITION_LEVEL must be an integer from 1 to 999');
   const passwordHash = await argon2.hash(password);
 
   await client.$transaction(async (tx) => {
@@ -127,8 +131,8 @@ export async function ensureBootstrapAdmin(client: PrismaClient, env: NodeJS.Pro
       update: {},
     });
     const position = await tx.positions.upsert({
-      where: { code: String(env.BOOTSTRAP_ADMIN_POSITION_CODE) },
-      create: { code: String(env.BOOTSTRAP_ADMIN_POSITION_CODE), name: String(env.BOOTSTRAP_ADMIN_POSITION_NAME), level: 100, status: 'ACTIVE' },
+      where: { code: positionCode },
+      create: { code: positionCode, name: String(env.BOOTSTRAP_ADMIN_POSITION_NAME).trim(), level: positionLevel, status: 'ACTIVE' },
       update: {},
     });
     const user = await tx.users.create({

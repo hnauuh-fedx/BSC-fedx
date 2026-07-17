@@ -54,7 +54,7 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
     const department = await prisma.departments.create({ data: { code: `${marker}_DEPT`, name: `${marker} Department` } });
     const outsideDepartment = await prisma.departments.create({ data: { code: `${marker}_OUT`, name: `${marker} Outside` } });
     const unrelatedDepartment = await prisma.departments.create({ data: { code: `${marker}_NONE`, name: `${marker} Unrelated` } });
-    const position = await prisma.positions.create({ data: { code: `${marker}_POS`, name: `${marker} Position` } });
+    const position = await prisma.positions.create({ data: { code: `${marker}_POS`, name: `${marker} Position`, level: 1 } });
 
     for (const code of Object.values(REPORT_PERMISSIONS)) {
       const existing = await prisma.permissions.findUnique({ where: { code } });
