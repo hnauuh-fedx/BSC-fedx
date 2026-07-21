@@ -29,6 +29,9 @@ if (testFiles.length === 0) {
 }
 const testEnvironment = integrationEnvironment('Workspace test');
 testEnvironment.RUN_LIVE_DB_TESTS = '1';
+// The test server is called directly at /auth; the local web proxy path (/api/auth)
+// must not leak in from a developer .env and break the cookie jar semantics.
+testEnvironment.REFRESH_COOKIE_PATH = '/auth';
 
 const result = spawnSync(
   process.execPath,

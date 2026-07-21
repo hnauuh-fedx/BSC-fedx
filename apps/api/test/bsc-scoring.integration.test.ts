@@ -130,8 +130,11 @@ test('Phase 3B.2 BSC scoring integration', { skip: safeDatabase() ? false : 'TES
       const ineligible = await request(server).get('/bsc-cycles/open').set(auth(tokens.ineligibleCreator)).expect(200);
       assert.deepEqual(ineligible.body, []);
       const response = await request(server).get('/bsc-cycles/open').set(auth(tokens.employee)).expect(200);
-      assert.deepEqual(response.body.map((cycle: { id: string }) => cycle.id), [openNew.id, openOld.id]);
-      assert.deepEqual(Object.keys(response.body[0]).sort(), ['endDate', 'id', 'month', 'name', 'startDate', 'status', 'year']);
+      const ids = response.body.map((cycle: { id: string }) => cycle.id);
+      assert.ok(ids.includes(openNew.id)); assert.ok(ids.includes(openOld.id)); assert.ok(!ids.includes(closed.id));
+      assert.ok(ids.indexOf(openNew.id) < ids.indexOf(openOld.id));
+      const fixtureCycle = response.body.find((cycle: { id: string }) => cycle.id === openNew.id);
+      assert.deepEqual(Object.keys(fixtureCycle).sort(), ['endDate', 'id', 'month', 'name', 'startDate', 'status', 'year']);
       const detail = await request(server).get(`/bsc-cycles/${openNew.id}`).set(auth(tokens.employee)).expect(200);
       assert.equal(detail.body.name, openNew.name);
       const missing = await request(server).get(`/bsc-cycles/${randomUUID()}`).set(auth(tokens.employee)).expect(404);

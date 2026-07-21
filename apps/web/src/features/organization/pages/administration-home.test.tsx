@@ -13,7 +13,7 @@ describe('AdministrationHome', () => {
     expect(screen.getByRole('link', { name: 'Chức danh' })).toHaveAttribute('href', '/management/positions');
     expect(screen.getByRole('link', { name: 'Kỳ BSC' })).toHaveAttribute('href', '/management/bsc-cycles');
     expect(screen.getByText('Mẫu BSC')).toBeVisible();
-    expect(screen.getByText('Nhật ký hệ thống')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Nhật ký hệ thống' })).toHaveAttribute('href', '/management/audit-logs');
   });
 
   it('honors independently assigned manage permissions', () => {

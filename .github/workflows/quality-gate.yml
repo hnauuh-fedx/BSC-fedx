@@ -41,6 +41,7 @@ jobs:
       - run: npm run typecheck --workspaces --if-present
       - run: npm run lint --workspaces --if-present
       - run: npm run build --workspaces --if-present
+      - run: npm run test:component --workspace=apps/web
       - run: npm test --workspaces --if-present
       - name: Integration suites (sequential)
         run: |

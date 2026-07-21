@@ -27,7 +27,8 @@ describe('MainLayout navigation permissions', () => {
   it('shows administration navigation and hides personal BSC for a technical administrator', () => {
     auth(['user.view', 'department.view', 'position.view', 'bsc.period.manage']);
     render(<MemoryRouter><MainLayout><p>Nội dung</p></MainLayout></MemoryRouter>);
-    expect(screen.getByRole('link', { name: 'Quản trị' })).toHaveAttribute('href', '/management');
+    expect(screen.getByRole('link', { name: 'Người dùng' })).toHaveAttribute('href', '/management/users');
+    expect(screen.getByRole('link', { name: 'Đơn vị' })).toHaveAttribute('href', '/management/departments');
     expect(screen.queryByRole('link', { name: 'BSC cá nhân' })).not.toBeInTheDocument();
   });
 
@@ -55,8 +56,8 @@ describe('MainLayout navigation permissions', () => {
   it('keeps personal BSC hidden for an unit-only dashboard user', () => {
     auth(['bsc.statistics.organization', 'bsc.view.unit']);
     render(<MemoryRouter><MainLayout><p>Nội dung</p></MainLayout></MemoryRouter>);
-    expect(screen.getByRole('link', { name: 'Tổng quan đơn vị' })).toHaveAttribute('href', '/dashboard');
-    expect(screen.getByRole('link', { name: 'Quản lý BSC' })).toHaveAttribute('href', '/management/bsc-overview');
+    expect(screen.getByRole('link', { name: 'Báo cáo' })).toHaveAttribute('href', '/reports/bsc');
+    expect(screen.getByRole('link', { name: 'Tổng quan BSC' })).toHaveAttribute('href', '/management/bsc-overview');
     expect(screen.queryByRole('link', { name: 'BSC cá nhân' })).not.toBeInTheDocument();
   });
 });

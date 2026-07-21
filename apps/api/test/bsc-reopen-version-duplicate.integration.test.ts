@@ -247,13 +247,15 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       const reopen = await expectHttp(request(server).post(`/employee-bsc/${record.id}/reopen-requests`).set(auth(tokens.employee))
         .send({ stage: 'PLAN', reason: 'Đổi chỉ tiêu' }), 201);
       await prisma.bsc_cycles.update({ where: { id: record.cycle_id }, data: { status: 'CLOSED' } });
+      const closedDecision = await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/approve`).set(auth(tokens.manager)).send({}), 409);
+      assert.equal(closedDecision.body.code, 'BSC_CYCLE_CLOSED');
+      await prisma.bsc_cycles.update({ where: { id: record.cycle_id }, data: { status: 'OPEN' } });
       await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/approve`).set(auth(tokens.manager)).send({}), 200);
       const expired = await prisma.bsc_unlock_requests.findUniqueOrThrow({ where: { id: evaluationReopen.body.id } });
       assert.equal(expired.status, 'EXPIRED');
       const reset = await prisma.employee_bsc.findUniqueOrThrow({ where: { id: record.id }, include: { employee_bsc_items: true } });
       assert.equal(reset.plan_status, 'REOPENED'); assert.equal(reset.evaluation_status, 'NOT_STARTED');
       assert.equal(reset.employee_bsc_items[0].actual_value, null); assert.equal(reset.final_score, null);
-      await prisma.bsc_cycles.update({ where: { id: record.cycle_id }, data: { status: 'OPEN' } });
       await expectHttp(request(server).patch(`/employee-bsc/${record.id}/items/${record.item.id}`).set(auth(tokens.employee)).send({ targetValue: 120 }), 200);
       await expectHttp(request(server).patch(`/employee-bsc/${record.id}/items/${record.item.id}/actual`).set(auth(tokens.employee)).send({ actualValue: 100 }), 403);
       await approvePlan(record);

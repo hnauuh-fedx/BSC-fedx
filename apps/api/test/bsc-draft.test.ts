@@ -58,9 +58,9 @@ test('BSC policy enforces owner, direct manager, scope, permission and DRAFT sta
     permissions: [BSC_PERMISSIONS.VIEW_SUBORDINATE, BSC_PERMISSIONS.MANAGE_KPI],
   });
   await policy.assertCanView(manager, draft);
-  await policy.assertCanManageKpi(manager, draft);
+  await assert.rejects(policy.assertCanManageKpi(manager, draft), (error: any) => error.response.code === 'BSC_ACCESS_DENIED');
 
-  await assert.rejects(policy.assertCanManageKpi(employee, draft), (error: any) => error.response.code === 'BSC_ACCESS_DENIED');
+  await policy.assertCanManageKpi(employee, draft);
   await assert.rejects(policy.assertCanManageKpi({ ...manager, id: '00000000-0000-4000-8000-000000000099' }, draft));
   await assert.rejects(policy.assertCanView({ ...manager, id: '00000000-0000-4000-8000-000000000099' }, draft));
   await policy.assertCanView(user({ roles: [{ code: 'DIRECTOR', scopeType: 'GLOBAL', scopeId: null,

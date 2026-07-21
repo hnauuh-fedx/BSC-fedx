@@ -102,10 +102,12 @@ test('field locking keeps definition and evaluation result groups independent', 
   const manager = actor({ id: managerId, roles: [{ code: 'MANAGER', scopeType: 'DEPARTMENT', scopeId: departmentId,
     permissions: [BSC_PERMISSIONS.MANAGE_KPI] }], permissions: [BSC_PERMISSIONS.MANAGE_KPI] });
   const owner = actor({ roles: [{ code: 'EMPLOYEE', scopeType: 'SELF', scopeId: null,
-    permissions: [BSC_PERMISSIONS.UPDATE_ACTUAL] }], permissions: [BSC_PERMISSIONS.UPDATE_ACTUAL] });
+    permissions: [BSC_PERMISSIONS.EDIT_OWN, BSC_PERMISSIONS.UPDATE_ACTUAL] }],
+    permissions: [BSC_PERMISSIONS.EDIT_OWN, BSC_PERMISSIONS.UPDATE_ACTUAL] });
   const base = { employee_id: employeeId, department_id: departmentId, direct_manager_id: managerId, status: 'DRAFT' };
 
-  await assert.doesNotReject(policy.assertCanEditPlanDefinition(manager, { ...base, plan_status: 'DRAFT', evaluation_status: 'NOT_STARTED' }));
+  await assert.rejects(policy.assertCanEditPlanDefinition(manager, { ...base, plan_status: 'DRAFT', evaluation_status: 'NOT_STARTED' }), (e: any) => e.response.code === 'BSC_ACCESS_DENIED');
+  await assert.doesNotReject(policy.assertCanEditPlanDefinition(owner, { ...base, plan_status: 'DRAFT', evaluation_status: 'NOT_STARTED' }));
   await assert.rejects(policy.assertCanEditPlanDefinition(manager, { ...base, plan_status: 'APPROVED', evaluation_status: 'DRAFT' }), (e: any) => e.response.code === 'BSC_FIELD_NOT_EDITABLE_IN_CURRENT_STAGE');
   assert.doesNotThrow(() => policy.assertCanEditEvaluationResult(owner, { ...base, plan_status: 'APPROVED', evaluation_status: 'DRAFT' }));
   assert.doesNotThrow(() => policy.assertCanEditEvaluationResult(owner, { ...base, plan_status: 'APPROVED', evaluation_status: 'RETURNED' }));
