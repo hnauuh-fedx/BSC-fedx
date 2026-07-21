@@ -19,7 +19,52 @@ const valid = {
 test('production environment accepts explicit non-placeholder secure values', () => {
   const env = validateEnvironment(valid);
   assert.equal(env.nodeEnv, 'production');
+  assert.equal(env.apiPort, 3000);
   assert.equal(env.databaseUrl, valid.DATABASE_URL);
+});
+
+test('environment falls back to PORT when API_PORT is not configured', () => {
+  const { API_PORT: _apiPort, ...withoutApiPort } = valid;
+  const env = validateEnvironment({ ...withoutApiPort, PORT: '4100' });
+
+  assert.equal(env.apiPort, 4100);
+});
+
+test('environment prefers API_PORT when both port variables are configured', () => {
+  const env = validateEnvironment({ ...valid, API_PORT: '4200', PORT: '4100' });
+
+  assert.equal(env.apiPort, 4200);
+});
+
+test('environment falls back to PORT when API_PORT is blank', () => {
+  const env = validateEnvironment({ ...valid, API_PORT: '   ', PORT: '4100' });
+
+  assert.equal(env.apiPort, 4100);
+});
+
+test('environment requires API_PORT or PORT', () => {
+  const { API_PORT: _apiPort, ...withoutApiPort } = valid;
+
+  assert.throws(
+    () => validateEnvironment(withoutApiPort),
+    /Missing required environment variables: API_PORT or PORT/,
+  );
+});
+
+test('environment reports an invalid fallback PORT', () => {
+  const { API_PORT: _apiPort, ...withoutApiPort } = valid;
+
+  assert.throws(
+    () => validateEnvironment({ ...withoutApiPort, PORT: 'invalid' }),
+    (error: unknown) => error instanceof Error && error.message === 'PORT must be a positive integer',
+  );
+});
+
+test('environment does not hide an invalid API_PORT behind PORT', () => {
+  assert.throws(
+    () => validateEnvironment({ ...valid, API_PORT: 'invalid', PORT: '4100' }),
+    (error: unknown) => error instanceof Error && error.message === 'API_PORT must be a positive integer',
+  );
 });
 
 for (const [name, override, message] of [

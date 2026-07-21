@@ -19,7 +19,6 @@ export interface AppEnvironment {
 
 const REQUIRED_KEYS = [
   'NODE_ENV',
-  'API_PORT',
   'DATABASE_URL',
   'JWT_ACCESS_SECRET',
   'JWT_REFRESH_SECRET',
@@ -56,14 +55,18 @@ export function loadLocalEnvironment(): void {
 }
 
 export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): AppEnvironment {
-  const missing = REQUIRED_KEYS.filter((key) => isBlank(env[key]));
+  const missing: string[] = REQUIRED_KEYS.filter((key) => isBlank(env[key]));
+  if (isBlank(env.API_PORT) && isBlank(env.PORT)) {
+    missing.push('API_PORT or PORT');
+  }
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
 
-  const apiPort = Number(env.API_PORT);
+  const portKey = isBlank(env.API_PORT) ? 'PORT' : 'API_PORT';
+  const apiPort = Number(env[portKey]);
   if (!Number.isInteger(apiPort) || apiPort <= 0) {
-    throw new Error('API_PORT must be a positive integer');
+    throw new Error(`${portKey} must be a positive integer`);
   }
 
   const nodeEnv = normalizeNodeEnv(env.NODE_ENV);
