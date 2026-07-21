@@ -84,7 +84,7 @@ test('Phase 3B.3 dual-stage BSC workflow integration', { skip: safeDatabase() ? 
     const adminRole = await role('ADMIN', [BSC_PERMISSIONS.VIEW_UNIT]);
     const hash = await argon2.hash(password);
     const user = async (name: string, roleId: string, scope: 'SELF'|'DEPARTMENT'|'GLOBAL', departmentId: string, managerId?: string) => {
-      const result = await prisma.users.create({ data: { employee_code: `${marker}_${name}`, full_name: `${marker} ${name}`, email: `${marker.toLowerCase()}_${name.toLowerCase()}@example.test`, password_hash: hash, department_id: departmentId, position_id: position.id, direct_manager_id: managerId } });
+      const result = await prisma.users.create({ data: { employee_code: `${marker}_${name}`, username: String(`${marker}_${name}`).toLowerCase(), full_name: `${marker} ${name}`, email: `${marker.toLowerCase()}_${name.toLowerCase()}@example.test`, password_hash: hash, department_id: departmentId, position_id: position.id, direct_manager_id: managerId } });
       ids.users.push(result.id); await prisma.user_roles.create({ data: { user_id: result.id, role_id: roleId, scope_type: scope, scope_id: scope === 'DEPARTMENT' ? departmentId : null } }); return result;
     };
     const admin = await user('ADMIN', adminRole.id, 'GLOBAL', department.id);
@@ -123,8 +123,8 @@ test('Phase 3B.3 dual-stage BSC workflow integration', { skip: safeDatabase() ? 
       return { ...result, item, cycle };
     };
     const created = await createApp(); app = created.app; await app.init(); const server = app.getHttpServer();
-    const login = async (email: string) => (await request(server).post('/auth/login').send({ email, password }).expect(200)).body.accessToken as string;
-    const tokens = { admin: await login(admin.email), manager: await login(manager.email), otherManager: await login(otherManager.email), employee: await login(employee.email), employee2: await login(employee2.email), director: await login(director.email), managerOwner: await login(managerOwner.email) };
+    const login = async (username: string) => (await request(server).post('/auth/login').send({ username, password }).expect(200)).body.accessToken as string;
+    const tokens = { admin: await login(admin.username), manager: await login(manager.username), otherManager: await login(otherManager.username), employee: await login(employee.username), employee2: await login(employee2.username), director: await login(director.username), managerOwner: await login(managerOwner.username) };
     const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
     const expectHttp = async (call: any, status: number) => { httpAssertions += 1; return call.expect(status); };
 

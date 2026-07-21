@@ -1,9 +1,11 @@
 export type BscItem = {
   id: string; employee_bsc_id: string; kpi_code: string; kpi_name: string; description: string | null;
-  measurement_unit: string | null; target_value: string | null; target_text: string | null;
+  goal_group_code: string; measurement_unit: string; measurement_frequency: string;
+  target_value: string | null; target_text: string | null;
   actual_value: string | null; actual_text: string | null; weight: string; calculation_method: string;
   employee_note: string | null; sort_order: number;
 };
+export type BscGoalGroup = { code: string; marker: string; name: string; displayOrder: number };
 export type EmployeeBsc = {
   id: string; bsc_code: string; cycle_id: string; employee_id: string; department_id: string; position_id: string;
   direct_manager_id: string; status: string; employee_comment: string | null; created_at: string; updated_at: string;
@@ -23,6 +25,7 @@ export type EmployeeBsc = {
   departments: { id: string; code: string; name: string };
   positions?: { id: string; code: string; name: string; level: number };
   employee_bsc_items?: BscItem[];
+  goal_groups?: BscGoalGroup[];
   bsc_status_histories?: BscStatusHistory[];
   _count?: { employee_bsc_items: number };
 };
@@ -69,7 +72,7 @@ export type BscReopenRequest = {
 
 export type BscReopenPage = { items: BscReopenRequest[]; page: number; limit: number; total: number };
 export type BscDuplicateOptions = {
-  sourceBscId: string; sourceVersion: BscVersionSummary;
+  sourceBscId: string; sourceVersion: BscVersionSummary | null;
   cycles: Array<{ id: string; code: string; name: string; year: number; month: number | null; status: string; start_date: string }>;
   suggestedCycleId: string | null;
 };

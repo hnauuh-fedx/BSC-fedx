@@ -41,6 +41,13 @@ export const REPORT_PERMISSIONS = [
   'bsc.statistics.organization',
 ] as const;
 
+export const BSC_MINUTES_CREATE_PERMISSIONS = ['bsc.minutes.create'] as const;
+export const DEPARTMENT_BSC_VIEW_PERMISSIONS = ['bsc.department.view'] as const;
+export const DEPARTMENT_BSC_REVIEW_PERMISSIONS = [
+  'bsc.department.plan.approve', 'bsc.department.plan.return',
+  'bsc.department.evaluation.approve', 'bsc.department.evaluation.return',
+] as const;
+
 export const hasAnyWorkspacePermission = (
   permissions: readonly string[],
   required: readonly string[],
@@ -49,10 +56,12 @@ export const hasAnyWorkspacePermission = (
 /** Chooses the default workspace solely from permissions; role labels never grant access. */
 export function resolveLandingPath(permissions: readonly string[]): string {
   if (hasAnyWorkspacePermission(permissions, OWN_BSC_PERMISSIONS)) return '/employee-bsc';
+  if (hasAnyWorkspacePermission(permissions, DEPARTMENT_BSC_VIEW_PERMISSIONS)) return '/department-bsc';
   if (hasAnyWorkspacePermission(permissions, MANAGEMENT_OVERVIEW_PERMISSIONS)) {
     return '/management/bsc-overview';
   }
   if (permissions.includes('bsc.statistics.personal')) return '/dashboard';
+  if (hasAnyWorkspacePermission(permissions, BSC_MINUTES_CREATE_PERMISSIONS)) return '/management/bsc-minutes';
   if (hasAnyWorkspacePermission(permissions, ADMINISTRATION_PERMISSIONS)) return '/management';
   return '/forbidden';
 }
@@ -65,6 +74,13 @@ const pathMatches = (pathname: string, prefix: string): boolean =>
  * Backend authorization remains authoritative for ownership and data scope.
  */
 export function canAccessWorkspacePath(pathname: string, permissions: readonly string[]): boolean {
+  if (pathname === '/department-bsc/new') return permissions.includes('bsc.department.create');
+  if (pathname === '/management/department-bsc-reviews') {
+    return hasAnyWorkspacePermission(permissions, DEPARTMENT_BSC_REVIEW_PERMISSIONS);
+  }
+  if (pathname === '/department-bsc' || /^\/department-bsc\/[^/]+$/.test(pathname)) {
+    return permissions.includes('bsc.department.view');
+  }
   if (pathname === '/dashboard' || pathname === '/reports/bsc') {
     return hasAnyWorkspacePermission(permissions, REPORT_PERMISSIONS);
   }
@@ -76,6 +92,9 @@ export function canAccessWorkspacePath(pathname: string, permissions: readonly s
   }
   if (pathname === '/management/bsc-reopen-requests') {
     return permissions.includes('bsc.reopen.subordinate');
+  }
+  if (pathname === '/management/bsc-minutes') {
+    return hasAnyWorkspacePermission(permissions, BSC_MINUTES_CREATE_PERMISSIONS);
   }
   if (pathname === '/employee-bsc/new') return permissions.includes('bsc.create.own');
   if (/^\/employee-bsc\/[^/]+\/edit$/.test(pathname)) return permissions.includes('bsc.edit.own');

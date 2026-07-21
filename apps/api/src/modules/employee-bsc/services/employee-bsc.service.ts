@@ -12,6 +12,8 @@ import { EmployeeBscRepository } from '../repositories/employee-bsc.repository';
 import { assertBinaryActual, assertTargetCompatible, assertValidWeight } from '../validators/bsc-item.validator';
 import { BscScoringService } from './bsc-scoring.service';
 import { BscWorkflowService } from './bsc-workflow.service';
+import { BSC_GOAL_GROUPS } from '../bsc-goal-groups';
+import { BSC_CALCULATION_METHOD } from '../bsc-item-defaults';
 
 type WorkflowSnapshot = Parameters<Parameters<EmployeeBscRepository['submitPlanWorkflow']>[3]>[0];
 type ReopenDecisionSnapshot = Parameters<Parameters<EmployeeBscRepository['approveReopenRequest']>[3]>[0];
@@ -62,7 +64,8 @@ export class EmployeeBscService {
   }
 
   findAll(actor: AuthUser, query: QueryEmployeeBscDto) {
-    const access = this.policy.listWhere(actor);
+    const visible = this.policy.listWhere(actor);
+    const access = query.scope === 'OWN' ? { AND: [visible, { employee_id: actor.id }] } : visible;
     if (query.departmentId && !this.policy.canFilterDepartment(actor, query.departmentId)) {
       throw new ForbiddenException({ code: 'BSC_ACCESS_DENIED', message: 'Không thể lọc ngoài phạm vi được cấp.' });
     }
@@ -112,7 +115,11 @@ export class EmployeeBscService {
     const visibleStages = new Set<string>();
     if (this.policy.canViewStageHistory(actor, bsc, BSC_PERMISSIONS.VIEW_PLAN_HISTORY)) visibleStages.add('PLAN');
     if (this.policy.canViewStageHistory(actor, bsc, BSC_PERMISSIONS.VIEW_EVALUATION_HISTORY)) visibleStages.add('EVALUATION');
-    return { ...bsc, bsc_status_histories: bsc.bsc_status_histories.filter((history) => visibleStages.has(history.stage)) };
+    return {
+      ...bsc,
+      goal_groups: BSC_GOAL_GROUPS,
+      bsc_status_histories: bsc.bsc_status_histories.filter((history) => visibleStages.has(history.stage)),
+    };
   }
 
   async scoringPreview(actor: AuthUser, id: string) {
@@ -227,10 +234,9 @@ export class EmployeeBscService {
     await this.policy.assertActiveResource(bsc);
     this.policy.assertCanDuplicateOwn(actor, bsc);
     const versions = await this.repository.findVersions(id);
-    const latestPlan = versions.find((version) => version.versionType === 'PLAN_APPROVED');
-    if (!latestPlan) throw new ConflictException({ code: 'BSC_APPROVED_PLAN_VERSION_NOT_FOUND', message: 'BSC chưa có phiên bản kế hoạch được duyệt.' });
+    const firstVersion = versions.find((version) => version.versionNumber === 1) ?? null;
     const cycles = await this.repository.findDuplicateOptions(id, actor.id);
-    return { sourceBscId: id, sourceVersion: latestPlan, cycles, suggestedCycleId: cycles[0]?.id ?? null };
+    return { sourceBscId: id, sourceVersion: firstVersion, cycles, suggestedCycleId: cycles[0]?.id ?? null };
   }
 
   async duplicate(actor: AuthUser, id: string, targetCycleId: string, metadata: AuditRequestMetadata) {
@@ -238,7 +244,7 @@ export class EmployeeBscService {
     await this.policy.assertActiveResource(bsc);
     this.policy.assertCanDuplicateOwn(actor, bsc);
     try {
-      return await this.repository.duplicateFromApprovedPlan(actor, id, targetCycleId, metadata);
+      return await this.repository.duplicateFromFirstVersion(actor, id, targetCycleId, metadata);
     } catch (error) {
       if ((error as { code?: string }).code === 'P2034') {
         throw new ConflictException({ code: 'BSC_DUPLICATE_CONFLICT', message: 'BSC vừa được sao chép đồng thời, vui lòng thử lại.' });
@@ -303,7 +309,7 @@ export class EmployeeBscService {
 
   async createItem(actor: AuthUser, bscId: string, dto: CreateBscItemDto, metadata: AuditRequestMetadata) {
     assertValidWeight(dto.weight);
-    assertTargetCompatible(dto.calculationMethod, dto.targetValue);
+    assertTargetCompatible(BSC_CALCULATION_METHOD, dto.targetValue);
     const bsc = await this.requireBsc(bscId);
     await this.policy.assertActiveResource(bsc);
     await this.policy.assertCanManageKpi(actor, bsc);
@@ -320,7 +326,7 @@ export class EmployeeBscService {
     const [bsc, existingItem] = await Promise.all([this.requireBsc(bscId), this.requireItemInBsc(bscId, itemId)]);
     await this.policy.assertActiveResource(bsc);
     await this.policy.assertCanManageKpi(actor, bsc);
-    const calculationMethod = dto.calculationMethod ?? existingItem.calculation_method;
+    const calculationMethod = BSC_CALCULATION_METHOD;
     assertTargetCompatible(calculationMethod, dto.targetValue ?? (existingItem.target_value === null ? undefined : Number(existingItem.target_value)));
     assertBinaryActual(calculationMethod, existingItem.actual_value === null ? undefined : Number(existingItem.actual_value));
     try {
@@ -408,8 +414,9 @@ export class EmployeeBscService {
     if (request.cycle_status === 'CLOSED') {
       throw new ConflictException({ code: 'BSC_CYCLE_CLOSED', message: 'Kỳ BSC đã kết thúc nên không thể phê duyệt yêu cầu mở lại.' });
     }
-    if (request.reviewer_id !== actor.id || request.direct_manager_id !== actor.id
-      || request.owner_current_manager_id !== actor.id) {
+    const directorOverride = this.policy.canReviewAsDirector(actor, BSC_PERMISSIONS.REVIEW_REOPEN, request.department_id);
+    if (!directorOverride && (request.reviewer_id !== actor.id || request.direct_manager_id !== actor.id
+      || request.owner_current_manager_id !== actor.id)) {
       throw new ConflictException({ code: 'BSC_REOPEN_REVIEWER_CHANGED', message: 'Người duyệt trực tiếp đã thay đổi; yêu cầu cũ không thể xử lý.' });
     }
     if (!request.owner_active || !request.reviewer_active || !request.organization_active) {

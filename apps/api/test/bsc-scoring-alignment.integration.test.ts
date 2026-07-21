@@ -80,7 +80,7 @@ test('Phase 3B.4 scoring alignment integration', {
     const noAccessRole = await role('NO_ACCESS', []);
     const hash = await argon2.hash(password);
     const user = async (name: string, roleId: string, scope: 'SELF' | 'DEPARTMENT', managerId?: string) => {
-      const result = await prisma.users.create({ data: { employee_code: `${marker}_${name}`, full_name: `${marker} ${name}`, email: `${marker.toLowerCase()}_${name.toLowerCase()}@example.test`, password_hash: hash, department_id: department.id, position_id: position.id, direct_manager_id: managerId } });
+      const result = await prisma.users.create({ data: { employee_code: `${marker}_${name}`, username: String(`${marker}_${name}`).toLowerCase(), full_name: `${marker} ${name}`, email: `${marker.toLowerCase()}_${name.toLowerCase()}@example.test`, password_hash: hash, department_id: department.id, position_id: position.id, direct_manager_id: managerId } });
       ids.users.push(result.id);
       await prisma.user_roles.create({ data: { user_id: result.id, role_id: roleId, scope_type: scope, scope_id: scope === 'DEPARTMENT' ? department.id : null } });
       return result;
@@ -108,13 +108,13 @@ test('Phase 3B.4 scoring alignment integration', {
     };
 
     const created = await createApp(); app = created.app; await app.init(); const server = app.getHttpServer();
-    const login = async (email: string) => (await request(server).post('/auth/login').send({ email, password }).expect(200)).body.accessToken as string;
-    const tokens = { employee: await login(employee.email), outsider: await login(outsider.email), noAccess: await login(noAccess.email), manager: await login(manager.email) };
+    const login = async (username: string) => (await request(server).post('/auth/login').send({ username, password }).expect(200)).body.accessToken as string;
+    const tokens = { employee: await login(employee.username), outsider: await login(outsider.username), noAccess: await login(noAccess.username), manager: await login(manager.username) };
     const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
     const expectHttp = async (call: any, status: number) => { httpAssertions += 1; return call.expect(status); };
 
     await t.test('preview enforces auth/scope and returns explicit raw and rounded fields', async () => {
-      const record = await makeBsc('ACCESS', [{ actual: '84.9', weight: 50 }, { target: null, actual: 1, weight: 50, method: 'BINARY' }]);
+      const record = await makeBsc('ACCESS', [{ actual: '84.9', weight: 50 }, { target: 1, actual: 1, weight: 50 }]);
       await expectHttp(request(server).get(`/employee-bsc/${record.bsc.id}/scoring-preview`), 401);
       await expectHttp(request(server).get(`/employee-bsc/${record.bsc.id}/scoring-preview`).set(auth(tokens.noAccess)), 403);
       await expectHttp(request(server).get(`/employee-bsc/${record.bsc.id}/scoring-preview`).set(auth(tokens.outsider)), 403);
@@ -123,11 +123,6 @@ test('Phase 3B.4 scoring alignment integration', {
       assert.deepEqual({ rawAchievementPercentage: first.rawAchievementPercentage, roundedAchievementPercentage: first.roundedAchievementPercentage, rawWorkScore: first.rawWorkScore, roundedWorkScore: first.roundedWorkScore, weightedScore: first.weightedScore }, { rawAchievementPercentage: 84.9, roundedAchievementPercentage: 85, rawWorkScore: 84.9, roundedWorkScore: 80, weightedScore: 40 });
       assert.deepEqual(preview.body.items.slice(1).map((item: any) => [item.rawAchievementPercentage, item.roundedWorkScore, item.weightedScore]), [[100, 100, 50]]);
       assert.doesNotMatch(JSON.stringify(preview.body), /NaN|Infinity/);
-      const invalidBinary = await makeBsc('BINARY_INVALID', [{ target: null, actual: 2, weight: 100, method: 'BINARY' }]);
-      const invalidPreview = await expectHttp(request(server).get(`/employee-bsc/${invalidBinary.bsc.id}/scoring-preview`).set(auth(tokens.employee)), 200);
-      assert.equal(invalidPreview.body.items[0].isScorable, false);
-      assert.equal(invalidPreview.body.items[0].reason, 'BINARY_ACTUAL_INVALID');
-      assert.equal(invalidPreview.body.isComplete, false); assert.equal(invalidPreview.body.classification, null);
     });
 
     await t.test('HTTP preview applies exact achievement and work-score HALF_UP boundaries', async () => {

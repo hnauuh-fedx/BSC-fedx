@@ -85,7 +85,8 @@ ALTER TABLE "bsc_approval_steps" ALTER COLUMN "stage" SET NOT NULL;
 ALTER TABLE "bsc_reviews" ALTER COLUMN "stage" SET NOT NULL;
 ALTER TABLE "bsc_status_histories" ALTER COLUMN "stage" SET NOT NULL;
 
-DROP INDEX "bsc_approval_steps_order_uq";
+ALTER TABLE "bsc_approval_steps"
+DROP CONSTRAINT IF EXISTS "bsc_approval_steps_order_uq";
 CREATE UNIQUE INDEX "bsc_approval_steps_stage_order_uq" ON "bsc_approval_steps"("employee_bsc_id", "stage", "step_order");
 CREATE INDEX "employee_bsc_plan_status_idx" ON "employee_bsc"("plan_status");
 CREATE INDEX "employee_bsc_evaluation_status_idx" ON "employee_bsc"("evaluation_status");

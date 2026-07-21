@@ -13,5 +13,6 @@ import { BscCyclesModule } from '../bsc-cycles/bsc-cycles.module';
   imports: [AuthModule, BscCyclesModule],
   controllers: [EmployeeBscController],
   providers: [EmployeeBscService, EmployeeBscRepository, BscAccessPolicy, BscClassificationService, BscScoringService, BscWorkflowService],
+  exports: [BscClassificationService, BscScoringService],
 })
 export class EmployeeBscModule {}

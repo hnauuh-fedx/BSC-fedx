@@ -121,8 +121,12 @@ export class BscWorkflowService {
 
   private assertReviewer(actor: AuthUser, bsc: WorkflowBscContext, permission: string): void {
     if (actor.id === bsc.employeeId) throw new ForbiddenException({ code: 'BSC_SELF_APPROVAL_FORBIDDEN', message: 'Không thể tự duyệt hoặc trả lại BSC của chính mình.' });
-    if (!actor.permissions.includes(permission) || actor.id !== bsc.directManagerId || !this.scope.canAccessDepartment(actor, bsc.departmentId)) this.deny();
-    if (actor.status !== 'ACTIVE' || !bsc.reviewerActive) this.badRequest('BSC_REVIEWER_INACTIVE', 'Người duyệt không còn hoạt động.');
+    const canReviewAsDirector = actor.roles.some((role) => role.code === 'DIRECTOR'
+      && role.permissions?.includes(permission)
+      && (role.scopeType === 'GLOBAL' || (role.scopeType === 'DEPARTMENT' && role.scopeId === bsc.departmentId)));
+    const canReviewAsManager = actor.id === bsc.directManagerId && this.scope.canAccessDepartment(actor, bsc.departmentId);
+    if (!actor.permissions.includes(permission) || (!canReviewAsDirector && !canReviewAsManager)) this.deny();
+    if (actor.status !== 'ACTIVE' || (!canReviewAsDirector && !bsc.reviewerActive)) this.badRequest('BSC_REVIEWER_INACTIVE', 'Người duyệt không còn hoạt động.');
     if (!bsc.ownerActive) this.badRequest('BSC_OWNER_INACTIVE', 'Chủ sở hữu BSC không còn hoạt động.');
     if (!bsc.ownerOrganizationActive) this.badRequest('BSC_OWNER_ORGANIZATION_INACTIVE', 'Đơn vị hoặc chức danh của chủ sở hữu không còn hoạt động.');
   }

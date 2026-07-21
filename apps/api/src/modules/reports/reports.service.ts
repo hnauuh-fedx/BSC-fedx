@@ -3,8 +3,11 @@ import { Prisma } from '@prisma/client';
 import ExcelJS from 'exceljs';
 import { AuthUser } from '../../common/types/auth-user.type';
 import { PrismaService } from '../../database/prisma.service';
+import { AuditRequestMetadata } from '../employee-bsc/employee-bsc.types';
+import { BscScoringService } from '../employee-bsc/services/bsc-scoring.service';
 import { BSC_REPORT_EXPORT_LIMIT, BSC_REPORT_PERMISSIONS, BSC_REPORT_VIEW_PERMISSIONS } from './reports.constants';
 import { BscDashboardQueryDto, BscReportFilterDto, BscReportQueryDto } from './reports.dto';
+import { buildBscDetailWorkbook } from './bsc-detail-workbook';
 
 const GRADES = ['C', 'B', 'A', 'A+', 'A++'] as const;
 const PLAN_STATUSES = ['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REOPENED'] as const;
@@ -16,8 +19,8 @@ const WORKFLOW_STATUS_LABELS: Record<string, string> = {
 
 const reportSelect = {
   id: true, bsc_code: true, employee_id: true, department_id: true, cycle_id: true,
-  plan_status: true, evaluation_status: true, final_score: true, final_grade: true,
-  plan_approved_at: true, evaluation_approved_at: true, created_at: true, updated_at: true,
+  plan_status: true, evaluation_status: true, employee_total_score: true, manager_total_score: true, final_score: true, final_grade: true,
+  plan_approved_at: true, evaluation_approved_at: true, evaluation_approved_by: true, created_at: true, updated_at: true,
   users_employee_bsc_employee_idTousers: { select: { employee_code: true, full_name: true } },
   users_employee_bsc_direct_manager_idTousers: { select: { full_name: true } },
   departments: { select: { id: true, name: true } },
@@ -31,7 +34,7 @@ type ReportAccess = { personal: boolean; management: boolean; global: boolean; d
 
 @Injectable()
 export class BscReportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly scoring: BscScoringService) {}
 
   async findAll(actor: AuthUser, query: BscReportQueryDto) {
     const access = await this.reportAccess(actor);
@@ -117,9 +120,13 @@ export class BscReportsService {
     return { cycles, departments, employees };
   }
 
-  async export(actor: AuthUser, query: BscReportQueryDto) {
+  async export(actor: AuthUser, query: BscReportQueryDto, metadata: AuditRequestMetadata = {}) {
     const access = await this.reportAccess(actor);
     if (!access.exportScope) throw new ForbiddenException({ code: 'AUTH_PERMISSION_DENIED', message: 'Bạn không có quyền xuất báo cáo BSC.' });
+    if (query.employeeId && access.exportScope.self && !access.exportScope.global
+      && access.exportScope.departmentIds.length === 0 && query.employeeId !== actor.id) {
+      throw new ForbiddenException({ code: 'AUTH_SCOPE_DENIED', message: 'Bạn chỉ được xuất BSC cá nhân của chính mình.' });
+    }
     if (query.departmentId) this.assertAssignedDepartmentAccess(actor, query.departmentId, access.exportScope);
     const viewWhere = await this.where(actor, query, access);
     const where: Prisma.employee_bscWhereInput = { AND: [viewWhere, this.assignedScopeWhere(actor, access.exportScope)] };
@@ -129,6 +136,30 @@ export class BscReportsService {
     ]);
     if (total > BSC_REPORT_EXPORT_LIMIT) throw new BadRequestException({ code: 'BSC_REPORT_EXPORT_TOO_LARGE', message: `Báo cáo vượt giới hạn ${BSC_REPORT_EXPORT_LIMIT} dòng. Hãy thu hẹp bộ lọc.` });
     const records = await this.prisma.employee_bsc.findMany({ where, select: reportSelect, orderBy: { [query.sortBy]: query.sortOrder }, take: BSC_REPORT_EXPORT_LIMIT });
+    if (query.employeeId && query.cycleId && records.length === 1) {
+      const record = records[0];
+      const items = await this.prisma.employee_bsc_items.findMany({ where: { employee_bsc_id: record.id }, orderBy: [{ goal_group_code: 'asc' }, { sort_order: 'asc' }] });
+      const score = this.scoring.scoreBsc(items.map(item => ({ itemId: item.id, calculationMethod: item.calculation_method,
+        targetValue: item.target_value, actualValue: item.actual_value, weight: item.weight })));
+      const scoreByItem = new Map(score.items.map(item => [item.itemId, item]));
+      const evaluationApprover = record.evaluation_approved_by
+        ? await this.prisma.users.findUnique({ where: { id: record.evaluation_approved_by }, select: { full_name: true } }) : null;
+      const buffer = await buildBscDetailWorkbook({ sheetName: 'BSC cá nhân', subjectLabel: 'HỌ VÀ TÊN',
+        subjectName: record.users_employee_bsc_employee_idTousers.full_name, departmentName: record.departments.name,
+        positionName: record.positions.name, cycleName: record.bsc_cycles.name, cycleYear: record.bsc_cycles.year,
+        evaluatorName: evaluationApprover?.full_name ?? '',
+        implementerName: record.users_employee_bsc_employee_idTousers.full_name,
+        totalScore: score.isComplete ? Number(record.final_score ?? score.totalWeightedScore) : null, finalGrade: record.final_grade,
+        items: items.map(item => { const itemScore = scoreByItem.get(item.id); return { kpo: item.description, kpi: item.kpi_name, goalGroupCode: item.goal_group_code,
+          unit: item.measurement_unit, target: item.target_value === null ? item.target_text : Number(item.target_value), weight: Number(item.weight), frequency: item.measurement_frequency,
+          actual: item.actual_value === null ? item.actual_text : Number(item.actual_value), achievement: itemScore?.roundedAchievementPercentage ?? null,
+          workScore: itemScore?.roundedWorkScore ?? null, weightedScore: itemScore?.weightedScore ?? null,
+          explanation: item.employee_note ?? item.manager_note, sortOrder: item.sort_order }; }) });
+      await this.prisma.audit_logs.create({ data: { user_id: actor.id, module: 'bsc', entity_type: 'employee_bsc', entity_id: record.id,
+        action: 'BSC_EXPORTED', ip_address: metadata.ipAddress, user_agent: metadata.userAgent,
+        new_data: { filters: this.safeFilters(query), format: 'xlsx', itemCount: items.length, exportedAt: new Date().toISOString() } } });
+      return { buffer, fileName: `employee-bsc-${record.bsc_code}.xlsx` };
+    }
     const rows = await this.rows(records);
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'BSC Management'; workbook.created = new Date();
@@ -143,7 +174,9 @@ export class BscReportsService {
     sheet.columns = [14, 24, 22, 20, 24, 20, 18, 22, 15, 10, 14, 12, 20, 24].map(width => ({ width }));
     sheet.autoFilter = { from: 'A5', to: 'N5' };
     const bytes = await workbook.xlsx.writeBuffer();
-    await this.prisma.audit_logs.create({ data: { user_id: actor.id, module: 'bsc', entity_type: 'bsc_report', action: 'BSC_REPORT_EXPORTED', new_data: { filters: this.safeFilters(query), format: 'xlsx', rowCount: rows.length, exportedAt: new Date().toISOString() } } });
+    await this.prisma.audit_logs.create({ data: { user_id: actor.id, module: 'bsc', entity_type: 'bsc_report', action: 'BSC_REPORT_EXPORTED',
+      ip_address: metadata.ipAddress, user_agent: metadata.userAgent,
+      new_data: { filters: this.safeFilters(query), format: 'xlsx', rowCount: rows.length, exportedAt: new Date().toISOString() } } });
     return { buffer: Buffer.from(bytes), fileName: `bsc-report-${new Date().toISOString().slice(0, 10)}.xlsx` };
   }
 

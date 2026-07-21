@@ -5,4 +5,7 @@ export const BSC_PERMISSIONS = {
   SUBMIT_EVALUATION_OWN: 'bsc.evaluation.submit.own', APPROVE_EVALUATION_SUBORDINATE: 'bsc.evaluation.approve.subordinate', RETURN_EVALUATION_SUBORDINATE: 'bsc.evaluation.return.subordinate',
   VIEW_PLAN_HISTORY: 'bsc.plan.history.view', VIEW_EVALUATION_HISTORY: 'bsc.evaluation.history.view',
   REQUEST_REOPEN: 'bsc.reopen.request', REVIEW_REOPEN: 'bsc.reopen.subordinate', VIEW_VERSION: 'bsc.version.view', DUPLICATE_OWN: 'bsc.duplicate.own',
+  EXPORT: 'bsc.report.export',
 } as const;
+
+export const BSC_PRIMARY_GOAL_GROUP_CODE = 'UNIT_PROFESSIONAL';

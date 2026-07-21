@@ -83,7 +83,7 @@ test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: saf
     const noPermissionRole = await makeRole('ADMIN_NO_IMPLICIT', []);
     const hash = await argon2.hash(password);
     const makeUser = async (name: string, roleId: string, scope: 'GLOBAL'|'DEPARTMENT'|'SELF', managerId?: string) => {
-      const user = await prisma.users.create({ data: { employee_code: `${marker}_${name}`, full_name: name,
+      const user = await prisma.users.create({ data: { employee_code: `${marker}_${name}`, username: String(`${marker}_${name}`).toLowerCase(), full_name: name,
         email: `${marker.toLowerCase()}_${name.toLowerCase()}@example.test`, password_hash: hash, department_id: department.id,
         position_id: position.id, direct_manager_id: managerId } });
       tracked.users.push(user.id);
@@ -98,8 +98,8 @@ test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: saf
     await prisma.manager_relationships.create({ data: { employee_id: employee.id, manager_id: manager.id, start_date: new Date('2020-01-01'), is_primary: true } });
 
     const createdApp = await createApp(); app = createdApp.app; await app.init(); const server = app.getHttpServer();
-    const login = async (email: string) => (await request(server).post('/auth/login').send({ email, password }).expect(200)).body.accessToken as string;
-    const tokens = { manager: await login(manager.email), viewer: await login(viewer.email), scoped: await login(scoped.email), noPermission: await login(noPermission.email), employee: await login(employee.email) };
+    const login = async (username: string) => (await request(server).post('/auth/login').send({ username, password }).expect(200)).body.accessToken as string;
+    const tokens = { manager: await login(manager.username), viewer: await login(viewer.username), scoped: await login(scoped.username), noPermission: await login(noPermission.username), employee: await login(employee.username) };
     const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
     const createCycle = async (suffix: string, payload = cyclePayload(`${marker}_${suffix}`)) => {
       const created = await request(server).post('/bsc-cycles').set(auth(tokens.manager)).send(payload).expect(201);

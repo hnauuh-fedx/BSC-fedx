@@ -126,6 +126,22 @@ test('BSC total sums exact weighted Decimals and completeness gates classificati
   });
 });
 
+test('worked BSC example totals rounded work scores to 92 points', () => {
+  const result = scoring.scoreBsc([
+    { itemId: 'common', calculationMethod: 'ACTUAL_DIV_TARGET', targetValue: 100, actualValue: 100, weight: 5 },
+    { itemId: '1.1', calculationMethod: 'ACTUAL_DIV_TARGET', targetValue: 100, actualValue: 87.9, weight: 20 },
+    { itemId: '2.1', calculationMethod: 'ACTUAL_DIV_TARGET', targetValue: 100, actualValue: 158.4, weight: 10 },
+    { itemId: '2.2', calculationMethod: 'ACTUAL_DIV_TARGET', targetValue: 100, actualValue: 78.1, weight: 30 },
+    { itemId: '2.3', calculationMethod: 'ACTUAL_DIV_TARGET', targetValue: 100, actualValue: 101.9, weight: 24 },
+    { itemId: '2.4', calculationMethod: 'ACTUAL_DIV_TARGET', targetValue: 100, actualValue: 0, weight: 6 },
+    { itemId: '3.1', calculationMethod: 'ACTUAL_DIV_TARGET', targetValue: 100, actualValue: 100, weight: 5 },
+  ]);
+
+  assert.deepEqual(result.items.map(item => item.weightedScore), [5, 18, 16, 24, 24, 0, 5]);
+  assert.equal(result.totalWeightedScore, 92);
+  assert.equal(result.classification, 'A');
+});
+
 test('classification owns every required Decimal boundary', () => {
   const classification = new BscClassificationService();
   for (const [score, grade] of [['79.99', 'C'], ['80', 'B'], ['89.99', 'B'], ['90', 'A'], ['100', 'A'], ['100.01', 'A+'], ['110.99', 'A+'], ['111', 'A++']] as const) {

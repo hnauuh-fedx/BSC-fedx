@@ -1,5 +1,6 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
+import { isValidUsername, normalizeUsername } from '../src/common/username';
 
 export const CANONICAL_ADMIN_PERMISSIONS = [
   'user.view', 'user.create', 'user.update', 'user.lock', 'user.password.reset',
@@ -22,6 +23,14 @@ export const CANONICAL_BSC_WORKFLOW_PERMISSIONS = [
 
 export const CANONICAL_BSC_REPORT_PERMISSIONS = [
   'bsc.statistics.personal', 'bsc.statistics.unit', 'bsc.statistics.organization', 'bsc.report.export',
+  'bsc.minutes.create', 'bsc.minutes.view',
+] as const;
+
+export const CANONICAL_DEPARTMENT_BSC_PERMISSIONS = [
+  'bsc.department.create', 'bsc.department.view', 'bsc.department.edit', 'bsc.department.delete.draft',
+  'bsc.department.duplicate', 'bsc.department.plan.submit', 'bsc.department.plan.approve', 'bsc.department.plan.return',
+  'bsc.department.evaluation.submit', 'bsc.department.evaluation.approve', 'bsc.department.evaluation.return',
+  'bsc.department.reopen.request', 'bsc.department.reopen.review', 'bsc.department.version.view', 'bsc.department.report.export',
 ] as const;
 
 const legacyCode = (...segments: string[]) => ['system', ...segments].join('.');
@@ -40,9 +49,11 @@ const CANONICAL_ROLES = {
 } as const;
 
 const ROLE_BSC_PERMISSIONS: Record<keyof typeof CANONICAL_ROLES, readonly string[]> = {
-  EMPLOYEE: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.request', 'bsc.version.view', 'bsc.duplicate.own', 'bsc.statistics.personal'],
-  MANAGER: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own', 'bsc.view.subordinate', 'bsc.kpi.manage.subordinate', 'bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate', 'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.request', 'bsc.reopen.subordinate', 'bsc.version.view', 'bsc.duplicate.own', 'bsc.statistics.personal', 'bsc.statistics.unit', 'bsc.report.export'],
-  DIRECTOR: ['bsc.view.unit', 'bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate', 'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.subordinate', 'bsc.version.view', 'bsc.statistics.organization', 'bsc.report.export'],
+  EMPLOYEE: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.request', 'bsc.version.view', 'bsc.duplicate.own', 'bsc.statistics.personal', 'bsc.report.export'],
+  MANAGER: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own', 'bsc.view.subordinate', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.request', 'bsc.version.view', 'bsc.duplicate.own', 'bsc.statistics.personal', 'bsc.statistics.unit', 'bsc.report.export',
+    'bsc.department.create', 'bsc.department.view', 'bsc.department.edit', 'bsc.department.delete.draft', 'bsc.department.duplicate', 'bsc.department.plan.submit', 'bsc.department.evaluation.submit', 'bsc.department.reopen.request', 'bsc.department.version.view', 'bsc.department.report.export'],
+  DIRECTOR: ['bsc.view.unit', 'bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate', 'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.subordinate', 'bsc.version.view', 'bsc.statistics.organization', 'bsc.report.export', 'bsc.minutes.create', 'bsc.minutes.view',
+    'bsc.department.view', 'bsc.department.plan.approve', 'bsc.department.plan.return', 'bsc.department.evaluation.approve', 'bsc.department.evaluation.return', 'bsc.department.reopen.review', 'bsc.department.version.view', 'bsc.department.report.export'],
   ADMIN: [],
 };
 
@@ -66,7 +77,7 @@ export async function seedPermissions(client: Prisma.TransactionClient): Promise
     canonical.push(await client.permissions.upsert({ where: { code }, create: { code, name: code, module: moduleFor(code) }, update: {} }));
   }
   const bscPermissions = new Map<string, string>();
-  for (const code of [...CANONICAL_BSC_DRAFT_PERMISSIONS, ...CANONICAL_BSC_WORKFLOW_PERMISSIONS, ...CANONICAL_BSC_REPORT_PERMISSIONS]) {
+  for (const code of [...CANONICAL_BSC_DRAFT_PERMISSIONS, ...CANONICAL_BSC_WORKFLOW_PERMISSIONS, ...CANONICAL_BSC_REPORT_PERMISSIONS, ...CANONICAL_DEPARTMENT_BSC_PERMISSIONS]) {
     const permission = await client.permissions.upsert({ where: { code }, create: { code, name: code, module: 'bsc' }, update: {} });
     bscPermissions.set(code, permission.id);
   }
@@ -122,6 +133,8 @@ export async function ensureBootstrapAdmin(client: PrismaClient, env: NodeJS.Pro
   const positionLevel = Number(String(env.BOOTSTRAP_ADMIN_POSITION_LEVEL).trim());
   if (!Number.isInteger(positionLevel) || positionLevel < 1 || positionLevel > 999) throw new Error('BOOTSTRAP_ADMIN_POSITION_LEVEL must be an integer from 1 to 999');
   const passwordHash = await argon2.hash(password);
+  const bootstrapUsername = normalizeUsername(String(env.BOOTSTRAP_ADMIN_EMPLOYEE_CODE));
+  if (!isValidUsername(bootstrapUsername)) throw new Error('BOOTSTRAP_ADMIN_EMPLOYEE_CODE must produce a 3-50 character username using only letters, numbers, dot, underscore or hyphen');
 
   await client.$transaction(async (tx) => {
     const role = await tx.roles.findUniqueOrThrow({ where: { code: 'ADMIN' } });
@@ -137,7 +150,7 @@ export async function ensureBootstrapAdmin(client: PrismaClient, env: NodeJS.Pro
     });
     const user = await tx.users.create({
       data: {
-        employee_code: String(env.BOOTSTRAP_ADMIN_EMPLOYEE_CODE), full_name: String(env.BOOTSTRAP_ADMIN_FULL_NAME),
+        employee_code: String(env.BOOTSTRAP_ADMIN_EMPLOYEE_CODE), username: bootstrapUsername, full_name: String(env.BOOTSTRAP_ADMIN_FULL_NAME),
         email: String(env.BOOTSTRAP_ADMIN_EMAIL).trim().toLowerCase(), password_hash: passwordHash,
         department_id: department.id, position_id: position.id, status: 'ACTIVE',
       },

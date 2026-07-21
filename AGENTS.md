@@ -106,8 +106,8 @@ DIRECTOR được phép:
 
 - Xem BSC trong phạm vi đơn vị phụ trách.
 - Xem BSC của MANAGER và EMPLOYEE.
-- Duyệt hoặc trả lại BSC của MANAGER.
-- Duyệt BSC của EMPLOYEE khi nhân viên không có MANAGER trực tiếp.
+- Duyệt hoặc trả lại BSC của MANAGER ở cả giai đoạn PLAN và EVALUATION.
+- Duyệt hoặc trả lại BSC của EMPLOYEE ở cả giai đoạn PLAN và EVALUATION trong phạm vi phụ trách, kể cả khi nhân viên có MANAGER trực tiếp.
 - Xem danh sách chưa nộp.
 - Xem danh sách chờ duyệt.
 - Xem danh sách bị trả lại.
@@ -238,6 +238,8 @@ MANAGER có hai lựa chọn:
 
 - Duyệt.
 - Trả lại để sửa.
+
+DIRECTOR trong phạm vi phụ trách cũng được xử lý hai giai đoạn PLAN và EVALUATION của EMPLOYEE với cùng hai lựa chọn duyệt hoặc trả lại. Quyền can thiệp này không làm thay đổi MANAGER trực tiếp của EMPLOYEE.
 
 Nếu trả lại:
 
@@ -1234,7 +1236,7 @@ Việc ẩn nút ở frontend không thay thế kiểm tra quyền ở backend.
 - Xem được BSC trong phạm vi.
 - Duyệt được BSC MANAGER.
 - Không duyệt ngoài phạm vi.
-- Duyệt được EMPLOYEE khi không có MANAGER trực tiếp.
+- Duyệt và trả lại được PLAN/EVALUATION của EMPLOYEE trong phạm vi, kể cả khi có MANAGER trực tiếp.
 - Mở lại được BSC đã duyệt khi có quyền.
 
 ## Duplicate

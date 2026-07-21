@@ -10,6 +10,7 @@ import { BscCyclesModule } from './modules/bsc-cycles/bsc-cycles.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
+import { DepartmentBscModule } from './modules/department-bsc/department-bsc.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
     ReportsModule,
     RolesModule,
     AuditLogsModule,
+    DepartmentBscModule,
   ],
 })
 export class AppModule {}

@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import { IsIn, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
 export class QueryEmployeeBscDto {
+  @IsOptional() @IsIn(['OWN']) scope?: 'OWN';
   @IsOptional() @IsString() search?: string;
   @IsOptional() @IsUUID() cycleId?: string;
   @IsOptional() @IsUUID() employeeId?: string;

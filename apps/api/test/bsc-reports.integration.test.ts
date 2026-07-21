@@ -32,6 +32,9 @@ async function cleanup() {
   if (created.users.length) {
     await prisma.auth_refresh_tokens.deleteMany({ where: { user_id: { in: created.users } } });
     await prisma.user_roles.deleteMany({ where: { user_id: { in: created.users } } });
+    await prisma.manager_relationships.deleteMany({
+      where: { OR: [{ employee_id: { in: created.users } }, { manager_id: { in: created.users } }] },
+    });
     await prisma.users.deleteMany({ where: { id: { in: created.users } } });
   }
   if (created.roles.length) {
@@ -68,7 +71,7 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
       await prisma.role_permissions.createMany({ data: permissions.map(({ id }) => ({ role_id: role.id, permission_id: id })) });
       return role;
     };
-    const employeeRole = await makeRole('EMPLOYEE', [REPORT_PERMISSIONS.PERSONAL]);
+    const employeeRole = await makeRole('EMPLOYEE', [REPORT_PERMISSIONS.PERSONAL, REPORT_PERMISSIONS.EXPORT]);
     const managerRole = await makeRole('MANAGER', [REPORT_PERMISSIONS.UNIT, REPORT_PERMISSIONS.EXPORT]);
     const unrelatedGlobalRole = await makeRole('GLOBAL_TECH', []);
     const globalViewRole = await makeRole('GLOBAL_VIEW', [REPORT_PERMISSIONS.ORGANIZATION]);
@@ -76,7 +79,7 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
     const adminRole = await makeRole('ADMIN', []);
     const hash = await argon2.hash(password);
     const makeUser = async (name: string, roleId: string, departmentId: string, scope: 'SELF' | 'DEPARTMENT' | 'GLOBAL', managerId?: string) => {
-      const user = await prisma.users.create({ data: { employee_code: `${marker}_${name}`, full_name: `${marker} ${name}`, email: `${marker.toLowerCase()}_${name.toLowerCase()}@example.test`, password_hash: hash, department_id: departmentId, position_id: position.id, direct_manager_id: managerId } });
+      const user = await prisma.users.create({ data: { employee_code: `${marker}_${name}`, username: String(`${marker}_${name}`).toLowerCase(), full_name: `${marker} ${name}`, email: `${marker.toLowerCase()}_${name.toLowerCase()}@example.test`, password_hash: hash, department_id: departmentId, position_id: position.id, direct_manager_id: managerId } });
       created.users.push(user.id);
       await prisma.user_roles.create({ data: { user_id: user.id, role_id: roleId, scope_type: scope, scope_id: scope === 'DEPARTMENT' ? departmentId : null } });
       return user;
@@ -101,13 +104,13 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
     const cycle = await prisma.bsc_cycles.create({ data: { code: `${marker}_C1`, name: `${marker} Cycle 1`, cycle_type: 'MONTH', year: 2099, month: 1, start_date: new Date('2099-01-01'), end_date: new Date('2099-01-31'), submission_deadline: new Date('2099-01-31T23:59:59Z'), status: 'OPEN', created_by: admin.id } });
     const otherCycle = await prisma.bsc_cycles.create({ data: { code: `${marker}_C2`, name: `${marker} Cycle 2`, cycle_type: 'MONTH', year: 2099, month: 2, start_date: new Date('2099-02-01'), end_date: new Date('2099-02-28'), submission_deadline: new Date('2099-02-28T23:59:59Z'), status: 'OPEN', created_by: admin.id } });
     const makeBsc = async (name: string, owner: typeof employee, ownerManager: typeof manager, data: { plan: string; evaluation: string; score?: number; grade?: string; cycleId?: string }) => {
-      const bsc = await prisma.employee_bsc.create({ data: { bsc_code: `${marker}_${name}`, cycle_id: data.cycleId ?? cycle.id, employee_id: owner.id, department_id: owner.department_id, position_id: position.id, direct_manager_id: ownerManager.id, created_by: owner.id, plan_status: data.plan, evaluation_status: data.evaluation, final_score: data.score, final_grade: data.grade, plan_approved_at: data.plan === 'APPROVED' ? new Date('2099-01-10') : null, evaluation_approved_at: data.evaluation === 'APPROVED' ? new Date('2099-01-20') : null } });
+      const bsc = await prisma.employee_bsc.create({ data: { bsc_code: `${marker}_${name}`, cycle_id: data.cycleId ?? cycle.id, employee_id: owner.id, department_id: owner.department_id, position_id: position.id, direct_manager_id: ownerManager.id, created_by: owner.id, plan_status: data.plan, evaluation_status: data.evaluation, final_score: data.score, final_grade: data.grade, plan_approved_at: data.plan === 'APPROVED' ? new Date('2099-01-10') : null, evaluation_approved_at: data.evaluation === 'APPROVED' ? new Date('2099-01-20') : null, evaluation_approved_by: data.evaluation === 'APPROVED' ? ownerManager.id : null } });
       await prisma.employee_bsc_items.create({ data: { employee_bsc_id: bsc.id, kpi_code: `${marker.slice(0, 35)}_${name}`, kpi_name: name, target_value: 100, actual_value: data.evaluation === 'NOT_STARTED' ? null : 100, weight: 100, assigned_by: ownerManager.id } });
       if (data.plan === 'SUBMITTED') await prisma.bsc_approval_steps.create({ data: { employee_bsc_id: bsc.id, stage: 'PLAN', step_order: 1, approver_id: ownerManager.id, approver_role: 'MANAGER', status: 'PENDING' } });
       if (data.evaluation === 'SUBMITTED') await prisma.bsc_approval_steps.create({ data: { employee_bsc_id: bsc.id, stage: 'EVALUATION', step_order: 1, approver_id: ownerManager.id, approver_role: 'MANAGER', status: 'PENDING' } });
       return bsc;
     };
-    const approved = await makeBsc('APPROVED', employee, manager, { plan: 'APPROVED', evaluation: 'APPROVED', score: 95, grade: 'A' });
+    const approved = await makeBsc('APPROVED', employee, manager, { plan: 'APPROVED', evaluation: 'APPROVED', score: 100, grade: 'A' });
     await makeBsc('DRAFT_PREVIEW', employee2, manager, { plan: 'APPROVED', evaluation: 'DRAFT', score: 130, grade: 'A++' });
     await makeBsc('OUTSIDE', outsideEmployee, outsideManager, { plan: 'APPROVED', evaluation: 'APPROVED', score: 111, grade: 'A++' });
     await makeBsc('CROSS_DEPARTMENT', crossDepartmentEmployee, manager, { plan: 'APPROVED', evaluation: 'APPROVED', score: 90, grade: 'A', cycleId: otherCycle.id });
@@ -116,15 +119,28 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
     await makeBsc('OTHER_CYCLE', employee2, manager, { plan: 'SUBMITTED', evaluation: 'NOT_STARTED', cycleId: otherCycle.id });
 
     const started = await createApp(); app = started.app; await app.init(); const server = app.getHttpServer();
-    const login = async (email: string) => (await request(server).post('/auth/login').send({ email, password }).expect(200)).body.accessToken as string;
-    const tokens = { employee: await login(employee.email), employeeWithoutBsc: await login(employeeWithoutBsc.email), manager: await login(manager.email), outsideManager: await login(outsideManager.email), mixedExportUser: await login(mixedExportUser.email), admin: await login(admin.email) };
+    const login = async (username: string) => (await request(server).post('/auth/login').send({ username, password }).expect(200)).body.accessToken as string;
+    const tokens = { employee: await login(employee.username), employeeWithoutBsc: await login(employeeWithoutBsc.username), manager: await login(manager.username), outsideManager: await login(outsideManager.username), mixedExportUser: await login(mixedExportUser.username), admin: await login(admin.username) };
     const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
+
+    await t.test('canonical EMPLOYEE role receives personal BSC export permission', async () => {
+      const canonicalEmployee = await prisma.roles.findUniqueOrThrow({
+        where: { code: 'EMPLOYEE' },
+        select: {
+          role_permissions: {
+            where: { permissions: { code: REPORT_PERMISSIONS.EXPORT } },
+            select: { permissions: { select: { code: true } } },
+          },
+        },
+      });
+      assert.deepEqual(canonicalEmployee.role_permissions.map(row => row.permissions.code), [REPORT_PERMISSIONS.EXPORT]);
+    });
 
     await t.test('employee dashboard and report contain only the owner BSC', async () => {
       const dashboard = await request(server).get(`/bsc-reports/dashboard?cycleId=${cycle.id}`).set(auth(tokens.employee)).expect(200);
       assert.equal(dashboard.body.kind, 'EMPLOYEE');
       assert.equal(dashboard.body.currentBsc.id, approved.id);
-      assert.equal(dashboard.body.currentBsc.officialScore, '95');
+      assert.equal(dashboard.body.currentBsc.officialScore, '100');
       const report = await request(server).get('/bsc-reports?limit=100').set(auth(tokens.employee)).expect(200);
       assert.deepEqual(report.body.items.map((row: { employeeId: string }) => row.employeeId), [employee.id]);
       const emptyDashboard = await request(server).get(`/bsc-reports/dashboard?cycleId=${cycle.id}`).set(auth(tokens.employeeWithoutBsc)).expect(200);
@@ -147,7 +163,7 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
     await t.test('summary uses only persisted approved final score and grade', async () => {
       const summary = await request(server).get(`/bsc-reports/summary?cycleId=${cycle.id}`).set(auth(tokens.manager)).expect(200);
       assert.equal(summary.body.totalBsc, 4);
-      assert.equal(summary.body.approvedAverageScore, '95');
+      assert.equal(summary.body.approvedAverageScore, '100');
       assert.deepEqual(summary.body.gradeDistribution, { C: 0, B: 0, A: 1, 'A+': 0, 'A++': 0 });
       assert.equal(summary.body.evaluationStatusCounts.DRAFT, 1);
       assert.equal(summary.body.evaluationStatusCounts.APPROVED, 1);
@@ -175,6 +191,34 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
       assert.equal((audit.new_data as { rowCount: number }).rowCount, 1);
       assert.doesNotMatch(JSON.stringify(audit.new_data), /password|token|snapshot|ip|user.?agent/i);
       await request(server).get(`/bsc-reports/export?departmentId=${unrelatedDepartment.id}`).set(auth(tokens.manager)).expect(403);
+    });
+
+    await t.test('single employee export uses the detailed BSC layout without a logo', async () => {
+      const response = await request(server).get(`/bsc-reports/export?employeeId=${employee.id}&cycleId=${cycle.id}`).set(auth(tokens.manager)).buffer(true).parse((res, callback) => {
+        const chunks: Buffer[] = []; res.on('data', chunk => chunks.push(Buffer.from(chunk))); res.on('end', () => callback(null, Buffer.concat(chunks)));
+      }).set('User-Agent', 'bsc-export-test').expect(200);
+      const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(response.body);
+      const sheet = workbook.getWorksheet('BSC cá nhân'); assert.ok(sheet); assert.equal(sheet.getImages().length, 0);
+      assert.equal(sheet.getCell('A1').value, 'BẢNG GIAO MỤC TIÊU VÀ ĐÁNH GIÁ KẾT QUẢ HOẠT ĐỘNG');
+      assert.equal(sheet.getCell('C7').value, 'APPROVED'); assert.equal(sheet.getCell('H7').value, 100);
+      assert.equal(sheet.getCell('I7').value, 100); assert.equal(sheet.getCell('J7').value, 100); assert.equal(sheet.getCell('K7').value, 100);
+      assert.equal(sheet.getCell('A20').value, manager.full_name);
+      const audit = await prisma.audit_logs.findFirstOrThrow({ where: { user_id: manager.id, action: 'BSC_EXPORTED', entity_id: approved.id }, orderBy: { created_at: 'desc' } });
+      assert.equal(audit.user_agent, 'bsc-export-test'); assert.ok(audit.ip_address);
+    });
+
+    await t.test('employee exports only their own detailed BSC', async () => {
+      const response = await request(server).get(`/bsc-reports/export?employeeId=${employee.id}&cycleId=${cycle.id}`).set(auth(tokens.employee)).buffer(true).parse((res, callback) => {
+        const chunks: Buffer[] = []; res.on('data', chunk => chunks.push(Buffer.from(chunk))); res.on('end', () => callback(null, Buffer.concat(chunks)));
+      }).expect(200);
+      const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(response.body);
+      const sheet = workbook.getWorksheet('BSC cá nhân'); assert.ok(sheet);
+      assert.equal(sheet.getImages().length, 0);
+      assert.equal(sheet.getCell('A20').value, manager.full_name);
+      assert.equal(sheet.getCell('G20').value, employee.full_name);
+
+      const forbidden = await request(server).get(`/bsc-reports/export?employeeId=${employee2.id}&cycleId=${cycle.id}`).set(auth(tokens.employee)).expect(403);
+      assert.equal(forbidden.body.code, 'AUTH_SCOPE_DENIED');
     });
 
     await t.test('export intersects its assigned scope with the report view scope', async () => {

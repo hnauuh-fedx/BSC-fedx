@@ -117,7 +117,7 @@ async function main() {
 
     const referencedLegacy = await fresh.positions.create({ data: { code: 'ADMIN', name: 'Legacy referenced ADMIN', level: 100 } });
     const unreferencedLegacy = await fresh.positions.create({ data: { code: ' ADMIN ', name: 'Legacy unreferenced ADMIN', level: 100 } });
-    await fresh.users.create({ data: { employee_code: 'LEGACY_ADMIN_USER', full_name: 'Legacy ADMIN user', email: 'legacy-admin-user@fresh-migration.test', password_hash: firstAdmin.password_hash, department_id: firstAdmin.department_id, position_id: referencedLegacy.id } });
+    await fresh.users.create({ data: { employee_code: 'LEGACY_ADMIN_USER', username: 'legacy_admin_user', full_name: 'Legacy ADMIN user', email: 'legacy-admin-user@fresh-migration.test', password_hash: firstAdmin.password_hash, department_id: firstAdmin.department_id, position_id: referencedLegacy.id } });
     const runCleanup = (...args) => spawnSync(process.execPath, ['-r', 'ts-node/register/transpile-only', 'scripts/cleanup-legacy-admin-position.ts', ...args], { cwd: path.resolve(__dirname, '..'), env: seedEnv, encoding: 'utf8', shell: false });
     const reportOnly = runCleanup();
     if (reportOnly.status !== 0 || !reportOnly.stdout.includes('legacy-admin-user@fresh-migration.test')) throw new Error('Legacy ADMIN position report did not include referenced users');

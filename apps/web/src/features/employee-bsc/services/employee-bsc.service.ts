@@ -17,6 +17,7 @@ export const employeeBscApi = {
   rejectReopen: (requestId: string, reason: string) => httpClient.post<BscReopenRequest>(`/employee-bsc/reopen-requests/${requestId}/reject`, { reason }),
   duplicateOptions: (id: string) => httpClient.get<BscDuplicateOptions>(`/employee-bsc/${id}/duplicate-options`),
   duplicate: (id: string, targetCycleId: string) => httpClient.post<EmployeeBsc>(`/employee-bsc/${id}/duplicate`, { targetCycleId }),
+  exportExcel: (employeeId: string, cycleId: string) => httpClient.download(`/bsc-reports/export${query({ employeeId, cycleId })}`),
   create: (cycleId: string) => httpClient.post<EmployeeBsc>('/employee-bsc', { cycleId }),
   update: (id: string, employeeComment: string) => httpClient.patch<EmployeeBsc>(`/employee-bsc/${id}`, { employeeComment }),
   delete: (id: string) => httpClient.delete<{ success: true }>(`/employee-bsc/${id}`),

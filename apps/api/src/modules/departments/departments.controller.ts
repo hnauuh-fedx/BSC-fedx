@@ -4,13 +4,15 @@ import { RequirePermissions } from '../../common/decorators/require-permissions.
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { AuthUser } from '../../common/types/auth-user.type';
 import { JwtAccessGuard } from '../auth/guards/jwt-access.guard';
-import { DepartmentMutationDto, DepartmentQueryDto, UpdateDepartmentDto } from './departments.dto';
+import { DepartmentMutationDto, DepartmentQueryDto, SetDepartmentManagerDto, UpdateDepartmentDto } from './departments.dto';
 import { DepartmentsService } from './departments.service';
 @Controller('departments') @UseGuards(JwtAccessGuard, PermissionsGuard)
 export class DepartmentsController { constructor(private readonly service: DepartmentsService) {}
   @Get() @RequirePermissions('department.view') findAll(@CurrentUser() u: AuthUser, @Query() q: DepartmentQueryDto) { return this.service.findAll(u, q); }
   @Get('tree') @RequirePermissions('department.view') tree(@CurrentUser() u: AuthUser) { return this.service.tree(u); }
   @Get(':id') @RequirePermissions('department.view') one(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.service.findOne(u, id); }
+  @Get(':id/manager-assignment') @RequirePermissions('department.view') managerAssignment(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.service.managerAssignment(u, id); }
+  @Post(':id/manager-assignment') @RequirePermissions('department.manage') setManagerAssignment(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: SetDepartmentManagerDto) { return this.service.setManagerAssignment(u, id, d.managerId, d.reason); }
   @Post() @RequirePermissions('department.manage') create(@CurrentUser() u: AuthUser, @Body() d: DepartmentMutationDto) { return this.service.create(u, d); }
   @Patch(':id') @RequirePermissions('department.manage') update(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: UpdateDepartmentDto) { return this.service.update(u, id, d); }
   @Post(':id/activate') @RequirePermissions('department.manage') activate(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.service.setStatus(u, id, 'ACTIVE'); }

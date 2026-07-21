@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useRef } from 'react';
+import { useSystemConfirm } from '../../components/system-confirm-dialog';
 import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
 
@@ -14,7 +15,20 @@ export const EmptyState: React.FC<{ message?: string; action?: React.ReactNode }
 export const ErrorState: React.FC<{ error: string; onRetry?: () => void }> = ({ error, onRetry }) => <section className="state-panel state-error" role="alert"><strong>Không thể hoàn tất</strong><p>{error}</p>{onRetry && <Button variant="outline" onClick={onRetry}>Thử lại</Button>}</section>;
 export const SearchInput: React.FC<{ value: string; onChange: (value: string) => void; label?: string }> = ({ value, onChange, label = 'Tìm kiếm' }) => <label className="field search-field"><span>{label}</span><input type="search" value={value} onChange={event => onChange(event.target.value)} placeholder="Nhập từ khóa…" /></label>;
 export const Pagination: React.FC<{ page: number; total: number; limit: number; onChange: (page: number) => void }> = ({ page, total, limit, onChange }) => { const pages = Math.max(1, Math.ceil(total / limit)); return <nav className="pagination" aria-label="Phân trang"><Button variant="outline" disabled={page <= 1} onClick={() => onChange(page - 1)}>Trang trước</Button><span aria-live="polite">Trang <strong>{page}</strong> / {pages} · {total} kết quả</span><Button variant="outline" disabled={page >= pages} onClick={() => onChange(page + 1)}>Trang sau</Button></nav>; };
-export const ConfirmButton: React.FC<React.PropsWithChildren<{ message: string; onConfirm: () => void; className?: string }>> = ({ message, onConfirm, children, className }) => <Button type="button" variant="outline" className={className} onClick={() => { if (window.confirm(message)) onConfirm(); }}>{children}</Button>;
+type ConfirmButtonProps = React.PropsWithChildren<{
+  message: string;
+  description?: string;
+  confirmLabel?: string;
+  tone?: 'default' | 'destructive';
+  onConfirm: () => void | Promise<void>;
+  className?: string;
+}>;
+export const ConfirmButton: React.FC<ConfirmButtonProps> = ({ message, description = 'Thao tác sẽ được thực hiện ngay sau khi bạn xác nhận.', confirmLabel = 'Xác nhận', tone = 'default', onConfirm, children, className }) => {
+  const confirm = useSystemConfirm();
+  return <Button type="button" variant="outline" className={className} onClick={async () => {
+    if (await confirm({ title: message, description, confirmLabel, tone })) await onConfirm();
+  }}>{children}</Button>;
+};
 
 export const FormField: React.FC<React.PropsWithChildren<{ label: string; error?: string; helper?: string; className?: string }>> = ({ label, error, helper, className, children }) => {
   const generatedId = useId(); const inputId = `field-${generatedId}`; const errorId = `${inputId}-error`; const helperId = `${inputId}-helper`;

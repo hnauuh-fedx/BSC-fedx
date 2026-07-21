@@ -4,7 +4,7 @@ import { resolvePostLoginPath } from '../landing';
 import { useAuth } from '../hooks/use-auth';
 
 interface LoginFormState {
-  email: string;
+  username: string;
   password: string;
   error: string | null;
   isSubmitting: boolean;
@@ -20,7 +20,7 @@ export const LoginPage: React.FC = () => {
   const location = useLocation();
   const requestedPath = (location.state as { from?: string } | null)?.from;
   const [form, setForm] = useState<LoginFormState>({
-    email: '',
+    username: '',
     password: '',
     error: null,
     isSubmitting: false,
@@ -43,7 +43,7 @@ export const LoginPage: React.FC = () => {
     setForm(prev => ({ ...prev, isSubmitting: true, error: null }));
 
     try {
-      await login({ email: form.email, password: form.password });
+      await login({ username: form.username.trim().toLowerCase(), password: form.password });
     } catch (err: unknown) {
       const message =
         err instanceof Error
@@ -66,22 +66,27 @@ export const LoginPage: React.FC = () => {
         {/* Form */}
         <form onSubmit={handleSubmit} className="login-form" noValidate>
           <div className="login-field">
-            <label htmlFor="login-email" className="login-label">
-              Email
+            <label htmlFor="login-username" className="login-label">
+              Tên đăng nhập
             </label>
             <input
-              id="login-email"
-              name="email"
-              type="email"
-              autoComplete="email"
+              id="login-username"
+              name="username"
+              type="text"
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              minLength={3}
+              maxLength={50}
+              pattern="[A-Za-z0-9._-]+"
               required
               disabled={form.isSubmitting}
-              value={form.email}
+              value={form.username}
               onChange={handleChange}
               className="login-input"
               aria-invalid={Boolean(form.error)}
               aria-describedby={form.error ? 'login-error' : undefined}
-              placeholder="ten@cong-ty.vn"
+              placeholder="Ví dụ: nguyenvana"
             />
           </div>
 

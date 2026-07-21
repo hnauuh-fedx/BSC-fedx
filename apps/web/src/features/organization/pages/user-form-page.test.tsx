@@ -65,7 +65,7 @@ describe('UserFormPage', () => {
   it('creates the user with the selected position, role and permission scope', async () => {
     const user = userEvent.setup();
     vi.mocked(organizationApi.createUser).mockResolvedValue({
-      id: 'user-1', employee_code: 'NV001', full_name: 'Nguyễn Văn A', email: 'a@example.test', department_id: 'department-1', position_id: 'position-1', direct_manager_id: null, status: 'ACTIVE',
+      id: 'user-1', employee_code: 'NV001', username: 'nguyenvana', full_name: 'Nguyễn Văn A', email: 'a@example.test', department_id: 'department-1', position_id: 'position-1', direct_manager_id: null, status: 'ACTIVE',
     });
     render(
       <MemoryRouter initialEntries={['/management/users/new']}>
@@ -75,6 +75,7 @@ describe('UserFormPage', () => {
 
     await screen.findByRole('combobox', { name: 'Chức danh' });
     await user.type(screen.getByRole('textbox', { name: 'Mã nhân viên' }), 'NV001');
+    await user.type(screen.getByRole('textbox', { name: 'Tên đăng nhập' }), 'NguyenVanA');
     await user.type(screen.getByRole('textbox', { name: 'Họ tên' }), 'Nguyễn Văn A');
     await user.type(screen.getByRole('textbox', { name: 'Email' }), 'a@example.test');
     await user.type(screen.getByLabelText('Mật khẩu ban đầu'), 'Password!123');
@@ -89,7 +90,29 @@ describe('UserFormPage', () => {
     await user.click(screen.getByRole('button', { name: 'Lưu người dùng' }));
 
     expect(organizationApi.createUser).toHaveBeenCalledWith({
-      employeeCode: 'NV001', fullName: 'Nguyễn Văn A', email: 'a@example.test', password: 'Password!123', departmentId: 'department-1', positionId: 'position-1', directManagerId: null, roleId: 'role-1', roleScopeType: 'SELF',
+      employeeCode: 'NV001', username: 'nguyenvana', fullName: 'Nguyễn Văn A', email: 'a@example.test', password: 'Password!123', departmentId: 'department-1', positionId: 'position-1', directManagerId: null, roleId: 'role-1', roleScopeType: 'SELF',
     });
+  });
+
+  it('forces the DIRECTOR role to use global scope', async () => {
+    const user = userEvent.setup();
+    vi.mocked(rolesApi.list).mockResolvedValue([
+      { id: 'director-role', code: 'DIRECTOR', name: 'Giám đốc', hierarchyLevel: 80, description: 'Xem BSC toàn tổ chức.', isSystem: true, status: 'ACTIVE', permissionCount: 11, createdAt: '', updatedAt: '' },
+    ]);
+    vi.mocked(rolesApi.detail).mockResolvedValue({
+      id: 'director-role', code: 'DIRECTOR', name: 'Giám đốc', hierarchyLevel: 80, description: 'Xem BSC toàn tổ chức.', isSystem: true, status: 'ACTIVE', createdAt: '', updatedAt: '', permissionsByModule: [],
+    });
+    render(
+      <MemoryRouter initialEntries={['/management/users/new']}>
+        <Routes><Route path="/management/users/new" element={<UserFormPage />} /></Routes>
+      </MemoryRouter>,
+    );
+
+    const roleSelect = await screen.findByRole('combobox', { name: 'Vai trò' });
+    roleSelect.focus();
+    await user.keyboard('{ArrowDown}{Enter}');
+
+    expect(screen.getByRole('combobox', { name: 'Phạm vi quyền' })).toHaveTextContent('Toàn hệ thống');
+    expect(screen.getByRole('combobox', { name: 'Phạm vi quyền' })).toBeDisabled();
   });
 });

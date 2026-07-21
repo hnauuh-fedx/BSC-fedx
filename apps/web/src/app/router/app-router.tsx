@@ -12,6 +12,8 @@ import { ForbiddenPage } from '../../features/auth/pages/forbidden-page';
 import { LoginPage } from '../../features/auth/pages/login-page';
 import { AuditLogsPage } from '../../features/audit-logs';
 import { BscCycleDetailPage, BscCycleFormPage, BscCyclesPage } from '../../features/bsc-cycles';
+import { BscMinutesPage } from '../../features/bsc-minutes';
+import { DepartmentBscCreatePage, DepartmentBscDetailPage, DepartmentBscListPage, DepartmentBscPendingReviewPage } from '../../features/department-bsc';
 import {
   BscCreatePage,
   BscDetailPage,
@@ -89,6 +91,7 @@ export const AppRouter: React.FC = () => (
       <Route path="/dashboard" element={<WorkspacePage><DashboardPage /></WorkspacePage>} />
       <Route path="/management/bsc-overview" element={<WorkspacePage><ManagementOverviewRoute /></WorkspacePage>} />
       <Route path="/reports/bsc" element={<WorkspacePage><BscReportPage /></WorkspacePage>} />
+      <Route path="/management/bsc-minutes" element={<WorkspacePage><BscMinutesPage /></WorkspacePage>} />
 
       <Route path="/management" element={<WorkspacePage><AdministrationRoute /></WorkspacePage>} />
       <Route path="/management/organization" element={<WorkspacePage><OrganizationManagementPage /></WorkspacePage>} />
@@ -114,6 +117,10 @@ export const AppRouter: React.FC = () => (
       <Route path="/employee-bsc/:id/edit" element={<WorkspacePage><BscEditPage /></WorkspacePage>} />
       <Route path="/management/bsc-reviews" element={<WorkspacePage><BscPendingReviewPage /></WorkspacePage>} />
       <Route path="/management/bsc-reopen-requests" element={<WorkspacePage><BscReopenRequestsPage /></WorkspacePage>} />
+      <Route path="/department-bsc" element={<WorkspacePage><DepartmentBscListPage /></WorkspacePage>} />
+      <Route path="/department-bsc/new" element={<WorkspacePage><DepartmentBscCreatePage /></WorkspacePage>} />
+      <Route path="/department-bsc/:id" element={<WorkspacePage><DepartmentBscDetailPage /></WorkspacePage>} />
+      <Route path="/management/department-bsc-reviews" element={<WorkspacePage><DepartmentBscPendingReviewPage /></WorkspacePage>} />
 
       <Route path="*" element={<ProtectedRoute><Navigate to="/" replace /></ProtectedRoute>} />
     </Routes>

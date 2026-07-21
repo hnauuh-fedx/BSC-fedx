@@ -93,7 +93,7 @@ async function seed() {
   const roles = await ensureCanonicalRoles();
   const hash = await argon2.hash(password);
   const user = async (suffix: string, roleId: string, departmentId: string, managerId?: string) => {
-    const value = await prisma.users.create({ data: { employee_code: short(suffix), full_name: `${marker} ${suffix}`, email: `${short(suffix).toLowerCase()}@uat.example.test`, password_hash: hash, department_id: departmentId, position_id: position.id, direct_manager_id: managerId } });
+    const value = await prisma.users.create({ data: { employee_code: short(suffix), username: short(suffix).toLowerCase(), full_name: `${marker} ${suffix}`, email: `${short(suffix).toLowerCase()}@uat.example.test`, password_hash: hash, department_id: departmentId, position_id: position.id, direct_manager_id: managerId } });
     await prisma.user_roles.create({ data: { user_id: value.id, role_id: roleId, scope_type: suffix === 'EMPLOYEE' ? 'SELF' : 'DEPARTMENT', scope_id: suffix === 'EMPLOYEE' ? null : departmentId } });
     if (managerId) await prisma.manager_relationships.create({ data: { employee_id: value.id, manager_id: managerId, start_date: new Date('2020-01-01'), is_primary: true } });
     return value;

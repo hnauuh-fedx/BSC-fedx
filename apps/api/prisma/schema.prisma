@@ -344,7 +344,9 @@ model employee_bsc_items {
   kpi_code              String                 @db.VarChar(50)
   kpi_name              String                 @db.VarChar(500)
   description           String?
-  measurement_unit      String?                @db.VarChar(50)
+  goal_group_code       String                 @default("COMMON") @db.VarChar(50)
+  measurement_unit      String                 @default("%") @db.VarChar(50)
+  measurement_frequency String                 @default("Tháng") @db.VarChar(100)
   target_value          Decimal?               @db.Decimal(18, 4)
   target_text           String?
   actual_value          Decimal?               @db.Decimal(18, 4)
@@ -369,6 +371,7 @@ model employee_bsc_items {
   bsc_template_items    bsc_template_items?    @relation(fields: [template_item_id], references: [id], onUpdate: NoAction, map: "employee_bsc_items_template_item_fk")
 
   @@unique([employee_bsc_id, kpi_code], map: "employee_bsc_items_code_uq")
+  @@index([employee_bsc_id, goal_group_code, sort_order], map: "employee_bsc_items_group_sort_idx")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -452,6 +455,7 @@ model user_roles {
 model users {
   id                                                             String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employee_code                                                  String                  @unique @db.VarChar(50)
+  username                                                       String                  @unique @db.VarChar(50)
   full_name                                                      String                  @db.VarChar(255)
   email                                                          String                  @unique @db.VarChar(255)
   password_hash                                                  String
@@ -512,4 +516,152 @@ model auth_refresh_tokens {
 
   @@index([user_id], map: "auth_refresh_tokens_user_id_idx")
   @@index([expires_at], map: "auth_refresh_tokens_expires_at_idx")
+}
+
+model department_manager_assignments {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  department_id String    @db.Uuid
+  manager_id    String    @db.Uuid
+  start_date    DateTime  @db.Date
+  end_date      DateTime? @db.Date
+  is_primary    Boolean   @default(true)
+  assigned_by   String    @db.Uuid
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([department_id, is_primary, start_date, end_date], map: "department_manager_assignments_active_idx")
+  @@index([manager_id, is_primary, start_date, end_date], map: "department_manager_assignments_manager_idx")
+}
+
+model department_bsc {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bsc_code               String    @unique @db.VarChar(50)
+  cycle_id               String    @db.Uuid
+  department_id          String    @db.Uuid
+  responsible_manager_id String    @db.Uuid
+  reviewer_id            String    @db.Uuid
+  source_bsc_id          String?   @db.Uuid
+  plan_status            String    @default("DRAFT") @db.VarChar(20)
+  plan_submitted_at      DateTime? @db.Timestamptz(6)
+  plan_approved_at       DateTime? @db.Timestamptz(6)
+  plan_approved_by       String?   @db.Uuid
+  evaluation_status      String    @default("NOT_STARTED") @db.VarChar(20)
+  evaluation_submitted_at DateTime? @db.Timestamptz(6)
+  evaluation_approved_at DateTime? @db.Timestamptz(6)
+  evaluation_approved_by String?   @db.Uuid
+  total_score            Decimal   @default(0) @db.Decimal(18, 4)
+  final_score            Decimal?  @db.Decimal(18, 4)
+  final_grade            String?   @db.VarChar(10)
+  manager_comment        String?
+  director_comment       String?
+  created_by             String    @db.Uuid
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([cycle_id, department_id], map: "department_bsc_cycle_department_uq")
+  @@index([plan_status], map: "department_bsc_plan_status_idx")
+  @@index([evaluation_status], map: "department_bsc_evaluation_status_idx")
+  @@index([responsible_manager_id], map: "department_bsc_manager_idx")
+  @@index([reviewer_id], map: "department_bsc_reviewer_idx")
+}
+
+model department_bsc_items {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  department_bsc_id     String    @db.Uuid
+  kpi_code              String    @db.VarChar(50)
+  kpi_name              String    @db.VarChar(500)
+  description           String?
+  goal_group_code       String    @default("UNIT_PROFESSIONAL") @db.VarChar(50)
+  measurement_unit      String    @default("%") @db.VarChar(50)
+  measurement_frequency String    @default("Tháng") @db.VarChar(100)
+  target_value          Decimal?  @db.Decimal(18, 4)
+  target_text           String?
+  actual_value          Decimal?  @db.Decimal(18, 4)
+  actual_text           String?
+  weight                Decimal   @db.Decimal(5, 2)
+  achievement_percent   Decimal   @default(0) @db.Decimal(18, 4)
+  weighted_score        Decimal   @default(0) @db.Decimal(18, 4)
+  calculation_method    String    @default("ACTUAL_DIV_TARGET") @db.VarChar(50)
+  manager_note          String?
+  director_note         String?
+  sort_order            Int       @default(0)
+  created_by            String    @db.Uuid
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([department_bsc_id, kpi_code], map: "department_bsc_items_code_uq")
+  @@index([department_bsc_id, goal_group_code, sort_order], map: "department_bsc_items_group_sort_idx")
+}
+
+model department_bsc_approval_steps {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  department_bsc_id String    @db.Uuid
+  stage             String    @db.VarChar(20)
+  approver_id       String    @db.Uuid
+  status            String    @default("PENDING") @db.VarChar(20)
+  comment           String?
+  acted_at          DateTime? @db.Timestamptz(6)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([department_bsc_id, stage], map: "department_bsc_approval_steps_stage_uq")
+}
+
+model department_bsc_reviews {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  department_bsc_id String   @db.Uuid
+  reviewer_id       String   @db.Uuid
+  stage             String   @db.VarChar(20)
+  action            String   @db.VarChar(30)
+  score_before      Decimal? @db.Decimal(18, 4)
+  score_after       Decimal? @db.Decimal(18, 4)
+  comment           String?
+  reviewed_at       DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([department_bsc_id, stage, reviewed_at], map: "department_bsc_reviews_stage_idx")
+}
+
+model department_bsc_status_histories {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  department_bsc_id String   @db.Uuid
+  stage             String   @db.VarChar(20)
+  from_status       String?  @db.VarChar(30)
+  to_status         String   @db.VarChar(30)
+  action            String   @db.VarChar(50)
+  comment           String?
+  changed_by        String   @db.Uuid
+  changed_at        DateTime @default(now()) @db.Timestamptz(6)
+  ip_address        String?  @db.VarChar(50)
+  user_agent        String?
+
+  @@index([department_bsc_id, stage, changed_at], map: "department_bsc_histories_stage_idx")
+}
+
+model department_bsc_versions {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  department_bsc_id String   @db.Uuid
+  version_number    Int
+  stage             String   @db.VarChar(20)
+  version_type      String   @db.VarChar(40)
+  snapshot          Json
+  created_by        String   @db.Uuid
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([department_bsc_id, version_number], map: "department_bsc_versions_number_uq")
+  @@index([department_bsc_id, stage, version_type], map: "department_bsc_versions_stage_idx")
+}
+
+model department_bsc_unlock_requests {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  department_bsc_id String    @db.Uuid
+  stage             String    @db.VarChar(20)
+  requested_by      String    @db.Uuid
+  reviewer_id       String    @db.Uuid
+  request_reason    String
+  status            String    @default("PENDING") @db.VarChar(20)
+  reviewed_by       String?   @db.Uuid
+  review_reason     String?
+  reviewed_at       DateTime? @db.Timestamptz(6)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([reviewer_id, status, created_at], map: "department_bsc_unlock_reviewer_idx")
+  @@index([department_bsc_id, stage, status], map: "department_bsc_unlock_bsc_stage_idx")
 }

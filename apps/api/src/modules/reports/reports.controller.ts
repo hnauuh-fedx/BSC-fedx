@@ -1,5 +1,5 @@
-import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
-import type { Response } from 'express';
+import { Controller, Get, Query, Req, Res, UseGuards } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequireAnyPermission } from '../../common/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -24,8 +24,9 @@ export class BscReportsController {
   options(@CurrentUser() actor: AuthUser) { return this.service.options(actor); }
 
   @Get('export') @RequireAnyPermission(BSC_REPORT_PERMISSIONS.EXPORT)
-  async export(@CurrentUser() actor: AuthUser, @Query() query: BscReportQueryDto, @Res() response: Response) {
-    const result = await this.service.export(actor, query);
+  async export(@CurrentUser() actor: AuthUser, @Query() query: BscReportQueryDto, @Req() request: Request, @Res() response: Response) {
+    const userAgent = request.headers['user-agent'];
+    const result = await this.service.export(actor, query, { ipAddress: request.ip, userAgent: Array.isArray(userAgent) ? userAgent[0] : userAgent });
     response.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     response.setHeader('Content-Disposition', `attachment; filename="${result.fileName}"`);
     response.setHeader('X-Export-Row-Limit', String(BSC_REPORT_EXPORT_LIMIT));

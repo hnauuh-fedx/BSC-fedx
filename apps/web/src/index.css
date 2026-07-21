@@ -81,6 +81,20 @@
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
     --sidebar-ring: oklch(0.708 0 0);
+    --system-confirm-primary: #0075de;
+    --system-confirm-primary-hover: #005bab;
+}
+
+.system-confirm-primary {
+  background: var(--system-confirm-primary);
+  color: white;
+}
+.system-confirm-primary:hover {
+  background: var(--system-confirm-primary-hover);
+}
+.system-confirm-media {
+  background: color-mix(in oklch, var(--system-confirm-primary), transparent 90%);
+  color: var(--system-confirm-primary);
 }
 
 .dark {
@@ -252,4 +266,76 @@ main > table { display: block; max-width: 100%; overflow-x: auto; border: 1px so
   dd { margin-bottom: .65rem; }
   .section-heading { flex-direction: column; }
   .action-bar { bottom: .25rem; }
+}
+
+.minutes-print-document {
+  display: none;
+  color: black;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+  line-height: 1.35;
+}
+.minutes-print-header { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; column-gap: .5cm; text-align: center; }
+.minutes-print-organization, .minutes-print-national-heading { display: flex; min-width: 0; flex-direction: column; align-items: center; }
+.minutes-print-organization strong, .minutes-print-national-heading strong:first-child { text-transform: uppercase; }
+.minutes-print-national-heading strong:last-of-type { border-bottom: 1px solid black; }
+.minutes-print-heading-line { max-width: 100%; font-size: 10.5pt; line-height: 1.2; white-space: nowrap; }
+.minutes-print-organization span { width: max-content; margin-top: .35rem; border-top: 1px solid black; padding-top: .15rem; }
+.minutes-print-national-heading em { margin-top: .35rem; font-weight: 400; }
+.minutes-print-title { margin: 1rem 0 1.25rem; text-align: center; }
+.minutes-print-title h1 { margin: 0; font-size: 17pt; }
+.minutes-print-title p { margin: .25rem 0 0; text-align: center; }
+.minutes-print-subject { display: inline-block; max-width: 75%; padding-bottom: .3rem; }
+.minutes-print-subject::after { display: block; width: 33.333%; margin: .3rem auto 0; border-bottom: 1px solid black; content: ""; }
+.minutes-print-document section { margin-top: .45rem; break-inside: auto; }
+.minutes-print-document h2, .minutes-print-document h3 { margin: .3rem 0; font-size: 12pt; font-weight: 700; }
+.minutes-print-document h2 span, .minutes-print-document h3 span { font-weight: 400; }
+.minutes-print-document p { margin: .2rem 0; }
+.minutes-print-role { display: inline-block; min-width: 8rem; margin-left: 4rem; }
+.minutes-print-table { width: 100%; margin: .25rem 0; border-collapse: collapse; table-layout: fixed; }
+.minutes-print-column-index { width: 5.5%; }
+.minutes-print-column-name { width: 30.5%; }
+.minutes-print-column-score, .minutes-print-column-grade { width: 9%; }
+.minutes-print-column-explanation { width: 28%; }
+.minutes-print-table th, .minutes-print-table td { border: 1px solid black; padding: .15rem .3rem; vertical-align: middle; }
+.minutes-print-table th { text-align: center; }
+.minutes-print-table td:first-child { width: 2rem; text-align: center; }
+.minutes-print-table tr { break-inside: avoid; }
+.minutes-print-group th { text-align: left; }
+.minutes-print-multiline { white-space: pre-line; }
+
+.minutes-pdf-export .minutes-print-document {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  display: block;
+  box-sizing: border-box;
+  width: 210mm;
+  min-height: 297mm;
+  padding: 2cm;
+  background: white;
+}
+.minutes-pdf-export,
+.minutes-pdf-export * {
+  color: rgb(0 0 0) !important;
+  border-color: rgb(0 0 0) !important;
+  outline-color: rgb(0 0 0) !important;
+  text-decoration-color: rgb(0 0 0) !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+.minutes-pdf-export .minutes-print-document { background-color: rgb(255 255 255) !important; }
+
+@media print {
+  @page { size: A4 portrait; margin: 2cm; }
+  body, .app-shell, .app-content { background: white; }
+  .app-header, .skip-link, .minutes-editor { display: none !important; }
+  .app-content { max-width: none; padding: 0; }
+  .bsc-minutes-page { display: block; color: black; }
+  .minutes-print-document {
+    display: block;
+    width: 100%;
+  }
 }

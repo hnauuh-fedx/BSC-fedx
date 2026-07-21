@@ -13,26 +13,50 @@ const auth = (permissions: string[]) => mockedUseAuth.mockReturnValue({
   isAuthenticated: true, isLoading: false, status: 'authenticated', login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(),
 });
 
+const managerAuth = (permissions: string[]) => mockedUseAuth.mockReturnValue({
+  user: {
+    id: 'manager-1', employeeCode: 'M001', fullName: 'Manager', email: 'manager@example.test', departmentId: 'd1', status: 'ACTIVE',
+    roles: [{ code: 'MANAGER' as const, scopeType: 'DEPARTMENT' as const, scopeId: 'd1', permissions }], permissions,
+  },
+  isAuthenticated: true, isLoading: false, status: 'authenticated', login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(),
+});
+
 describe('MainLayout navigation permissions', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('shows administration navigation and hides personal BSC for a technical ADMIN', () => {
+  it('shows administration navigation and hides personal BSC for a technical administrator', () => {
     auth(['user.view', 'department.view', 'position.view', 'bsc.period.manage']);
     render(<MemoryRouter><MainLayout><p>Nội dung</p></MainLayout></MemoryRouter>);
-    expect(screen.getByRole('link', { name: 'Quản trị' })).toHaveAttribute('href', '/management/organization');
-    expect(screen.queryByRole('link', { name: 'BSC' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Quản trị' })).toHaveAttribute('href', '/management');
+    expect(screen.queryByRole('link', { name: 'BSC cá nhân' })).not.toBeInTheDocument();
   });
 
-  it('keeps BSC visible for a user with business view permission', () => {
+  it('shows personal BSC only for an own-BSC permission', () => {
     auth(['bsc.view.own']);
     render(<MemoryRouter><MainLayout><p>Nội dung</p></MainLayout></MemoryRouter>);
-    expect(screen.getByRole('link', { name: 'BSC' })).toHaveAttribute('href', '/employee-bsc');
+    expect(screen.getByRole('link', { name: 'BSC cá nhân' })).toHaveAttribute('href', '/employee-bsc');
     expect(screen.queryByRole('link', { name: 'Quản trị' })).not.toBeInTheDocument();
   });
 
-  it('shows administration navigation for an independently assigned manage permission', () => {
-    auth(['department.manage']);
+  it('shows the reopen review queue when the user can review reopen requests', () => {
+    auth(['bsc.reopen.subordinate']);
     render(<MemoryRouter><MainLayout><p>Nội dung</p></MainLayout></MemoryRouter>);
-    expect(screen.getByRole('link', { name: 'Quản trị' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Yêu cầu mở lại' }))
+      .toHaveAttribute('href', '/management/bsc-reopen-requests');
+  });
+
+  it('hides review queues for the canonical MANAGER role even when stale permissions remain', () => {
+    managerAuth(['bsc.plan.approve.subordinate', 'bsc.reopen.subordinate']);
+    render(<MemoryRouter><MainLayout><p>Content</p></MainLayout></MemoryRouter>);
+    expect(screen.queryByRole('link', { name: /Ch.*duy/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Y.*u c.*u m/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps personal BSC hidden for an unit-only dashboard user', () => {
+    auth(['bsc.statistics.organization', 'bsc.view.unit']);
+    render(<MemoryRouter><MainLayout><p>Nội dung</p></MainLayout></MemoryRouter>);
+    expect(screen.getByRole('link', { name: 'Tổng quan đơn vị' })).toHaveAttribute('href', '/dashboard');
+    expect(screen.getByRole('link', { name: 'Quản lý BSC' })).toHaveAttribute('href', '/management/bsc-overview');
+    expect(screen.queryByRole('link', { name: 'BSC cá nhân' })).not.toBeInTheDocument();
   });
 });

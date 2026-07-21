@@ -66,15 +66,14 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE, BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE,
       BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.VIEW_VERSION, BSC_PERMISSIONS.REVIEW_REOPEN,
       BSC_REPORT_PERMISSIONS.UNIT]);
-    const directorRole = await role('DIRECTOR', [BSC_PERMISSIONS.VIEW_UNIT, BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE,
-      BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE, BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE,
-      BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.VIEW_VERSION]);
+    const canonicalManagerRole = await prisma.roles.findUniqueOrThrow({ where: { code: 'MANAGER' } });
+    const directorRole = await prisma.roles.findUniqueOrThrow({ where: { code: 'DIRECTOR' } });
     const adminRole = await role('ADMIN', []);
     const selfApprovalRole = await role('ADMIN_SELF_BSC', [BSC_PERMISSIONS.VIEW_UNIT, BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE]);
     const unrelatedGlobalRole = await role('UNRELATED_GLOBAL', []);
     const hash = await argon2.hash(password);
     const user = async (name: string, departmentId: string, roleId: string, scope: 'SELF' | 'DEPARTMENT' | 'GLOBAL', managerId?: string | null) => {
-      const created = await prisma.users.create({ data: { employee_code: `${marker}_${name}`, full_name: `${marker} ${name}`,
+      const created = await prisma.users.create({ data: { employee_code: `${marker}_${name}`, username: String(`${marker}_${name}`).toLowerCase(), full_name: `${marker} ${name}`,
         email: `${marker.toLowerCase()}_${name.toLowerCase()}@example.test`, password_hash: hash, department_id: departmentId,
         position_id: position.id, direct_manager_id: managerId ?? null } });
       tracked.users.push(created.id);
@@ -82,14 +81,19 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
         scope_id: scope === 'DEPARTMENT' ? departmentId : null } });
       return created;
     };
-    const directorA = await user('DIRECTOR_A', departmentA.id, directorRole.id, 'DEPARTMENT');
+    const directorA = await user('DIRECTOR_A', departmentA.id, directorRole.id, 'GLOBAL');
     const directorB = await user('DIRECTOR_B', departmentB.id, directorRole.id, 'DEPARTMENT');
     const managerA = await user('MANAGER_A', departmentA.id, managerRole.id, 'DEPARTMENT', directorA.id);
     const managerA2 = await user('MANAGER_A2', departmentA.id, managerRole.id, 'DEPARTMENT', directorA.id);
     const managerB = await user('MANAGER_B', departmentB.id, managerRole.id, 'DEPARTMENT', directorB.id);
+    const managerViewOnly = await user('MANAGER_VIEW_ONLY', departmentA.id, canonicalManagerRole.id, 'GLOBAL', directorA.id);
+    await prisma.user_roles.create({ data: { user_id: managerViewOnly.id, role_id: managerRole.id, scope_type: 'GLOBAL' } });
     const employeeA = await user('EMPLOYEE_A', departmentA.id, employeeRole.id, 'SELF', managerA.id);
+    const employeeA2 = await user('EMPLOYEE_A2', departmentA.id, employeeRole.id, 'SELF', managerA.id);
     const employeeB = await user('EMPLOYEE_B', departmentB.id, employeeRole.id, 'SELF', managerB.id);
     const employeeB2 = await user('EMPLOYEE_B2', departmentB.id, employeeRole.id, 'SELF', managerB.id);
+    const employeeViewOnly = await user('EMPLOYEE_VIEW_ONLY', departmentA.id, employeeRole.id, 'SELF', managerViewOnly.id);
+    const employeeViewOnlyOtherDepartment = await user('EMP_VIEW_OTHER', departmentB.id, employeeRole.id, 'SELF', managerViewOnly.id);
     const admin = await user('ADMIN', departmentA.id, adminRole.id, 'GLOBAL');
     const adminSelf = await user('ADMIN_SELF', departmentA.id, selfApprovalRole.id, 'SELF');
     await prisma.user_roles.create({ data: { user_id: adminSelf.id, role_id: unrelatedGlobalRole.id, scope_type: 'GLOBAL' } });
@@ -98,9 +102,13 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
     } });
     await relationship(managerA.id, directorA.id, '2020-01-01');
     await relationship(managerB.id, directorB.id, '2020-01-01');
+    await relationship(managerViewOnly.id, directorA.id, '2020-01-01');
     const employeeARelationship = await relationship(employeeA.id, managerA.id, '2020-01-01');
+    await relationship(employeeA2.id, managerA.id, '2020-01-01');
     await relationship(employeeB.id, managerB.id, '2020-01-01');
     await relationship(employeeB2.id, managerB.id, '2020-01-01');
+    await relationship(employeeViewOnly.id, managerViewOnly.id, '2020-01-01');
+    await relationship(employeeViewOnlyOtherDepartment.id, managerViewOnly.id, '2020-01-01');
     const cycle = await prisma.bsc_cycles.create({ data: { code: `${marker}_CYCLE`, name: marker, cycle_type: 'MONTH', year: 2099, month: 1,
       start_date: new Date('2020-01-01'), end_date: new Date('2199-12-31'), submission_deadline: new Date('2199-12-31'), status: 'OPEN', created_by: admin.id } });
     let sequence = 0;
@@ -115,6 +123,9 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       if (plan === 'SUBMITTED') await prisma.bsc_approval_steps.create({ data: {
         employee_bsc_id: created.id, stage: 'PLAN', step_order: 1, approver_id: reviewerId, approver_role: 'MANAGER', status: 'PENDING',
       } });
+      if (evaluation === 'SUBMITTED') await prisma.bsc_approval_steps.create({ data: {
+        employee_bsc_id: created.id, stage: 'EVALUATION', step_order: 1, approver_id: reviewerId, approver_role: 'MANAGER', status: 'PENDING',
+      } });
       return created;
     };
     const employeeABsc = await bsc(employeeA, managerA.id);
@@ -123,20 +134,37 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
     const managerBBsc = await bsc(managerB, directorB.id);
     const directorABsc = await bsc(directorA, directorA.id);
     const approvedEmployeeBBsc = await bsc(employeeB2, managerB.id, 'APPROVED', 'APPROVED');
-    await prisma.bsc_versions.create({ data: { employee_bsc_id: approvedEmployeeBBsc.id, version_number: 1, stage: 'PLAN', version_type: 'PLAN_APPROVED', snapshot: {}, created_by: managerB.id } });
-    await prisma.bsc_unlock_requests.create({ data: { employee_bsc_id: approvedEmployeeBBsc.id, stage: 'PLAN', requested_by: employeeB2.id,
-      reviewer_id: managerB.id, request_reason: 'Outside scope', status: 'PENDING' } });
+    const employeeViewOnlyBsc = await bsc(employeeViewOnly, managerViewOnly.id);
+    const employeeViewOnlyOtherDepartmentBsc = await bsc(employeeViewOnlyOtherDepartment, managerViewOnly.id);
+    const approvedEmployeeBPlanVersion = await prisma.bsc_versions.create({ data: { employee_bsc_id: approvedEmployeeBBsc.id, version_number: 1, stage: 'PLAN', version_type: 'PLAN_APPROVED', snapshot: {}, created_by: managerB.id } });
+    const directorReopenRequest = await prisma.bsc_unlock_requests.create({ data: { employee_bsc_id: approvedEmployeeBBsc.id, stage: 'PLAN', requested_by: employeeB2.id,
+      reviewer_id: managerB.id, request_reason: 'Outside scope', status: 'PENDING', source_version_id: approvedEmployeeBPlanVersion.id } });
 
     const created = await createApp(); app = created.app; await app.init(); const server = app.getHttpServer();
-    const login = async (email: string) => (await request(server).post('/auth/login').send({ email, password }).expect(200)).body.accessToken as string;
-    const tokens = { directorA: await login(directorA.email), managerA: await login(managerA.email), managerA2: await login(managerA2.email), employeeA: await login(employeeA.email),
-      admin: await login(admin.email), adminSelf: await login(adminSelf.email) };
+    const login = async (username: string) => (await request(server).post('/auth/login').send({ username, password }).expect(200)).body.accessToken as string;
+    const tokens = { directorA: await login(directorA.username), managerA: await login(managerA.username), managerA2: await login(managerA2.username), managerViewOnly: await login(managerViewOnly.username), employeeA: await login(employeeA.username),
+      admin: await login(admin.username), adminSelf: await login(adminSelf.username) };
     const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
     await t.test('permission and scope are bound to the same active assignment', async () => {
       await request(server).get(`/employee-bsc/${employeeABsc.id}`).set(auth(tokens.admin)).expect(403);
       await request(server).get(`/employee-bsc/${employeeABsc.id}`).set(auth(tokens.adminSelf)).expect(403);
       await request(server).post(`/employee-bsc/${employeeABsc.id}/plan/approve`).set(auth(tokens.adminSelf)).send({}).expect(403);
+    });
+
+    await t.test('canonical MANAGER can view only the assigned employee BSC and cannot review it', async () => {
+      const list = await request(server).get('/employee-bsc?limit=100').set(auth(tokens.managerViewOnly)).expect(200);
+      assert.deepEqual(list.body.items.map((row: { id: string }) => row.id), [employeeViewOnlyBsc.id]);
+      await request(server).get(`/employee-bsc/${employeeViewOnlyBsc.id}`).set(auth(tokens.managerViewOnly)).expect(200);
+      await request(server).get(`/employee-bsc/${employeeViewOnlyOtherDepartmentBsc.id}`).set(auth(tokens.managerViewOnly)).expect(403);
+      await request(server).get(`/employee-bsc/${employeeBBsc.id}`).set(auth(tokens.managerViewOnly)).expect(403);
+      await request(server).get('/employee-bsc/pending-review?stage=PLAN&limit=100').set(auth(tokens.managerViewOnly)).expect(403);
+      await request(server).get('/employee-bsc/pending-review?stage=EVALUATION&limit=100').set(auth(tokens.managerViewOnly)).expect(403);
+      await request(server).get('/employee-bsc/reopen-requests/pending?limit=100').set(auth(tokens.managerViewOnly)).expect(403);
+      await request(server).post(`/employee-bsc/${employeeViewOnlyBsc.id}/plan/approve`).set(auth(tokens.managerViewOnly)).send({}).expect(403);
+      await request(server).post(`/employee-bsc/${employeeViewOnlyBsc.id}/plan/return`).set(auth(tokens.managerViewOnly)).send({ reason: 'Không hợp lệ' }).expect(403);
+      await request(server).post(`/employee-bsc/${employeeViewOnlyBsc.id}/evaluation/approve`).set(auth(tokens.managerViewOnly)).send({}).expect(403);
+      await request(server).post(`/employee-bsc/${employeeViewOnlyBsc.id}/evaluation/return`).set(auth(tokens.managerViewOnly)).send({ reason: 'Không hợp lệ' }).expect(403);
     });
 
     await t.test('manager list, total, pending review and object endpoints are isolated', async () => {
@@ -184,13 +212,50 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       await request(server).post(`/employee-bsc/${employeeABsc.id}/plan/approve`).set(auth(tokens.managerA2)).send({}).expect(200);
     });
 
-    await t.test('DIRECTOR reviews MANAGER in scope only and never self-approves or bypasses an employee manager', async () => {
-      await request(server).post(`/employee-bsc/${managerBBsc.id}/plan/approve`).set(auth(tokens.directorA)).send({}).expect(403);
+    await t.test('DIRECTOR can approve and return PLAN and EVALUATION across visible Manager and Employee BSCs', async () => {
+      const evaluationEmployeeBsc = await bsc(employeeA2, managerA.id, 'APPROVED', 'SUBMITTED');
+      const evaluationManagerBsc = await bsc(managerA2, directorA.id, 'APPROVED', 'SUBMITTED');
+      const visible = await request(server).get('/employee-bsc?limit=100').set(auth(tokens.directorA)).expect(200);
+      const visibleIds = new Set(visible.body.items.map((row: { id: string }) => row.id));
+      assert.ok(visibleIds.has(managerABsc.id)); assert.ok(visibleIds.has(employeeABsc.id));
+      await request(server).get(`/employee-bsc/${managerABsc.id}`).set(auth(tokens.directorA)).expect(200);
+      await request(server).get(`/employee-bsc/${employeeABsc.id}`).set(auth(tokens.directorA)).expect(200);
+      const pending = await request(server).get('/employee-bsc/pending-review?stage=PLAN&limit=100').set(auth(tokens.directorA)).expect(200);
+      const pendingPlanIds = new Set(pending.body.items.map((row: { id: string }) => row.id));
+      assert.ok(pendingPlanIds.has(managerABsc.id)); assert.ok(pendingPlanIds.has(employeeBBsc.id));
+      assert.ok(!pendingPlanIds.has(directorABsc.id));
       await request(server).post(`/employee-bsc/${directorABsc.id}/plan/approve`).set(auth(tokens.directorA)).send({}).expect(403);
-      await request(server).post(`/employee-bsc/${employeeBBsc.id}/plan/approve`).set(auth(tokens.directorA)).send({}).expect(403);
+      const returnedPlan = await request(server).post(`/employee-bsc/${employeeBBsc.id}/plan/return`).set(auth(tokens.directorA)).send({ reason: 'Cần chỉnh sửa kế hoạch' }).expect(200);
+      assert.equal(returnedPlan.body.plan_status, 'RETURNED');
+      assert.equal(returnedPlan.body.direct_manager_id, managerB.id);
       const approved = await request(server).post(`/employee-bsc/${managerABsc.id}/plan/approve`).set(auth(tokens.directorA)).send({}).expect(200);
       assert.equal(approved.body.plan_status, 'APPROVED');
       assert.equal(approved.body.plan_approved_by, directorA.id);
+      assert.equal(approved.body.direct_manager_id, directorA.id);
+
+      const pendingEvaluation = await request(server).get('/employee-bsc/pending-review?stage=EVALUATION&limit=100').set(auth(tokens.directorA)).expect(200);
+      const pendingEvaluationIds = new Set(pendingEvaluation.body.items.map((row: { id: string }) => row.id));
+      assert.ok(pendingEvaluationIds.has(evaluationEmployeeBsc.id)); assert.ok(pendingEvaluationIds.has(evaluationManagerBsc.id));
+      const approvedEvaluation = await request(server).post(`/employee-bsc/${evaluationEmployeeBsc.id}/evaluation/approve`).set(auth(tokens.directorA)).send({}).expect(200);
+      assert.equal(approvedEvaluation.body.evaluation_status, 'APPROVED');
+      assert.equal(approvedEvaluation.body.evaluation_approved_by, directorA.id);
+      assert.equal(approvedEvaluation.body.direct_manager_id, managerA.id);
+      const returnedEvaluation = await request(server).post(`/employee-bsc/${evaluationManagerBsc.id}/evaluation/return`).set(auth(tokens.directorA)).send({ reason: 'Cần bổ sung kết quả' }).expect(200);
+      assert.equal(returnedEvaluation.body.evaluation_status, 'RETURNED');
+      assert.equal(returnedEvaluation.body.direct_manager_id, directorA.id);
+    });
+
+    await t.test('DIRECTOR can review a reopen request assigned to the direct manager within scope', async () => {
+      const pending = await request(server).get('/employee-bsc/reopen-requests/pending?stage=PLAN&limit=100')
+        .set(auth(tokens.directorA)).expect(200);
+      assert.ok(pending.body.items.some((item: { id: string }) => item.id === directorReopenRequest.id));
+      await request(server).get(`/employee-bsc/reopen-requests/${directorReopenRequest.id}`)
+        .set(auth(tokens.directorA)).expect(200);
+      const approved = await request(server).post(`/employee-bsc/reopen-requests/${directorReopenRequest.id}/approve`)
+        .set(auth(tokens.directorA)).send({}).expect(200);
+      assert.equal(approved.body.status, 'APPROVED');
+      const reopened = await prisma.employee_bsc.findUniqueOrThrow({ where: { id: approvedEmployeeBBsc.id } });
+      assert.equal(reopened.plan_status, 'REOPENED');
     });
 
     await t.test('reports and aggregates exclude the other department', async () => {

@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { SystemConfirmDialogProvider } from '../../../components/system-confirm-dialog';
 import { organizationApi } from '../organization-api';
 import { PositionsPage } from './positions-page';
 
@@ -21,7 +22,7 @@ describe('PositionsPage', () => {
   });
 
   it('labels and explains the organizational rank column', async () => {
-    render(<MemoryRouter><PositionsPage /></MemoryRouter>);
+    render(<SystemConfirmDialogProvider><MemoryRouter><PositionsPage /></MemoryRouter></SystemConfirmDialogProvider>);
 
     expect(screen.getByRole('heading', { level: 1, name: 'Quản lý chức danh' })).toBeVisible();
     expect(screen.getByRole('heading', { level: 2, name: 'Thêm chức danh' })).toBeVisible();

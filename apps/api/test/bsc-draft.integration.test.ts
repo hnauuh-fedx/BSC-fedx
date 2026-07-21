@@ -85,7 +85,7 @@ test('Phase 3B.1 BSC Draft Core integration', { skip: safeDatabase() ? false : '
   const noPermissionRole = await createRole('NO_PERMISSION', []);
   const hash = await argon2.hash(password);
   const createUser = async (suffix: string, departmentId: string, roleId: string, scopeType: 'GLOBAL'|'DEPARTMENT'|'SELF', scopeId: string | null, managerId?: string) => {
-    const user = await prisma.users.create({ data: { employee_code: `${marker}_${suffix}`, full_name: `${marker} ${suffix}`, email: `${marker.toLowerCase()}_${suffix.toLowerCase()}@example.test`, password_hash: hash, department_id: departmentId, position_id: position.id, direct_manager_id: managerId } });
+    const user = await prisma.users.create({ data: { employee_code: `${marker}_${suffix}`, username: String(`${marker}_${suffix}`).toLowerCase(), full_name: `${marker} ${suffix}`, email: `${marker.toLowerCase()}_${suffix.toLowerCase()}@example.test`, password_hash: hash, department_id: departmentId, position_id: position.id, direct_manager_id: managerId } });
     tracked.users.push(user.id);
     await prisma.user_roles.create({ data: { user_id: user.id, role_id: roleId, scope_type: scopeType, scope_id: scopeId } });
     return user;
@@ -108,8 +108,8 @@ test('Phase 3B.1 BSC Draft Core integration', { skip: safeDatabase() ? false : '
   tracked.cycles.push(cycle.id);
 
   const createdApp = await createApp(); app = createdApp.app; await app.init(); const server = app.getHttpServer();
-  const login = async (email: string) => (await request(server).post('/auth/login').send({ email, password }).expect(200)).body.accessToken as string;
-  const tokens = { employee: await login(employee.email), employee2: await login(employee2.email), outsider: await login(outsider.email), manager: await login(manager.email), sameDepartmentManager: await login(sameDepartmentManager.email), otherManager: await login(otherManager.email), global: await login(globalViewer.email), director: await login(director.email), none: await login(noPermission.email) };
+  const login = async (username: string) => (await request(server).post('/auth/login').send({ username, password }).expect(200)).body.accessToken as string;
+  const tokens = { employee: await login(employee.username), employee2: await login(employee2.username), outsider: await login(outsider.username), manager: await login(manager.username), sameDepartmentManager: await login(sameDepartmentManager.username), otherManager: await login(otherManager.username), global: await login(globalViewer.username), director: await login(director.username), none: await login(noPermission.username) };
   const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
     let firstBscId = '';
@@ -135,7 +135,7 @@ test('Phase 3B.1 BSC Draft Core integration', { skip: safeDatabase() ? false : '
       await request(server).get(`/employee-bsc/${firstBscId}`).set(auth(tokens.outsider)).expect(403);
       await request(server).get(`/employee-bsc/${firstBscId}`).set(auth(tokens.otherManager)).expect(403);
       const missing = await request(server).get(`/employee-bsc/${randomUUID()}`).set(auth(tokens.employee)).expect(404); assert.equal(missing.body.code, 'BSC_NOT_FOUND');
-      const selfList = await request(server).get(`/employee-bsc?cycleId=${cycle.id}&employeeId=${employee.id}&planStatus=DRAFT&evaluationStatus=NOT_STARTED&page=1&limit=1&sortBy=created_at&sortOrder=desc`).set(auth(tokens.employee)).expect(200); assert.deepEqual(selfList.body.items.map((item: { employee_id: string }) => item.employee_id), [employee.id]);
+      const selfList = await request(server).get(`/employee-bsc?scope=OWN&cycleId=${cycle.id}&planStatus=DRAFT&evaluationStatus=NOT_STARTED&page=1&limit=1&sortBy=created_at&sortOrder=desc`).set(auth(tokens.employee)).expect(200); assert.deepEqual(selfList.body.items.map((item: { employee_id: string }) => item.employee_id), [employee.id]);
       const departmentPage1 = await request(server).get(`/employee-bsc?departmentId=${departmentA.id}&cycleId=${cycle.id}&page=1&limit=1&sortBy=bsc_code&sortOrder=asc`).set(auth(tokens.manager)).expect(200);
       const departmentPage2 = await request(server).get(`/employee-bsc?departmentId=${departmentA.id}&cycleId=${cycle.id}&page=2&limit=1&sortBy=bsc_code&sortOrder=asc`).set(auth(tokens.manager)).expect(200);
       assert.equal(departmentPage1.body.total, 2); assert.equal(departmentPage2.body.total, 2); assert.notEqual(departmentPage1.body.items[0].id, departmentPage2.body.items[0].id);
@@ -145,8 +145,18 @@ test('Phase 3B.1 BSC Draft Core integration', { skip: safeDatabase() ? false : '
     });
 
     await t.test('owner and manager can maintain KPI definitions while actual fields stay stage-separated', async () => {
-      const baseItem = { kpiCode: `${marker}_KPI_1`, kpiName: 'KPI 1', targetValue: 100, weight: 60, calculationMethod: 'ACTUAL_DIV_TARGET', sortOrder: 1 };
+      const baseItem = { kpiCode: `${marker}_KPI_1`, goalGroupCode: 'IMPORTANT_URGENT', kpiName: 'KPI 1', targetValue: 100, weight: 60, sortOrder: 1 };
       const created = await request(server).post(`/employee-bsc/${firstBscId}/items`).set(auth(tokens.manager)).send(baseItem).expect(201); firstItemId = created.body.id;
+      assert.equal(created.body.goal_group_code, 'IMPORTANT_URGENT');
+      assert.equal(created.body.measurement_unit, '%');
+      assert.equal(created.body.measurement_frequency, 'Tháng');
+      assert.equal(created.body.calculation_method, 'ACTUAL_DIV_TARGET');
+      await request(server).post(`/employee-bsc/${firstBscId}/items`).set(auth(tokens.manager)).send({ ...baseItem, kpiCode: `${marker}_FIXED_FIELDS`, measurementUnit: 'VNĐ', measurementFrequency: 'Quý', weight: 1 }).expect(400);
+      await request(server).post(`/employee-bsc/${firstBscId}/items`).set(auth(tokens.manager)).send({ ...baseItem, kpiCode: `${marker}_FIXED_METHOD`, calculationMethod: 'TARGET_DIV_ACTUAL', weight: 1 }).expect(400);
+      await request(server).patch(`/employee-bsc/${firstBscId}/items/${firstItemId}`).set(auth(tokens.manager)).send({ measurementUnit: 'VNĐ', measurementFrequency: 'Quý' }).expect(400);
+      const groupedDetail = await request(server).get(`/employee-bsc/${firstBscId}`).set(auth(tokens.employee)).expect(200);
+      assert.equal(groupedDetail.body.goal_groups.length, 5);
+      assert.equal(groupedDetail.body.goal_groups[2].code, 'IMPORTANT_URGENT');
       const duplicateItem = await request(server).post(`/employee-bsc/${firstBscId}/items`).set(auth(tokens.manager)).send({ ...baseItem, weight: 1 }).expect(409); assert.equal(duplicateItem.body.code, 'BSC_ITEM_CODE_EXISTS');
       const ownerItem = await request(server).post(`/employee-bsc/${firstBscId}/items`).set(auth(tokens.employee)).send({ ...baseItem, kpiCode: `${marker}_EMPLOYEE`, weight: 1 }).expect(201);
       await request(server).delete(`/employee-bsc/${firstBscId}/items/${ownerItem.body.id}`).set(auth(tokens.employee)).expect(200);

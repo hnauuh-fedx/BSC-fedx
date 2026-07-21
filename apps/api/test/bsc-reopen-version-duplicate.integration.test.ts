@@ -100,7 +100,7 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
     const hash = await argon2.hash(password);
     const user = async (name: string, roleId: string, departmentId: string, scope: 'SELF'|'DEPARTMENT', managerId?: string) => {
       const result = await prisma.users.create({ data: {
-        employee_code: `${marker}_${name}`, full_name: `${marker} ${name}`,
+        employee_code: `${marker}_${name}`, username: String(`${marker}_${name}`).toLowerCase(), full_name: `${marker} ${name}`,
         email: `${marker.toLowerCase()}_${name.toLowerCase()}@example.test`, password_hash: hash,
         department_id: departmentId, position_id: position.id, direct_manager_id: managerId,
       } });
@@ -145,8 +145,8 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       return { ...bsc, item };
     };
     const created = await createApp(); app = created.app; await app.init(); const server = app.getHttpServer();
-    const login = async (email: string) => (await request(server).post('/auth/login').send({ email, password }).expect(200)).body.accessToken as string;
-    const tokens = { manager: await login(manager.email), otherManager: await login(otherManager.email), employee: await login(employee.email), employee2: await login(employee2.email) };
+    const login = async (username: string) => (await request(server).post('/auth/login').send({ username, password }).expect(200)).body.accessToken as string;
+    const tokens = { manager: await login(manager.username), otherManager: await login(otherManager.username), employee: await login(employee.username), employee2: await login(employee2.username) };
     const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
     const expectHttp = async (call: any, status: number) => { httpAssertions += 1; return call.expect(status); };
     const approvePlan = async (record: { id: string }, ownerToken = tokens.employee) => {
@@ -314,7 +314,7 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       assert.equal(await prisma.bsc_status_histories.count({ where: { employee_bsc_id: approveRaceRecord.id, action: 'APPROVE_PLAN_REOPEN' } }), 1);
     });
 
-    await t.test('duplicate always uses latest approved PLAN snapshot and current organization', async () => {
+    await t.test('duplicate uses version 1, falls back to a blank BSC and keeps current organization', async () => {
       const sourceCycle = await cycle(6), targetCycle1 = await cycle(7), targetCycle2 = await cycle(8), targetCycle3 = await cycle(9), targetCycle4 = await cycle(10), targetCycle5 = await cycle(11);
       const source = await createBsc('DUP_SOURCE', employee, sourceCycle, null);
       await approvePlan(source);
@@ -324,6 +324,7 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       await expectHttp(request(server).patch(`/employee-bsc/${source.id}/items/${source.item.id}`).set(auth(tokens.employee)).send({ targetValue: 150 }), 200);
       const options = await expectHttp(request(server).get(`/employee-bsc/${source.id}/duplicate-options`).set(auth(tokens.employee)), 200);
       assert.equal(options.body.suggestedCycleId, targetCycle1.id);
+      assert.equal(options.body.sourceVersion.versionNumber, 1);
       const first = await expectHttp(request(server).post(`/employee-bsc/${source.id}/duplicate`).set(auth(tokens.employee)).send({ targetCycleId: targetCycle1.id }), 201);
       assert.equal(first.body.plan_status, 'DRAFT'); assert.equal(first.body.evaluation_status, 'NOT_STARTED');
       assert.equal(first.body.source_bsc_id, source.id); assert.ok(first.body.source_bsc_version_id);
@@ -333,11 +334,18 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       await expectHttp(request(server).post(`/employee-bsc/${source.id}/plan/submit`).set(auth(tokens.employee)).send({}), 200);
       await expectHttp(request(server).post(`/employee-bsc/${source.id}/plan/approve`).set(auth(tokens.manager)).send({}), 200);
       const second = await expectHttp(request(server).post(`/employee-bsc/${source.id}/duplicate`).set(auth(tokens.employee)).send({ targetCycleId: targetCycle2.id }), 201);
-      assert.equal(Number(second.body.employee_bsc_items[0].target_value), 150);
+      assert.equal(Number(second.body.employee_bsc_items[0].target_value), 100);
       const duplicates = await Promise.all([0, 1].map(() => request(server).post(`/employee-bsc/${source.id}/duplicate`)
         .set(auth(tokens.employee)).send({ targetCycleId: targetCycle3.id })));
       httpAssertions += 2; assert.deepEqual(duplicates.map(row => row.status).sort(), [201, 409]);
       await expectHttp(request(server).post(`/employee-bsc/${source.id}/duplicate`).set(auth(tokens.employee)).send({ targetCycleId: targetCycle1.id }), 409);
+      const blankSourceCycle = await cycle(1, 'OPEN', 2093), blankTargetCycle = await cycle(2, 'OPEN', 2093);
+      const blankSource = await createBsc('DUP_BLANK_SOURCE', employee, blankSourceCycle, null);
+      const blankOptions = await expectHttp(request(server).get(`/employee-bsc/${blankSource.id}/duplicate-options`).set(auth(tokens.employee)), 200);
+      assert.equal(blankOptions.body.sourceVersion, null);
+      const blankDuplicate = await expectHttp(request(server).post(`/employee-bsc/${blankSource.id}/duplicate`).set(auth(tokens.employee)).send({ targetCycleId: blankTargetCycle.id }), 201);
+      assert.equal(blankDuplicate.body.source_bsc_version_id, null);
+      assert.equal(blankDuplicate.body.employee_bsc_items.length, 0);
       const today = new Date(); today.setUTCHours(0, 0, 0, 0);
       await prisma.manager_relationships.updateMany({
         where: { employee_id: employee.id, manager_id: manager.id, is_primary: true },

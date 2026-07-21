@@ -10,7 +10,7 @@ export const AUTH_ERRORS = {
 
 export type AuthErrorCode = (typeof AUTH_ERRORS)[keyof typeof AUTH_ERRORS];
 
-/** Mặc định: tối đa 5 lần thất bại trong 15 phút mỗi IP+email */
+/** Mặc định: tối đa 5 lần thất bại trong 15 phút mỗi IP+username */
 export const RATE_LIMIT_DEFAULTS = {
   MAX_ATTEMPTS: Number(process.env.RATE_LIMIT_MAX_ATTEMPTS) || 5,
   WINDOW_MS: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,

@@ -19,3 +19,7 @@ export class DepartmentQueryDto {
   @IsOptional() @IsIn(['code', 'name', 'created_at']) sortBy: 'code' | 'name' | 'created_at' = 'name';
   @IsOptional() @IsIn(['asc', 'desc']) sortOrder: 'asc' | 'desc' = 'asc';
 }
+export class SetDepartmentManagerDto {
+  @IsUUID() managerId!: string;
+  @IsString() @Length(1, 2000) reason!: string;
+}

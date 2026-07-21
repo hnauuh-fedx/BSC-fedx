@@ -10,7 +10,7 @@ import { GlobalExceptionFilter } from '../src/common/filters/global-exception.fi
 import { PrismaService } from '../src/database/prisma.service';
 import { AuthController } from '../src/modules/auth/controllers/auth.controller';
 import { AuthRepository } from '../src/modules/auth/repositories/auth.repository';
-import { AuthService } from '../src/modules/auth/services/auth.service';
+import { AuthService, DUMMY_PASSWORD_HASH } from '../src/modules/auth/services/auth.service';
 import { JwtAccessGuard } from '../src/modules/auth/guards/jwt-access.guard';
 import { JwtAccessStrategy } from '../src/modules/auth/strategies/jwt-access.strategy';
 
@@ -30,13 +30,13 @@ const password = 'Correct!Horse#1';
 
 async function createApp() {
   const passwordHash = await argon2.hash(password);
-  const user = { id: 'user-uuid-1', employee_code: 'EMP001', full_name: 'Test User', email: 'user@example.test', password_hash: passwordHash, status: 'ACTIVE', deleted_at: null, department_id: 'd1', position_id: 'p1', user_roles_user_roles_user_idTousers: [] as Array<never> };
+  const user = { id: 'user-uuid-1', employee_code: 'EMP001', username: 'test.user', full_name: 'Test User', email: 'user@example.test', password_hash: passwordHash, status: 'ACTIVE', deleted_at: null, department_id: 'd1', position_id: 'p1', user_roles_user_roles_user_idTousers: [] as Array<never> };
   let storedHash = '';
   let storedJti = '';
   let revoked = false;
   const auditPayloads: unknown[] = [];
   const prisma = {
-    users: { findUnique: async () => user, update: async () => ({}) },
+    users: { findUnique: async ({ where }: { where: { username?: string } }) => where.username === undefined || where.username === user.username ? user : null, update: async () => ({}) },
     auth_refresh_tokens: {
       create: async ({ data }: { data: { token_hash: string; jti: string } }) => { storedHash = data.token_hash; storedJti = data.jti; return {}; },
       findUnique: async () => ({ jti: storedJti, token_hash: storedHash, user_id: user.id, expires_at: new Date(Date.now() + 86_400_000), revoked_at: revoked ? new Date() : null }),
@@ -64,7 +64,7 @@ function cookie(response: request.Response): string {
 test('login only returns access data and writes an HttpOnly refresh cookie', async () => {
   const { app, agent, user, getStoredHash } = await createApp();
   try {
-    const response = await agent.post('/auth/login').send({ email: user.email, password }).expect(200);
+    const response = await agent.post('/auth/login').send({ username: user.username, password }).expect(200);
     assert.equal(typeof response.body.accessToken, 'string');
     for (const forbidden of ['refreshToken', 'password_hash', 'token_hash']) assert.equal(JSON.stringify(response.body).includes(forbidden), false);
     const setCookie = cookie(response);
@@ -74,10 +74,27 @@ test('login only returns access data and writes an HttpOnly refresh cookie', asy
   } finally { await app.close(); }
 });
 
+test('login accepts username only and rejects the legacy email payload', async () => {
+  const { app, agent, user } = await createApp();
+  try {
+    await agent.post('/auth/login').send({ username: user.username.toUpperCase(), password }).expect(200);
+    await agent.post('/auth/login').send({ email: user.email, password }).expect(400);
+  } finally { await app.close(); }
+});
+
+test('unknown usernames use a valid dummy Argon2 hash', async () => {
+  assert.equal(await argon2.verify(DUMMY_PASSWORD_HASH, 'any-password'), false);
+  const { app, agent, auditPayloads } = await createApp();
+  try {
+    await agent.post('/auth/login').send({ username: 'missing.user', password: 'any-password' }).expect(401);
+    assert.match(JSON.stringify(auditPayloads), /missing\.user/);
+  } finally { await app.close(); }
+});
+
 test('agent refreshes through cookie, logout clears it, and revoked token cannot refresh', async () => {
   const { app, agent, user } = await createApp();
   try {
-    await agent.post('/auth/login').send({ email: user.email, password }).expect(200);
+    await agent.post('/auth/login').send({ username: user.username, password }).expect(200);
     const refreshed = await agent.post('/auth/refresh').set('Origin', 'http://localhost:5173').expect(200);
     const logout = await agent.post('/auth/logout').set('Origin', 'http://localhost:5173').set('Authorization', `Bearer ${refreshed.body.accessToken}`).expect(200);
     const cleared = logout.headers['set-cookie']?.[0] ?? '';
@@ -89,7 +106,7 @@ test('agent refreshes through cookie, logout clears it, and revoked token cannot
 test('refresh requires an exact allowed Origin or Referer', async () => {
   const { app, agent, user } = await createApp();
   try {
-    await agent.post('/auth/login').send({ email: user.email, password }).expect(200);
+    await agent.post('/auth/login').send({ username: user.username, password }).expect(200);
     await agent.post('/auth/refresh').set('Origin', 'http://localhost:5173').expect(200);
     await agent.post('/auth/refresh').set('Referer', 'http://localhost:5173/login').expect(200);
     await agent.post('/auth/refresh').set('Origin', 'http://localhost:5173.attacker.test').expect(403);
@@ -113,7 +130,7 @@ test('production requires Origin or Referer and marks refresh cookie Secure', as
   process.env.LOG_LEVEL = 'warn';
   const { app, agent, user } = await createApp();
   try {
-    const login = await agent.post('/auth/login').send({ email: user.email, password }).expect(200);
+    const login = await agent.post('/auth/login').send({ username: user.username, password }).expect(200);
     assert.match(cookie(login), /Secure/);
     await agent.post('/auth/refresh').set('Cookie', cookie(login).split(';')[0]).expect(403);
     const logout = await request(app.getHttpServer()).post('/auth/logout').set('Origin', 'https://bsc-staging.example.test').set('Cookie', cookie(login).split(';')[0]).set('Authorization', `Bearer ${login.body.accessToken}`).expect(200);
@@ -129,10 +146,10 @@ test('rate limiter returns 429, expires entries, and disposes the cleanup timer'
   process.env.RATE_LIMIT_MAX_ATTEMPTS = '1'; process.env.RATE_LIMIT_WINDOW_MS = '250';
   const { app, agent } = await createApp();
   try {
-    await agent.post('/auth/login').send({ email: 'wrong@example.test', password: 'wrong' }).expect(401);
-    await agent.post('/auth/login').send({ email: 'wrong@example.test', password: 'wrong' }).expect(429);
+    await agent.post('/auth/login').send({ username: 'wrong.user', password: 'wrong' }).expect(401);
+    await agent.post('/auth/login').send({ username: 'wrong.user', password: 'wrong' }).expect(429);
     await new Promise((resolve) => setTimeout(resolve, 300));
-    await agent.post('/auth/login').send({ email: 'wrong@example.test', password: 'wrong' }).expect(401);
+    await agent.post('/auth/login').send({ username: 'wrong.user', password: 'wrong' }).expect(401);
     const service = app.get(AuthService); service.cleanupExpiredRateLimits(Date.now() + 10);
     const timer = (service as unknown as { rateLimitCleanupTimer: NodeJS.Timeout }).rateLimitCleanupTimer;
     await app.close(); assert.equal((timer as unknown as { _destroyed?: boolean })._destroyed, true);
@@ -142,7 +159,7 @@ test('rate limiter returns 429, expires entries, and disposes the cleanup timer'
 test('audit payloads never include a password or token', async () => {
   const { app, agent, auditPayloads } = await createApp();
   try {
-    await agent.post('/auth/login').send({ email: 'wrong@example.test', password: 'do-not-log-me' }).expect(401);
+    await agent.post('/auth/login').send({ username: 'wrong.user', password: 'do-not-log-me' }).expect(401);
     const serialized = JSON.stringify(auditPayloads);
     for (const secret of ['do-not-log-me', 'password', 'token', 'refresh_token']) assert.equal(serialized.includes(secret), false);
   } finally { await app.close(); }

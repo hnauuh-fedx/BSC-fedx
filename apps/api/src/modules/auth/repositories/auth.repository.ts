@@ -16,15 +16,16 @@ export class AuthRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Tìm user theo email — bao gồm password_hash để verify.
+   * Tìm user theo username chuẩn hóa — bao gồm password_hash để verify.
    * Chỉ được gọi trong auth flow, không được dùng ở nơi khác.
    */
-  async findUserByEmail(email: string) {
+  async findUserByUsername(username: string) {
     return this.prisma.users.findUnique({
-      where: { email },
+      where: { username },
       select: {
         id: true,
         employee_code: true,
+        username: true,
         full_name: true,
         email: true,
         password_hash: true,

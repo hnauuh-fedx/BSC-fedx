@@ -6,12 +6,12 @@ export interface AuthUser {
   status: string;
   departmentId?: string;
   positionId?: string;
-  roles: Array<{ code: string; scopeType: 'GLOBAL' | 'DEPARTMENT' | 'SELF'; scopeId: string | null }>;
+  roles: Array<{ code: string; scopeType: 'GLOBAL' | 'DEPARTMENT' | 'SELF'; scopeId: string | null; permissions?: string[] }>;
   permissions: string[];
 }
 
 export interface LoginRequest {
-  email: string;
+  username: string;
   password: string;
 }
 

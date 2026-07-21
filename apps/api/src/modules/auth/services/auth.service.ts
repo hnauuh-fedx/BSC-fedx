@@ -15,9 +15,11 @@ import { AuthRepository } from '../repositories/auth.repository';
 import { LoginDto } from '../dto/login.dto';
 import { AccessTokenPayload, RefreshTokenPayload } from '../types/auth-token-payload.type';
 import { AUTH_ERRORS, RATE_LIMIT_DEFAULTS } from '../auth.constants';
+import { normalizeUsername } from '../../../common/username';
 
-/** Thông báo lỗi chung — không phân biệt email sai hay password sai */
-const INVALID_CREDENTIALS_MSG = 'Email hoặc mật khẩu không chính xác.';
+/** Thông báo lỗi chung — không phân biệt username sai hay password sai */
+const INVALID_CREDENTIALS_MSG = 'Tên đăng nhập hoặc mật khẩu không chính xác.';
+export const DUMMY_PASSWORD_HASH = '$argon2id$v=19$m=65536,t=3,p=4$a9DNGO04YND/uFxb4OxBbg$Y2K0R8L7DbMtQZRCQyzrsicdC4mhjF+A+MIe8Wj6ieA';
 
 interface RateLimitEntry {
   count: number;
@@ -43,7 +45,7 @@ export class AuthService implements OnModuleDestroy {
 
   /**
    * Rate limit store — in-memory Map.
-   * Key: `${ip}:${email.toLowerCase()}` để giới hạn theo cả IP và email.
+   * Key: `${ip}:${username}` để giới hạn theo cả IP và username.
    * Reset khi server restart — phù hợp cho dự án nội bộ.
    */
   private readonly rateLimitStore = new Map<string, RateLimitEntry>();
@@ -68,15 +70,17 @@ export class AuthService implements OnModuleDestroy {
     ipAddress: string,
     userAgent: string,
   ): Promise<LoginResult> {
+    const username = normalizeUsername(dto.username);
     // 1. Kiểm tra rate limit
-    this.checkRateLimit(ipAddress, dto.email);
+    this.checkRateLimit(ipAddress, username);
 
     // 2. Tìm user — không tiết lộ lý do thất bại cụ thể
-    const user = await this.authRepository.findUserByEmail(dto.email);
+    const user = await this.authRepository.findUserByUsername(username);
 
     if (!user) {
-      await this.recordFailedLogin(undefined, dto.email, ipAddress, userAgent);
-      this.incrementFailedAttempt(ipAddress, dto.email);
+      await argon2.verify(DUMMY_PASSWORD_HASH, dto.password).catch(() => false);
+      await this.recordFailedLogin(undefined, username, ipAddress, userAgent);
+      this.incrementFailedAttempt(ipAddress, username);
       throw new UnauthorizedException({
         code: AUTH_ERRORS.INVALID_CREDENTIALS,
         message: INVALID_CREDENTIALS_MSG,
@@ -93,8 +97,8 @@ export class AuthService implements OnModuleDestroy {
     }
 
     if (!isPasswordValid) {
-      await this.recordFailedLogin(user.id, dto.email, ipAddress, userAgent);
-      this.incrementFailedAttempt(ipAddress, dto.email);
+      await this.recordFailedLogin(user.id, username, ipAddress, userAgent);
+      this.incrementFailedAttempt(ipAddress, username);
       throw new UnauthorizedException({
         code: AUTH_ERRORS.INVALID_CREDENTIALS,
         message: INVALID_CREDENTIALS_MSG,
@@ -103,7 +107,7 @@ export class AuthService implements OnModuleDestroy {
 
     // 4. Kiểm tra trạng thái tài khoản — sau khi verify password để tránh timing attack
     if (user.deleted_at !== null) {
-      await this.recordFailedLogin(user.id, dto.email, ipAddress, userAgent);
+      await this.recordFailedLogin(user.id, username, ipAddress, userAgent);
       throw new UnauthorizedException({
         code: AUTH_ERRORS.INVALID_CREDENTIALS,
         message: INVALID_CREDENTIALS_MSG,
@@ -111,7 +115,7 @@ export class AuthService implements OnModuleDestroy {
     }
 
     if (user.status === 'INACTIVE') {
-      await this.recordFailedLogin(user.id, dto.email, ipAddress, userAgent);
+      await this.recordFailedLogin(user.id, username, ipAddress, userAgent);
       throw new UnauthorizedException({
         code: AUTH_ERRORS.ACCOUNT_DISABLED,
         message: INVALID_CREDENTIALS_MSG,
@@ -119,7 +123,7 @@ export class AuthService implements OnModuleDestroy {
     }
 
     if (user.status === 'LOCKED') {
-      await this.recordFailedLogin(user.id, dto.email, ipAddress, userAgent);
+      await this.recordFailedLogin(user.id, username, ipAddress, userAgent);
       throw new UnauthorizedException({
         code: AUTH_ERRORS.ACCOUNT_LOCKED,
         message: INVALID_CREDENTIALS_MSG,
@@ -127,7 +131,7 @@ export class AuthService implements OnModuleDestroy {
     }
 
     // 5. Xóa rate limit sau khi login thành công
-    this.clearRateLimit(ipAddress, dto.email);
+    this.clearRateLimit(ipAddress, username);
 
     // 6. Tạo tokens
     const { accessToken, refreshToken, jti, expiresIn, refreshExpiresAt } =
@@ -154,7 +158,7 @@ export class AuthService implements OnModuleDestroy {
       entityType: 'users',
       entityId: user.id,
       action: 'LOGIN_SUCCESS',
-      newData: { email: user.email },
+      newData: { username: user.username },
       ipAddress,
       userAgent,
     });
@@ -313,7 +317,12 @@ export class AuthService implements OnModuleDestroy {
       email: user.email,
       status: user.status,
       departmentId: user.department_id,
-      roles: user.user_roles_user_roles_user_idTousers.map((assignment) => ({ code: assignment.roles.code, scopeType: assignment.scope_type, scopeId: assignment.scope_id })),
+      roles: user.user_roles_user_roles_user_idTousers.map((assignment) => ({
+        code: assignment.roles.code,
+        scopeType: assignment.scope_type,
+        scopeId: assignment.scope_id,
+        permissions: assignment.roles.role_permissions.map((rolePermission) => rolePermission.permissions.code),
+      })),
       permissions: [...new Set(user.user_roles_user_roles_user_idTousers.flatMap((assignment) => assignment.roles.role_permissions.map((rolePermission) => rolePermission.permissions.code)))],
     };
   }
@@ -379,9 +388,9 @@ export class AuthService implements OnModuleDestroy {
     }
   }
 
-  private checkRateLimit(ipAddress: string, email: string): void {
+  private checkRateLimit(ipAddress: string, username: string): void {
     const { maxAttempts, windowMs } = this.rateLimitConfig();
-    const key = this.rateLimitKey(ipAddress, email);
+    const key = this.rateLimitKey(ipAddress, username);
     const entry = this.rateLimitStore.get(key);
     const now = Date.now();
 
@@ -404,7 +413,7 @@ export class AuthService implements OnModuleDestroy {
     }
   }
 
-  private incrementFailedAttempt(ipAddress: string, email: string): void {
+  private incrementFailedAttempt(ipAddress: string, username: string): void {
     const { windowMs } = this.rateLimitConfig();
     if (this.rateLimitStore.size >= AuthService.RATE_LIMIT_MAX_ENTRIES) {
       this.cleanupExpiredRateLimits();
@@ -415,7 +424,7 @@ export class AuthService implements OnModuleDestroy {
         }
       }
     }
-    const key = this.rateLimitKey(ipAddress, email);
+    const key = this.rateLimitKey(ipAddress, username);
     const now = Date.now();
     const entry = this.rateLimitStore.get(key);
 
@@ -426,8 +435,8 @@ export class AuthService implements OnModuleDestroy {
     }
   }
 
-  private clearRateLimit(ipAddress: string, email: string): void {
-    this.rateLimitStore.delete(this.rateLimitKey(ipAddress, email));
+  private clearRateLimit(ipAddress: string, username: string): void {
+    this.rateLimitStore.delete(this.rateLimitKey(ipAddress, username));
   }
 
   /** Removes expired in-memory entries. The limiter intentionally resets on API restart. */
@@ -447,13 +456,13 @@ export class AuthService implements OnModuleDestroy {
     };
   }
 
-  private rateLimitKey(ipAddress: string, email: string): string {
-    return `${ipAddress}:${email.toLowerCase()}`;
+  private rateLimitKey(ipAddress: string, username: string): string {
+    return `${ipAddress}:${username.toLowerCase()}`;
   }
 
   private async recordFailedLogin(
     userId: string | undefined,
-    email: string,
+    username: string,
     ipAddress: string,
     userAgent: string,
   ): Promise<void> {
@@ -463,7 +472,7 @@ export class AuthService implements OnModuleDestroy {
       module: 'auth',
       entityType: 'users',
       action: 'LOGIN_FAILED',
-      newData: { email },
+      newData: { username },
       ipAddress,
       userAgent,
     }).catch(() => {

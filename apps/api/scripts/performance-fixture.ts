@@ -39,9 +39,9 @@ async function seed() {
   const hash = await argon2.hash(randomUUID());
   const department = await prisma.departments.create({ data: { code: code('DEPT'), name: `${prefix} performance` } });
   const position = await prisma.positions.create({ data: { code: code('POS'), name: `${prefix} performance`, level: 1 } });
-  const manager = await prisma.users.create({ data: { employee_code: code('MANAGER'), full_name: `${prefix} manager`, email: `${prefix.toLowerCase()}_manager@perf.example.test`, password_hash: hash, department_id: department.id, position_id: position.id } });
+  const manager = await prisma.users.create({ data: { employee_code: code('MANAGER'), username: code('MANAGER').toLowerCase(), full_name: `${prefix} manager`, email: `${prefix.toLowerCase()}_manager@perf.example.test`, password_hash: hash, department_id: department.id, position_id: position.id } });
   const employees = [];
-  for (let i = 0; i < 100; i += 1) employees.push(await prisma.users.create({ data: { employee_code: code(`E${i}`), full_name: `${prefix} employee ${i}`, email: `${prefix.toLowerCase()}_e${i}@perf.example.test`, password_hash: hash, department_id: department.id, position_id: position.id, direct_manager_id: manager.id } }));
+  for (let i = 0; i < 100; i += 1) employees.push(await prisma.users.create({ data: { employee_code: code(`E${i}`), username: code(`E${i}`).toLowerCase(), full_name: `${prefix} employee ${i}`, email: `${prefix.toLowerCase()}_e${i}@perf.example.test`, password_hash: hash, department_id: department.id, position_id: position.id, direct_manager_id: manager.id } }));
   const cycles = [];
   for (let i = 0; i < 10; i += 1) cycles.push(await prisma.bsc_cycles.create({ data: { code: code(`C${i}`), name: `${prefix} cycle ${i}`, cycle_type: 'MONTH', year: 2070 + i, month: 1, start_date: new Date(`${2070 + i}-01-01`), end_date: new Date(`${2070 + i}-01-31`), submission_deadline: new Date('2099-12-31'), status: 'OPEN', created_by: manager.id } }));
   let bscCount = 0; let itemCount = 0; let versionCount = 0; let pendingCount = 0;

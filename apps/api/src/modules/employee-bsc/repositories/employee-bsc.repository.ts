@@ -4,6 +4,7 @@ import { PrismaService } from '../../../database/prisma.service';
 import { AuthUser } from '../../../common/types/auth-user.type';
 import { AuditRequestMetadata } from '../employee-bsc.types';
 import { CreateBscItemDto, UpdateBscActualDto, UpdateBscItemDto } from '../dto/bsc-item.dto';
+import { BSC_CALCULATION_METHOD, BSC_MEASUREMENT_FREQUENCY, BSC_MEASUREMENT_UNIT } from '../bsc-item-defaults';
 import { QueryEmployeeBscDto } from '../dto/query-employee-bsc.dto';
 import { QueryReopenRequestDto } from '../dto/reopen-bsc.dto';
 import { assertTotalWeight } from '../validators/bsc-item.validator';
@@ -220,8 +221,10 @@ export class EmployeeBscRepository {
     return this.serializable(async (db) => {
       const snapshot = await this.workflowSnapshot(db, id);
       if (!snapshot) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC.' });
-      const reviewerRole = await this.requireActiveReviewer(db, snapshot.employee_id, actor.id);
-      const effectiveSnapshot = { ...snapshot, direct_manager_id: actor.id, reviewer_status: 'ACTIVE', reviewer_deleted_at: null,
+      const reviewPermission = action === 'APPROVE_PLAN' ? 'bsc.plan.approve.subordinate' : 'bsc.plan.return.subordinate';
+      const reviewerRole = await this.resolveActiveReviewActor(db, actor, snapshot.employee_id, snapshot.department_id, reviewPermission);
+      const effectiveSnapshot = { ...snapshot, direct_manager_id: reviewerRole === 'DIRECTOR' ? snapshot.direct_manager_id : actor.id,
+        reviewer_status: 'ACTIVE', reviewer_deleted_at: null,
         reviewer_organization_active: true, reviewer_matches_owner: true, reviewer_role: reviewerRole };
       const reason = validate(effectiveSnapshot);
       const now = new Date();
@@ -231,13 +234,11 @@ export class EmployeeBscRepository {
         data: action === 'APPROVE_PLAN'
           ? {
               plan_status: targetStatus, plan_approved_at: now, plan_approved_by: actor.id,
-              direct_manager_id: actor.id,
               evaluation_status: snapshot.evaluation_status === 'NOT_STARTED' ? 'DRAFT' : snapshot.evaluation_status,
               updated_at: now,
             }
           : {
               plan_status: targetStatus, plan_approved_at: null, plan_approved_by: null, evaluation_status: 'NOT_STARTED', updated_at: now,
-              direct_manager_id: actor.id,
             },
       });
       if (changed.count !== 1) this.workflowConflict();
@@ -299,8 +300,10 @@ export class EmployeeBscRepository {
     return this.serializable(async (db) => {
       const snapshot = await this.workflowSnapshot(db, id);
       if (!snapshot) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC.' });
-      const reviewerRole = await this.requireActiveReviewer(db, snapshot.employee_id, actor.id);
-      const effectiveSnapshot = { ...snapshot, direct_manager_id: actor.id, reviewer_status: 'ACTIVE', reviewer_deleted_at: null,
+      const reviewPermission = action === 'APPROVE_EVALUATION' ? 'bsc.evaluation.approve.subordinate' : 'bsc.evaluation.return.subordinate';
+      const reviewerRole = await this.resolveActiveReviewActor(db, actor, snapshot.employee_id, snapshot.department_id, reviewPermission);
+      const effectiveSnapshot = { ...snapshot, direct_manager_id: reviewerRole === 'DIRECTOR' ? snapshot.direct_manager_id : actor.id,
+        reviewer_status: 'ACTIVE', reviewer_deleted_at: null,
         reviewer_organization_active: true, reviewer_matches_owner: true, reviewer_role: reviewerRole };
       const { scoring, reason } = validate(effectiveSnapshot);
       const now = new Date();
@@ -310,12 +313,10 @@ export class EmployeeBscRepository {
         where: { id, plan_status: 'APPROVED', evaluation_status: 'SUBMITTED' },
         data: approved ? {
           evaluation_status: targetStatus, evaluation_approved_at: now, evaluation_approved_by: actor.id, locked_at: now,
-          direct_manager_id: actor.id,
           manager_total_score: scoring.canonicalTotalWeightedScore, final_score: scoring.canonicalTotalWeightedScore,
           final_grade: scoring.classification, updated_at: now,
         } : {
           evaluation_status: targetStatus, evaluation_approved_at: null, evaluation_approved_by: null, locked_at: null,
-          direct_manager_id: actor.id,
           manager_total_score: null, final_score: null, final_grade: null, updated_at: now,
         },
       });
@@ -575,7 +576,7 @@ export class EmployeeBscRepository {
     });
   }
 
-  duplicateFromApprovedPlan(actor: AuthUser, sourceBscId: string, targetCycleId: string, metadata: AuditRequestMetadata) {
+  duplicateFromFirstVersion(actor: AuthUser, sourceBscId: string, targetCycleId: string, metadata: AuditRequestMetadata) {
     return this.serializable(async (db) => {
       const source = await db.employee_bsc.findUnique({ where: { id: sourceBscId }, select: {
         id: true, employee_id: true, cycle_id: true,
@@ -583,7 +584,7 @@ export class EmployeeBscRepository {
       } });
       if (!source) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC nguồn.' });
       const [version, targetCycle, owner] = await Promise.all([
-        db.bsc_versions.findFirst({ where: { employee_bsc_id: sourceBscId, version_type: 'PLAN_APPROVED' }, orderBy: { version_number: 'desc' } }),
+        db.bsc_versions.findUnique({ where: { employee_bsc_id_version_number: { employee_bsc_id: sourceBscId, version_number: 1 } } }),
         db.bsc_cycles.findUnique({ where: { id: targetCycleId } }),
         db.users.findUnique({ where: { id: actor.id }, select: {
           id: true, employee_code: true, department_id: true, position_id: true, direct_manager_id: true,
@@ -599,7 +600,6 @@ export class EmployeeBscRepository {
           },
         } }),
       ]);
-      if (!version) throw new ConflictException({ code: 'BSC_APPROVED_PLAN_VERSION_NOT_FOUND', message: 'BSC nguồn chưa có phiên bản kế hoạch được duyệt.' });
       if (!targetCycle) throw new NotFoundException({ code: 'BSC_DUPLICATE_TARGET_INVALID', message: 'Không tìm thấy kỳ đích.' });
       this.cyclePolicy.assertCycleAllowsDuplicate(this.cycleTiming(targetCycle));
       if (targetCycle.id === source.cycle_id || targetCycle.start_date <= source.bsc_cycles.start_date) {
@@ -630,30 +630,32 @@ export class EmployeeBscRepository {
           message: 'Không xác định được quan hệ quản lý trực tiếp hiện tại.',
         });
       }
-      const snapshot = version.snapshot as Prisma.JsonObject;
+      const snapshot = (version?.snapshot ?? {}) as Prisma.JsonObject;
       const items = Array.isArray(snapshot.items) ? snapshot.items as Prisma.JsonObject[] : [];
       const totalWeight = items.reduce((sum, item) => sum + Number(item.weight ?? 0), 0);
-      if (items.length === 0 || Math.abs(totalWeight - 100) > 0.000001) {
-        throw new BadRequestException({ code: 'BSC_DUPLICATE_SOURCE_NOT_APPROVED', message: 'Phiên bản kế hoạch nguồn không hợp lệ.' });
+      if (items.length > 0 && Math.abs(totalWeight - 100) > 0.000001) {
+        throw new BadRequestException({ code: 'BSC_DUPLICATE_SOURCE_INVALID', message: 'Phiên bản 1 của BSC nguồn không hợp lệ.' });
       }
       try {
         const duplicated = await db.employee_bsc.create({ data: {
           bsc_code: this.createBscCode(owner.employee_code), cycle_id: targetCycle.id, employee_id: owner.id,
           department_id: owner.department_id, position_id: owner.position_id, direct_manager_id: owner.direct_manager_id,
-          source_bsc_id: source.id, source_bsc_version_id: version.id, plan_status: 'DRAFT', evaluation_status: 'NOT_STARTED',
+          source_bsc_id: source.id, source_bsc_version_id: version?.id ?? null, plan_status: 'DRAFT', evaluation_status: 'NOT_STARTED',
           status: 'DRAFT', created_by: actor.id,
           employee_bsc_items: { create: items.map((item, index) => ({
             kpi_code: String(item.kpiCode ?? `KPI_${index + 1}`).slice(0, 50),
             kpi_name: String(item.kpiName ?? ''), description: this.nullableString(item.description),
-            measurement_unit: this.nullableString(item.measurementUnit),
+            goal_group_code: this.nullableString(item.goalGroupCode) ?? 'COMMON',
+            measurement_unit: BSC_MEASUREMENT_UNIT,
+            measurement_frequency: BSC_MEASUREMENT_FREQUENCY,
             target_value: item.targetValue === null || item.targetValue === undefined ? null : String(item.targetValue),
             target_text: this.nullableString(item.targetText), weight: String(item.weight),
-            calculation_method: String(item.calculationMethod), sort_order: Number(item.sortOrder ?? index),
+            calculation_method: BSC_CALCULATION_METHOD, sort_order: Number(item.sortOrder ?? index),
             assigned_by: owner.direct_manager_id!, actual_value: null, actual_text: null, employee_note: null,
           })) },
         }, select: bscDetailSelect });
         await this.audit(db, actor, 'BSC_DUPLICATED', 'employee_bsc', duplicated.id, null, {
-          sourceBscId: source.id, sourceVersionId: version.id, targetCycleId: targetCycle.id,
+          sourceBscId: source.id, sourceVersionId: version?.id ?? null, targetCycleId: targetCycle.id,
           employeeId: owner.id, departmentId: owner.department_id, positionId: owner.position_id,
           directManagerId: owner.direct_manager_id,
         }, metadata);
@@ -737,11 +739,13 @@ export class EmployeeBscRepository {
           kpi_code: dto.kpiCode.trim().toUpperCase(),
           kpi_name: dto.kpiName.trim(),
           description: dto.description?.trim(),
-          measurement_unit: dto.measurementUnit?.trim(),
+          goal_group_code: dto.goalGroupCode ?? 'COMMON',
+          measurement_unit: BSC_MEASUREMENT_UNIT,
+          measurement_frequency: BSC_MEASUREMENT_FREQUENCY,
           target_value: dto.targetValue,
           target_text: dto.targetText?.trim(),
           weight: dto.weight,
-          calculation_method: dto.calculationMethod,
+          calculation_method: BSC_CALCULATION_METHOD,
           assigned_by: actor.id,
           sort_order: dto.sortOrder,
         },
@@ -764,11 +768,13 @@ export class EmployeeBscRepository {
           ...(dto.kpiCode !== undefined ? { kpi_code: dto.kpiCode.trim().toUpperCase() } : {}),
           ...(dto.kpiName !== undefined ? { kpi_name: dto.kpiName.trim() } : {}),
           ...(dto.description !== undefined ? { description: dto.description.trim() } : {}),
-          ...(dto.measurementUnit !== undefined ? { measurement_unit: dto.measurementUnit.trim() } : {}),
+          ...(dto.goalGroupCode !== undefined ? { goal_group_code: dto.goalGroupCode } : {}),
+          measurement_unit: BSC_MEASUREMENT_UNIT,
+          measurement_frequency: BSC_MEASUREMENT_FREQUENCY,
           ...(dto.targetValue !== undefined ? { target_value: dto.targetValue } : {}),
           ...(dto.targetText !== undefined ? { target_text: dto.targetText.trim() } : {}),
           ...(dto.weight !== undefined ? { weight: dto.weight } : {}),
-          ...(dto.calculationMethod !== undefined ? { calculation_method: dto.calculationMethod } : {}),
+          calculation_method: BSC_CALCULATION_METHOD,
           ...(dto.sortOrder !== undefined ? { sort_order: dto.sortOrder } : {}),
           updated_at: new Date(),
         },
@@ -863,7 +869,9 @@ export class EmployeeBscRepository {
       kpiCode: item.kpi_code,
       kpiName: item.kpi_name,
       description: item.description,
+      goalGroupCode: item.goal_group_code,
       measurementUnit: item.measurement_unit,
+      measurementFrequency: item.measurement_frequency,
       targetValue: item.target_value?.toString() ?? null,
       targetText: item.target_text,
       weight: item.weight.toString(),
@@ -1081,6 +1089,33 @@ export class EmployeeBscRepository {
     return role === 'DIRECTOR' ? 'DIRECTOR' : 'MANAGER';
   }
 
+  private async resolveActiveReviewActor(
+    db: Transaction,
+    actor: AuthUser,
+    employeeId: string,
+    departmentId: string,
+    permission: string,
+  ): Promise<'DIRECTOR' | 'MANAGER'> {
+    const now = new Date();
+    const directorAssignment = actor.roles.find((role) => role.code === 'DIRECTOR'
+      && role.permissions?.includes(permission)
+      && (role.scopeType === 'GLOBAL' || (role.scopeType === 'DEPARTMENT' && role.scopeId === departmentId)));
+    if (directorAssignment) {
+      const director = await db.users.findFirst({ where: {
+        id: actor.id, status: 'ACTIVE', deleted_at: null,
+        departments: { status: 'ACTIVE' }, positions: { status: 'ACTIVE' },
+        user_roles_user_roles_user_idTousers: { some: {
+          scope_type: directorAssignment.scopeType,
+          scope_id: directorAssignment.scopeType === 'DEPARTMENT' ? departmentId : null,
+          roles: { code: 'DIRECTOR', status: 'ACTIVE', role_permissions: { some: { permissions: { code: permission } } } },
+          OR: [{ expires_at: null }, { expires_at: { gt: now } }],
+        } },
+      }, select: { id: true } });
+      if (director) return 'DIRECTOR';
+    }
+    return this.requireActiveReviewer(db, employeeId, actor.id);
+  }
+
   private workflowConflict(): never {
     throw new ConflictException({ code: 'BSC_WORKFLOW_CONFLICT', message: 'Trạng thái BSC vừa được thay đổi bởi yêu cầu khác.' });
   }
@@ -1136,10 +1171,11 @@ export class EmployeeBscRepository {
 
   private itemAudit(item: {
     id: string; employee_bsc_id: string; kpi_code: string; kpi_name: string; description: string | null;
-    measurement_unit: string | null; target_value: Prisma.Decimal | null; target_text: string | null;
+    goal_group_code: string; measurement_unit: string | null; measurement_frequency: string | null;
+    target_value: Prisma.Decimal | null; target_text: string | null;
     weight: Prisma.Decimal; calculation_method: string; sort_order: number;
   }) {
-    return { bscId: item.employee_bsc_id, itemId: item.id, kpiCode: item.kpi_code, kpiName: item.kpi_name, description: item.description, measurementUnit: item.measurement_unit, targetValue: item.target_value, targetText: item.target_text, weight: item.weight, calculationMethod: item.calculation_method, sortOrder: item.sort_order };
+    return { bscId: item.employee_bsc_id, itemId: item.id, kpiCode: item.kpi_code, kpiName: item.kpi_name, description: item.description, goalGroupCode: item.goal_group_code, measurementUnit: item.measurement_unit, measurementFrequency: item.measurement_frequency, targetValue: item.target_value, targetText: item.target_text, weight: item.weight, calculationMethod: item.calculation_method, sortOrder: item.sort_order };
   }
 
   private audit(db: Transaction, actor: AuthUser, action: string, entityType: string, entityId: string, oldData: unknown, newData: unknown, metadata: AuditRequestMetadata) {

@@ -20,6 +20,14 @@ CodeGraph is configured globally for Codex because its installer does not suppor
 
 To refresh the graph manually, run `codegraph sync` from the repository root. To remove only this repository's graph, run `codegraph uninit`; to remove the Codex integration and CLI, run `codegraph uninstall`.
 
+## Project-Local UI Skill
+
+| Skill | Source | Purpose | Project Application |
+| --- | --- | --- | --- |
+| `shadcn` | `shadcn/ui` via Skills CLI | Project-aware shadcn/ui and Tailwind CSS workflow guidance. | Reads `apps/web/components.json` so UI work follows the configured Vite, Tailwind CSS v4, `radix-nova`, Lucide, and `@/*` alias conventions. |
+
+The skill is stored at `.agents/skills/shadcn`. It guides component discovery, documentation lookup, safe CLI usage, Tailwind semantic tokens, accessibility, forms, and composition. It does not add UI components until a feature explicitly needs them.
+
 ## Skills Evaluated
 
 | Skill or Capability | Decision | Reason |

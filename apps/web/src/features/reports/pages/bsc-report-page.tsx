@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/hooks/use-auth';
 import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SearchInput, TableContainer } from '../../organization/management-ui';
 import { reportsApi } from '../reports-api';
@@ -11,6 +11,7 @@ const date = (value: string | null) => value ? new Intl.DateTimeFormat('vi-VN').
 const statuses = ['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REOPENED'];
 
 export const BscReportPage: React.FC = () => {
+  const navigate = useNavigate();
   const { user } = useAuth(); const [options, setOptions] = useState<ReportOptions | null>(null), [items, setItems] = useState<ReportRow[]>([]);
   const [cycleId, setCycleId] = useState(''), [departmentId, setDepartmentId] = useState(''), [employeeId, setEmployeeId] = useState('');
   const [planStatus, setPlanStatus] = useState(''), [evaluationStatus, setEvaluationStatus] = useState(''), [finalGrade, setFinalGrade] = useState(''), [search, setSearch] = useState('');
@@ -27,7 +28,7 @@ export const BscReportPage: React.FC = () => {
     <section className="filter-bar" aria-label="Bộ lọc báo cáo">
       <label>Kỳ BSC<select value={cycleId} onChange={change(setCycleId)}><option value="">Tất cả kỳ</option>{options?.cycles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label>Phòng ban<select value={departmentId} onChange={change(setDepartmentId)}><option value="">Tất cả phòng ban</option>{options?.departments.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label>Nhân viên<select value={employeeId} onChange={change(setEmployeeId)}><option value="">Tất cả nhân viên</option>{options?.employees.map(item => <option key={item.id} value={item.id}>{item.employee_code} — {item.full_name}</option>)}</select></label>
+      <label>Nhân viên<select value={employeeId} onChange={change(setEmployeeId)}><option value="">Tất cả nhân viên</option>{options?.employees.map(item => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label>
       <label>Trạng thái PLAN<select value={planStatus} onChange={change(setPlanStatus)}><option value="">Tất cả</option>{statuses.map(value => <option key={value} value={value}>{workflowStatusLabel(value)}</option>)}</select></label>
       <label>Trạng thái EVALUATION<select value={evaluationStatus} onChange={change(setEvaluationStatus)}><option value="">Tất cả</option>{['NOT_STARTED', ...statuses].map(value => <option key={value} value={value}>{workflowStatusLabel(value)}</option>)}</select></label>
       <label>Xếp loại<select value={finalGrade} onChange={change(setFinalGrade)}><option value="">Tất cả</option>{['C', 'B', 'A', 'A+', 'A++'].map(value => <option key={value}>{value}</option>)}</select></label>
@@ -38,7 +39,7 @@ export const BscReportPage: React.FC = () => {
     </section>
     <p className="filter-summary" role="status">{activeFilterCount > 0 ? `Đang áp dụng ${activeFilterCount} bộ lọc` : 'Đang hiển thị toàn bộ dữ liệu trong phạm vi'} · Sắp xếp {sortOrder === 'desc' ? 'giảm dần' : 'tăng dần'}.</p>
     {error && <ErrorState error={error} onRetry={() => setReload(value => value + 1)}/>}
-    {loading ? <LoadingState/> : !error && items.length === 0 ? <EmptyState message="Không có dữ liệu BSC phù hợp."/> : !error && <TableContainer label="Báo cáo BSC chi tiết"><table className="min-w-[1400px] w-full"><thead><tr><th scope="col">Mã nhân viên</th><th scope="col">Họ tên / BSC</th><th scope="col">Phòng ban</th><th scope="col">Chức danh</th><th scope="col">Quản lý trực tiếp</th><th scope="col">Kỳ BSC</th><th scope="col">Kế hoạch</th><th scope="col">Đánh giá kết quả</th><th scope="col">Tổng tỷ trọng</th><th scope="col">Số KPI</th><th scope="col">Điểm chính thức</th><th scope="col">Xếp loại chính thức</th><th scope="col">Duyệt kế hoạch</th><th scope="col">Duyệt kết quả</th></tr></thead><tbody>{items.map(row => <tr key={row.id}><td>{row.employeeCode}</td><td>{row.employeeName}<br/><Link className="underline" to={`/employee-bsc/${row.id}`}>{row.bscCode}</Link></td><td>{row.departmentName}</td><td>{row.positionName}</td><td>{row.directManagerName}</td><td>{row.cycleName}</td><td>{workflowStatusLabel(row.planStatus)}</td><td>{workflowStatusLabel(row.evaluationStatus)}</td><td>{row.totalWeight}%</td><td>{row.kpiCount}</td><td>{row.officialScore ?? '—'}</td><td>{row.officialGrade ?? '—'}</td><td>{date(row.planApprovedAt)}</td><td>{date(row.evaluationApprovedAt)}</td></tr>)}</tbody></table></TableContainer>}
+    {loading ? <LoadingState/> : !error && items.length === 0 ? <EmptyState message="Không có dữ liệu BSC phù hợp."/> : !error && <TableContainer label="Báo cáo BSC chi tiết"><table className="min-w-[1300px] w-full"><thead><tr><th scope="col">Họ tên</th><th scope="col">Phòng ban</th><th scope="col">Chức danh</th><th scope="col">Quản lý trực tiếp</th><th scope="col">Kỳ BSC</th><th scope="col">Kế hoạch</th><th scope="col">Đánh giá kết quả</th><th scope="col">Tổng tỷ trọng</th><th scope="col">Số KPI</th><th scope="col">Điểm chính thức</th><th scope="col">Xếp loại chính thức</th><th scope="col">Duyệt kế hoạch</th><th scope="col">Duyệt kết quả</th></tr></thead><tbody>{items.map(row => <tr key={row.id} className="cursor-pointer hover:bg-muted/50 focus-within:outline-2 focus-within:outline-offset-[-2px] focus-within:outline-ring" onClick={() => navigate(`/employee-bsc/${row.id}`)}><td><Link to={`/employee-bsc/${row.id}`} onClick={event => event.stopPropagation()} aria-label={`Xem BSC của ${row.employeeName} kỳ ${row.cycleName}`} className="font-medium text-foreground no-underline">{row.employeeName}</Link></td><td>{row.departmentName}</td><td>{row.positionName}</td><td>{row.directManagerName}</td><td>{row.cycleName}</td><td>{workflowStatusLabel(row.planStatus)}</td><td>{workflowStatusLabel(row.evaluationStatus)}</td><td>{row.totalWeight}%</td><td>{row.kpiCount}</td><td>{row.officialScore ?? '—'}</td><td>{row.officialGrade ?? '—'}</td><td>{date(row.planApprovedAt)}</td><td>{date(row.evaluationApprovedAt)}</td></tr>)}</tbody></table></TableContainer>}
     <Pagination page={page} total={total} limit={PAGE_SIZE} onChange={setPage}/>
   </main>;
 };
