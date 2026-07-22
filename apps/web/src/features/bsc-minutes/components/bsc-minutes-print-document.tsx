@@ -10,6 +10,16 @@ export type MinutesPrintRow = {
   explanation: string;
 };
 
+export type MinutesPrintCollectiveRow = {
+  id: string;
+  departmentName: string;
+  selfScore: string;
+  selfGrade: string;
+  unitScore: string;
+  unitGrade: string;
+  explanation: string;
+};
+
 export type MinutesPrintDocumentProps = {
   number: string;
   issuePlace: string;
@@ -24,13 +34,7 @@ export type MinutesPrintDocumentProps = {
   meetingContent: string;
   nextMonthAssignment: string;
   conclusion: string;
-  collective: {
-    selfScore: string;
-    selfGrade: string;
-    unitScore: string;
-    unitGrade: string;
-    explanation: string;
-  };
+  collectiveRows: MinutesPrintCollectiveRow[];
   rows: MinutesPrintRow[];
 };
 
@@ -115,10 +119,11 @@ export const BscMinutesPrintDocument: React.FC<MinutesPrintDocumentProps> = (pro
             <td>{index + 1}</td><td>{row.employeeName}</td><td>{valueOrBlank(row.selfScore)}</td>
             <td>{valueOrBlank(row.selfGrade)}</td><td>{row.unitScore}</td><td>{row.unitGrade}</td><td>{row.explanation}</td>
           </tr>)}
-          <tr className="minutes-print-group">
-            <th>B</th><th>Tập thể</th><td>{props.collective.selfScore}</td><td>{props.collective.selfGrade}</td>
-            <td>{props.collective.unitScore}</td><td>{props.collective.unitGrade}</td><td>{props.collective.explanation}</td>
-          </tr>
+          <tr className="minutes-print-group"><th>B</th><th colSpan={5}>Tập thể</th><td /></tr>
+          {props.collectiveRows.map((row, index) => <tr key={row.id}>
+            <td>{`B.${index + 1}`}</td><td>{row.departmentName}</td><td>{row.selfScore}</td><td>{row.selfGrade}</td>
+            <td>{row.unitScore}</td><td>{row.unitGrade}</td><td>{row.explanation}</td>
+          </tr>)}
         </tbody>
       </table>
       <h3>2. Giao chỉ tiêu tháng tới: <span>{props.nextMonthAssignment}</span></h3>

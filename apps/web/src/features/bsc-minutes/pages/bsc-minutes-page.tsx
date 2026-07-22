@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FileDownIcon, LoaderCircleIcon, PrinterIcon, RotateCcwIcon } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card';
@@ -9,11 +9,13 @@ import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, Table
 import { Textarea } from '../../../components/ui/textarea';
 import { PermissionGate } from '../../auth/components/permission-gate';
 import { useAuth } from '../../auth/hooks/use-auth';
+import { departmentBscApi, DEPARTMENT_BSC_PERMISSIONS } from '../../department-bsc/department-bsc.service';
+import type { DepartmentBsc } from '../../department-bsc/department-bsc.types';
 import { EmptyState, ErrorState, LoadingState, PageHeader } from '../../organization/management-ui';
 import { reportsApi } from '../../reports/reports-api';
 import { ReportOptions, ReportRow } from '../../reports/reports.types';
 import { exportMinutesToPdf } from '../bsc-minutes-pdf';
-import { BscMinutesPrintDocument } from '../components/bsc-minutes-print-document';
+import { BscMinutesPrintDocument, type MinutesPrintCollectiveRow } from '../components/bsc-minutes-print-document';
 
 const MINUTES_PERMISSION = 'bsc.minutes.create';
 const GRADES = ['C', 'B', 'A', 'A+', 'A++'] as const;
@@ -33,11 +35,6 @@ type MeetingForm = {
   meetingContent: string;
   nextMonthAssignment: string;
   conclusion: string;
-  collectiveSelfScore: string;
-  collectiveSelfGrade: string;
-  collectiveUnitScore: string;
-  collectiveUnitGrade: string;
-  collectiveExplanation: string;
 };
 
 type MinutesRow = ReportRow & {
@@ -49,8 +46,7 @@ type MinutesRow = ReportRow & {
 const initialForm = (): MeetingForm => ({
   number: '', issuePlace: 'Vĩnh Long', date: today(), startTime: '08:00', endTime: '10:00',
   location: '', chairName: '', secretaryId: '', absentCount: '0', subject: '', meetingContent: '',
-  nextMonthAssignment: 'Kèm theo bảng BSC của cá nhân và đơn vị.', conclusion: '', collectiveSelfScore: '',
-  collectiveSelfGrade: '', collectiveUnitScore: '', collectiveUnitGrade: '', collectiveExplanation: '',
+  nextMonthAssignment: 'Kèm theo bảng BSC của cá nhân và đơn vị.', conclusion: '',
 });
 
 const cycleDefaults = (cycle?: ReportOptions['cycles'][number]) => {
@@ -71,23 +67,40 @@ const toMinutesRows = (items: ReportRow[]): MinutesRow[] => items.map((item) => 
   explanation: '',
 }));
 
-const average = (values: Array<string | null>) => {
-  const numbers = values.map(Number).filter(Number.isFinite);
-  if (!numbers.length) return '—';
-  const result = numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
-  return Number(result.toFixed(2)).toString();
-};
+const firstNonEmpty = (...values: Array<string | null>) => values.find((value) => value?.trim())?.trim() ?? '';
+
+async function loadAllPages<T>(loadPage: (page: number) => Promise<{ items: T[]; total: number }>): Promise<T[]> {
+  const first = await loadPage(1);
+  const pageCount = Math.ceil(first.total / 100);
+  if (pageCount <= 1) return first.items;
+  const remaining = await Promise.all(Array.from({ length: pageCount - 1 }, (_, index) => loadPage(index + 2)));
+  return [first, ...remaining].flatMap((page) => page.items);
+}
+
+const toCollectiveRows = (items: DepartmentBsc[]): MinutesPrintCollectiveRow[] => items.map((item) => ({
+  id: item.id,
+  departmentName: item.departments.name,
+  selfScore: String(item.total_score),
+  selfGrade: item.final_grade ?? '',
+  unitScore: item.final_score === null ? '' : String(item.final_score),
+  unitGrade: item.final_grade ?? '',
+  explanation: firstNonEmpty(item.director_comment, item.manager_comment),
+}));
 
 export const BscMinutesPage: React.FC = () => {
   const { user } = useAuth();
+  const canViewDepartmentBsc = user?.permissions.includes(DEPARTMENT_BSC_PERMISSIONS.VIEW) ?? false;
   const [options, setOptions] = useState<ReportOptions | null>(null);
   const [cycleId, setCycleId] = useState('');
   const [form, setForm] = useState<MeetingForm>(initialForm);
   const [rows, setRows] = useState<MinutesRow[]>([]);
+  const [collectiveRows, setCollectiveRows] = useState<MinutesPrintCollectiveRow[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [loadingRows, setLoadingRows] = useState(false);
+  const [minutesDataReady, setMinutesDataReady] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [error, setError] = useState('');
+  const loadGeneration = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -110,35 +123,41 @@ export const BscMinutesPage: React.FC = () => {
   }, []);
 
   const loadRows = useCallback(async () => {
-    if (!cycleId) { setRows([]); return; }
+    const generation = ++loadGeneration.current;
+    if (!cycleId) { setRows([]); setCollectiveRows([]); setMinutesDataReady(false); return; }
     setLoadingRows(true);
+    setMinutesDataReady(false);
     setError('');
     try {
-      const result = await reportsApi.list({
-        cycleId,
-        evaluationStatus: 'APPROVED',
-        page: 1,
-        limit: 100,
-        sortBy: 'final_score',
-        sortOrder: 'desc',
-      });
-      setRows(toMinutesRows(result.items));
-    } catch (cause) {
-      setRows([]);
-      setError(cause instanceof Error ? cause.message : 'Không thể tải kết quả BSC đã duyệt.');
+      const individualRequest = loadAllPages((page) => reportsApi.list({
+          cycleId,
+          evaluationStatus: 'APPROVED',
+          page,
+          limit: 100,
+          sortBy: 'final_score',
+          sortOrder: 'desc',
+        }));
+      const collectiveRequest = canViewDepartmentBsc
+        ? loadAllPages((page) => departmentBscApi.list({ cycleId, evaluationStatus: 'APPROVED', page, limit: 100 }))
+        : Promise.resolve([]);
+      const [individualResult, collectiveResult] = await Promise.allSettled([individualRequest, collectiveRequest]);
+      if (generation !== loadGeneration.current) return;
+      setRows(individualResult.status === 'fulfilled' ? toMinutesRows(individualResult.value) : []);
+      setCollectiveRows(collectiveResult.status === 'fulfilled' ? toCollectiveRows(collectiveResult.value) : []);
+      setMinutesDataReady(canViewDepartmentBsc && individualResult.status === 'fulfilled' && collectiveResult.status === 'fulfilled');
+      const failure = individualResult.status === 'rejected' ? individualResult.reason
+        : collectiveResult.status === 'rejected' ? collectiveResult.reason : null;
+      if (failure) setError(failure instanceof Error ? failure.message : 'Không thể tải đầy đủ kết quả BSC đã duyệt.');
     } finally {
-      setLoadingRows(false);
+      if (generation === loadGeneration.current) setLoadingRows(false);
     }
-  }, [cycleId]);
+  }, [canViewDepartmentBsc, cycleId]);
 
   useEffect(() => { void loadRows(); }, [loadRows]);
 
   const selectedCycle = options?.cycles.find((cycle) => cycle.id === cycleId);
   const eligibleSecretaries = options?.employees ?? [];
   const secretaryName = eligibleSecretaries.find((employee) => employee.id === form.secretaryId)?.full_name ?? '';
-  const selfAverage = useMemo(() => average(rows.map((row) => row.officialScore)), [rows]);
-  const unitAverage = useMemo(() => average(rows.map((row) => row.unitScore)), [rows]);
-
   const updateForm = (field: keyof MeetingForm) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setForm((current) => ({ ...current, [field]: event.target.value }));
   };
@@ -147,6 +166,8 @@ export const BscMinutesPage: React.FC = () => {
   };
   const changeCycle = (value: string) => {
     const cycle = options?.cycles.find((item) => item.id === value);
+    loadGeneration.current += 1;
+    setMinutesDataReady(false);
     setCycleId(value);
     setForm((current) => ({ ...current, ...cycleDefaults(cycle) }));
   };
@@ -155,6 +176,7 @@ export const BscMinutesPage: React.FC = () => {
     setRows((current) => toMinutesRows(current));
   };
   const savePdf = async () => {
+    if (!minutesDataReady) return;
     const documentElement = document.querySelector<HTMLElement>('.minutes-print-document');
     if (!documentElement) return;
 
@@ -180,8 +202,8 @@ export const BscMinutesPage: React.FC = () => {
         description="Mẫu biên bản được tự động điền từ toàn bộ BSC đã duyệt kết quả trong kỳ của công ty."
         action={<div className="flex gap-2 print:hidden">
           <Button type="button" variant="outline" onClick={reset}><RotateCcwIcon data-icon="inline-start" />Làm lại</Button>
-          <Button type="button" variant="outline" disabled={exportingPdf} onClick={() => void savePdf()}>{exportingPdf ? <LoaderCircleIcon data-icon="inline-start" className="animate-spin" /> : <FileDownIcon data-icon="inline-start" />}{exportingPdf ? 'Đang tạo PDF…' : 'Lưu PDF'}</Button>
-          <Button type="button" onClick={() => window.print()}><PrinterIcon data-icon="inline-start" />In biên bản</Button>
+          <Button type="button" variant="outline" disabled={exportingPdf || !minutesDataReady} onClick={() => void savePdf()}>{exportingPdf ? <LoaderCircleIcon data-icon="inline-start" className="animate-spin" /> : <FileDownIcon data-icon="inline-start" />}{exportingPdf ? 'Đang tạo PDF…' : 'Lưu PDF'}</Button>
+          <Button type="button" disabled={!minutesDataReady} onClick={() => window.print()}><PrinterIcon data-icon="inline-start" />In biên bản</Button>
         </div>}
       >
         <p className="mt-2 font-semibold uppercase text-primary">{selectedCycle ? `Tạo biên bản họp đánh giá BSC mới ${selectedCycle.name}` : 'Chọn kỳ BSC để tạo biên bản'}</p>
@@ -218,10 +240,10 @@ export const BscMinutesPage: React.FC = () => {
         <Card className="minutes-results-card">
           <CardHeader>
             <CardTitle>Kết quả đánh giá</CardTitle>
-            <CardDescription>Toàn công ty · {rows.length} BSC đã duyệt kết quả</CardDescription>
+            <CardDescription>Toàn công ty · {rows.length} BSC cá nhân và {collectiveRows.length} BSC phòng ban đã duyệt kết quả</CardDescription>
           </CardHeader>
           <CardContent>
-            {loadingRows ? <LoadingState message="Đang tải kết quả BSC…" /> : rows.length === 0 ? <EmptyState message="Chưa có BSC đã duyệt kết quả trong kỳ này." /> : <div className="overflow-x-auto rounded-lg border">
+            {loadingRows ? <LoadingState message="Đang tải kết quả BSC…" /> : rows.length === 0 && collectiveRows.length === 0 ? <EmptyState message="Chưa có BSC đã duyệt kết quả trong kỳ này." /> : <div className="overflow-x-auto rounded-lg border">
               <Table className="min-w-[1100px] border-collapse [&_td]:border-r [&_th]:border-r [&_tr>*:last-child]:border-r-0">
                 <TableHeader><TableRow><TableHead>Họ và tên</TableHead><TableHead>Điểm tự đánh giá</TableHead><TableHead>Xếp loại tự đánh giá</TableHead><TableHead>Điểm đơn vị đánh giá</TableHead><TableHead>Xếp loại đơn vị đánh giá</TableHead><TableHead className="min-w-64">Thuyết minh</TableHead></TableRow></TableHeader>
                 <TableBody>{rows.map((row) => <TableRow key={row.id}>
@@ -232,13 +254,14 @@ export const BscMinutesPage: React.FC = () => {
                   <TableCell><Select value={row.unitGrade} onValueChange={(value) => updateRow(row.id, { unitGrade: value })}><SelectTrigger className="w-full" aria-label={`Xếp loại đơn vị đánh giá ${row.employeeName}`}><SelectValue placeholder="Chọn loại" /></SelectTrigger><SelectContent><SelectGroup>{GRADES.map((grade) => <SelectItem key={grade} value={grade}>{grade}</SelectItem>)}</SelectGroup></SelectContent></Select></TableCell>
                   <TableCell><Textarea rows={2} aria-label={`Thuyết minh ${row.employeeName}`} value={row.explanation} onChange={(event) => updateRow(row.id, { explanation: event.target.value })} placeholder="Nhập thuyết minh" /></TableCell>
                 </TableRow>)}</TableBody>
-                <TableFooter><TableRow><TableHead scope="row">Tập thể</TableHead>
-                  <TableCell><Input aria-label="Điểm tự đánh giá tập thể" type="number" step="0.01" min="0" value={form.collectiveSelfScore} onChange={updateForm('collectiveSelfScore')} placeholder={selfAverage} /></TableCell>
-                  <TableCell><Select value={form.collectiveSelfGrade} onValueChange={(value) => setForm((current) => ({ ...current, collectiveSelfGrade: value }))}><SelectTrigger className="w-full" aria-label="Xếp loại tự đánh giá tập thể"><SelectValue placeholder="Chọn loại" /></SelectTrigger><SelectContent><SelectGroup>{GRADES.map((grade) => <SelectItem key={grade} value={grade}>{grade}</SelectItem>)}</SelectGroup></SelectContent></Select></TableCell>
-                  <TableCell><Input aria-label="Điểm đơn vị đánh giá tập thể" type="number" step="0.01" min="0" value={form.collectiveUnitScore} onChange={updateForm('collectiveUnitScore')} placeholder={unitAverage} /></TableCell>
-                  <TableCell><Select value={form.collectiveUnitGrade} onValueChange={(value) => setForm((current) => ({ ...current, collectiveUnitGrade: value }))}><SelectTrigger className="w-full" aria-label="Xếp loại đơn vị đánh giá tập thể"><SelectValue placeholder="Chọn loại" /></SelectTrigger><SelectContent><SelectGroup>{GRADES.map((grade) => <SelectItem key={grade} value={grade}>{grade}</SelectItem>)}</SelectGroup></SelectContent></Select></TableCell>
-                  <TableCell><Textarea aria-label="Thuyết minh tập thể" rows={2} value={form.collectiveExplanation} onChange={updateForm('collectiveExplanation')} /></TableCell>
-                </TableRow></TableFooter>
+                <TableFooter>{collectiveRows.length > 0 ? collectiveRows.map((row) => <TableRow key={row.id}>
+                  <TableHead scope="row">{`Tập thể · ${row.departmentName}`}</TableHead>
+                  <TableCell>{row.selfScore || '—'}</TableCell>
+                  <TableCell>{row.selfGrade || '—'}</TableCell>
+                  <TableCell>{row.unitScore || '—'}</TableCell>
+                  <TableCell>{row.unitGrade || '—'}</TableCell>
+                  <TableCell>{row.explanation || '—'}</TableCell>
+                </TableRow>) : <TableRow><TableHead scope="row">Tập thể</TableHead><TableCell colSpan={5}>{canViewDepartmentBsc ? 'Chưa có BSC phòng ban đã duyệt kết quả.' : 'Bạn không có quyền xem dữ liệu BSC phòng ban.'}</TableCell></TableRow>}</TableFooter>
               </Table>
             </div>}
           </CardContent>
@@ -253,12 +276,12 @@ export const BscMinutesPage: React.FC = () => {
         </Card>
       </>}
       </div>
-      {!loadingOptions && <BscMinutesPrintDocument
+      {!loadingOptions && minutesDataReady && <BscMinutesPrintDocument
         number={form.number} issuePlace={form.issuePlace} date={form.date}
         startTime={form.startTime} endTime={form.endTime} location={form.location} chairName={form.chairName}
         secretaryName={secretaryName} absentCount={form.absentCount} subject={form.subject}
         meetingContent={form.meetingContent} nextMonthAssignment={form.nextMonthAssignment} conclusion={form.conclusion}
-        collective={{ selfScore: form.collectiveSelfScore, selfGrade: form.collectiveSelfGrade, unitScore: form.collectiveUnitScore, unitGrade: form.collectiveUnitGrade, explanation: form.collectiveExplanation }}
+        collectiveRows={collectiveRows}
         rows={rows.map((row) => ({ id: row.id, employeeName: row.employeeName, selfScore: row.officialScore, selfGrade: row.officialGrade, unitScore: row.unitScore, unitGrade: row.unitGrade, explanation: row.explanation }))}
       />}
     </main>
