@@ -27,6 +27,7 @@ const cycleAdminPermissions = ['bsc.period.view', 'bsc.period.manage'];
 export default async function globalSetup() {
   const db = prisma();
   const marker = `BSCE2E_${Date.now()}_${randomUUID().slice(0, 8)}`.toUpperCase();
+  const fixtureUsername = (suffix: string) => `${marker}_${suffix}`.toLowerCase();
   const passwordHash = await argon2.hash(PASSWORD);
   let state: FixtureState | undefined;
   try {
@@ -59,12 +60,12 @@ export default async function globalSetup() {
         ...directorPermissions.map((code) => ({ role_id: directorRole.id, permission_id: permissions.get(code)! })),
         ...cycleAdminPermissions.map((code) => ({ role_id: cycleAdminRole.id, permission_id: permissions.get(code)! })),
       ] });
-      const director = await tx.users.create({ data: { employee_code: `${marker}_DIR`, full_name: `${marker} Director`, email: `${marker.toLowerCase()}_director@example.test`, password_hash: passwordHash, department_id: mainDepartment.id, position_id: position.id } });
-      const outsideDirector = await tx.users.create({ data: { employee_code: `${marker}_OUT_DIR`, full_name: `${marker} Outside Director`, email: `${marker.toLowerCase()}_outside_director@example.test`, password_hash: passwordHash, department_id: otherDepartment.id, position_id: position.id } });
-      const manager = await tx.users.create({ data: { employee_code: `${marker}_MGR`, full_name: `${marker} Manager`, email: `${marker.toLowerCase()}_manager@example.test`, password_hash: passwordHash, department_id: mainDepartment.id, position_id: position.id, direct_manager_id: director.id } });
-      const employee = await tx.users.create({ data: { employee_code: `${marker}_EMP`, full_name: `${marker} Employee`, email: `${marker.toLowerCase()}_employee@example.test`, password_hash: passwordHash, department_id: mainDepartment.id, position_id: position.id, direct_manager_id: manager.id } });
-      const outsideManager = await tx.users.create({ data: { employee_code: `${marker}_OUT`, full_name: `${marker} Outside`, email: `${marker.toLowerCase()}_outside@example.test`, password_hash: passwordHash, department_id: otherDepartment.id, position_id: position.id, direct_manager_id: outsideDirector.id } });
-      const outsideEmployee = await tx.users.create({ data: { employee_code: `${marker}_OUT_EMP`, full_name: `${marker} Outside Employee`, email: `${marker.toLowerCase()}_outside_employee@example.test`, password_hash: passwordHash, department_id: otherDepartment.id, position_id: position.id, direct_manager_id: outsideManager.id } });
+      const director = await tx.users.create({ data: { employee_code: `${marker}_DIR`, username: fixtureUsername('director'), full_name: `${marker} Director`, email: `${marker.toLowerCase()}_director@example.test`, password_hash: passwordHash, department_id: mainDepartment.id, position_id: position.id } });
+      const outsideDirector = await tx.users.create({ data: { employee_code: `${marker}_OUT_DIR`, username: fixtureUsername('outside_director'), full_name: `${marker} Outside Director`, email: `${marker.toLowerCase()}_outside_director@example.test`, password_hash: passwordHash, department_id: otherDepartment.id, position_id: position.id } });
+      const manager = await tx.users.create({ data: { employee_code: `${marker}_MGR`, username: fixtureUsername('manager'), full_name: `${marker} Manager`, email: `${marker.toLowerCase()}_manager@example.test`, password_hash: passwordHash, department_id: mainDepartment.id, position_id: position.id, direct_manager_id: director.id } });
+      const employee = await tx.users.create({ data: { employee_code: `${marker}_EMP`, username: fixtureUsername('employee'), full_name: `${marker} Employee`, email: `${marker.toLowerCase()}_employee@example.test`, password_hash: passwordHash, department_id: mainDepartment.id, position_id: position.id, direct_manager_id: manager.id } });
+      const outsideManager = await tx.users.create({ data: { employee_code: `${marker}_OUT`, username: fixtureUsername('outside_manager'), full_name: `${marker} Outside`, email: `${marker.toLowerCase()}_outside@example.test`, password_hash: passwordHash, department_id: otherDepartment.id, position_id: position.id, direct_manager_id: outsideDirector.id } });
+      const outsideEmployee = await tx.users.create({ data: { employee_code: `${marker}_OUT_EMP`, username: fixtureUsername('outside_employee'), full_name: `${marker} Outside Employee`, email: `${marker.toLowerCase()}_outside_employee@example.test`, password_hash: passwordHash, department_id: otherDepartment.id, position_id: position.id, direct_manager_id: outsideManager.id } });
       await tx.user_roles.createMany({ data: [
         { user_id: employee.id, role_id: employeeRole.id, scope_type: 'SELF', scope_id: null },
         { user_id: manager.id, role_id: managerRole.id, scope_type: 'DEPARTMENT', scope_id: mainDepartment.id },
@@ -208,11 +209,11 @@ export default async function globalSetup() {
       return {
         marker, password: PASSWORD, mainDepartmentId: mainDepartment.id, otherDepartmentId: otherDepartment.id,
         positionId: position.id,
-        manager: { id: manager.id, email: manager.email }, employee: { id: employee.id, email: employee.email },
-        director: { id: director.id, email: director.email },
-        outsideDirector: { id: outsideDirector.id, email: outsideDirector.email },
-        outsideManager: { id: outsideManager.id, email: outsideManager.email },
-        outsideEmployee: { id: outsideEmployee.id, email: outsideEmployee.email },
+        manager: { id: manager.id, username: manager.username, email: manager.email }, employee: { id: employee.id, username: employee.username, email: employee.email },
+        director: { id: director.id, username: director.username, email: director.email },
+        outsideDirector: { id: outsideDirector.id, username: outsideDirector.username, email: outsideDirector.email },
+        outsideManager: { id: outsideManager.id, username: outsideManager.username, email: outsideManager.email },
+        outsideEmployee: { id: outsideEmployee.id, username: outsideEmployee.username, email: outsideEmployee.email },
         cycleIds: { flow: cycles[0].id, underweight: cycles[1].id, performance, duplicateTargets: [cycles[26].id, cycles[27].id] },
         bscIds: { reopenEvaluation, reopenPlan, duplicateSource, managerApproval: managerApproval.id,
           outsideEmployee: outsideEmployeeBsc.id, outsideManagerApproval: outsideManagerApproval.id }, createdPermissionIds,

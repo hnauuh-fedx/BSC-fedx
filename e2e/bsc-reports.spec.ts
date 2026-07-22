@@ -5,20 +5,22 @@ let fixture: FixtureState;
 test.beforeAll(async () => { fixture = await readState(); });
 test.describe.configure({ mode: 'serial' });
 
-async function login(browser: Browser, user: { email: string }) {
+async function login(browser: Browser, user: { username: string }) {
   const context = await browser.newContext({ acceptDownloads: true });
   const page = await context.newPage();
   await page.goto('/login');
-  await page.getByLabel('Email').fill(user.email);
+  await page.getByLabel('Tên đăng nhập').fill(user.username);
   await page.locator('input[name="password"]').fill(fixture.password);
   await page.locator('#login-submit').click();
-  await expect(page.getByRole('heading', { name: /Dashboard/i })).toBeVisible();
+  await expect(page).not.toHaveURL(/\/login$/);
+  await expect(page.getByRole('button', { name: 'Mở menu tài khoản' })).toBeVisible();
   return { context, page };
 }
 
 test('employee opens dashboard and sees only personal BSC history', async ({ browser }) => {
   const session = await login(browser, fixture.employee);
-  await expect(session.page).toHaveURL(/\/dashboard$|\/$/);
+  await session.page.goto('/dashboard');
+  await expect(session.page).toHaveURL(/\/dashboard$/);
   await expect(session.page.getByRole('heading', { name: /Lịch sử BSC gần đây/i })).toBeVisible();
   await expect(session.page.getByRole('link', { name: new RegExp(fixture.marker) }).first()).toBeVisible();
   await expect(session.page.getByText(`${fixture.marker} Outside`)).toHaveCount(0);

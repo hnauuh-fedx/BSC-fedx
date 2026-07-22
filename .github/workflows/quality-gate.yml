@@ -40,6 +40,7 @@ jobs:
       - run: npm run prisma:test:fresh-verify --workspace=apps/api
       - run: npm run seed --workspace=apps/api
       - run: npm run typecheck --workspaces --if-present
+      - run: npm run typecheck:e2e
       - run: npm run lint --workspaces --if-present
       - run: npm run build --workspaces --if-present
       - run: npm run test:component --workspace=apps/web

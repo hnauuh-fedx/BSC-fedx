@@ -5,13 +5,14 @@ let fixture: FixtureState;
 test.beforeAll(async () => { fixture = await readState(); });
 test.describe.configure({ mode: 'serial' });
 
-async function login(browser: Browser, email: string): Promise<Page> {
+async function login(browser: Browser, username: string): Promise<Page> {
   const page = await (await browser.newContext()).newPage();
   await page.goto('/login');
-  await page.getByLabel('Email').fill(email);
+  await page.getByLabel('Tên đăng nhập').fill(username);
   await page.getByLabel(/Mật khẩu/i).fill(fixture.password);
   await page.getByRole('button', { name: /Đăng nhập/i }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).not.toHaveURL(/\/login$/);
+  await expect(page.getByRole('button', { name: 'Mở menu tài khoản' })).toBeVisible();
   return page;
 }
 
@@ -23,7 +24,7 @@ const localTime = (offset: number, hour = '12:00') => `${vnDay(offset)}T${hour}`
 
 test('quản trị kỳ tháng: mở, khóa, mở lại và employee availability', async ({ browser }) => {
   test.setTimeout(120_000);
-  const admin = await login(browser, fixture.manager.email);
+  const admin = await login(browser, fixture.manager.username);
   await expect(admin.getByRole('link', { name: 'Kỳ BSC' })).toBeVisible();
   await admin.getByRole('link', { name: 'Kỳ BSC' }).click();
   await expect(admin).toHaveURL(/management\/bsc-cycles$/);
@@ -59,7 +60,7 @@ test('quản trị kỳ tháng: mở, khóa, mở lại và employee availabilit
   await admin.getByLabel('Tên kỳ').fill('Kỳ quản trị Playwright đang mở');
   await admin.getByRole('button', { name: 'Lưu kỳ' }).click();
   await expect(admin.getByRole('heading', { name: new RegExp('đang mở') })).toBeVisible();
-  const employee = await login(browser, fixture.employee.email);
+  const employee = await login(browser, fixture.employee.username);
   await employee.goto('/employee-bsc/new');
   await expect(employee.getByLabel('Kỳ BSC').locator(`option[value="${cycleId}"]`)).toHaveCount(1);
   await employee.getByLabel('Kỳ BSC').selectOption(cycleId);
@@ -137,8 +138,8 @@ test('deadline EVALUATION hiển thị rõ và backend chặn submit sau hạn',
 
     const validId = await createEvaluationBsc('EVAL_OK', new Date(Date.now() + 10 * 60_000));
     const lateId = await createEvaluationBsc('EVAL_LATE', new Date(Date.now() - 60_000));
-    const employee = await login(browser, fixture.employee.email);
-    const apiLogin = await employee.request.post('/api/auth/login', { data: { email: fixture.employee.email, password: fixture.password } });
+    const employee = await login(browser, fixture.employee.username);
+    const apiLogin = await employee.request.post('/api/auth/login', { data: { username: fixture.employee.username, password: fixture.password } });
     const { accessToken } = await apiLogin.json() as { accessToken: string };
     const headers = { Authorization: `Bearer ${accessToken}` };
 

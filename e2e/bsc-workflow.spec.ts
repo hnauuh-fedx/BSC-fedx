@@ -6,14 +6,15 @@ let fixture: FixtureState;
 test.beforeAll(async () => { fixture = await readState(); });
 test.describe.configure({ mode: 'serial' });
 
-async function login(browser: Browser, user: { email: string }, password = fixture.password): Promise<{ context: BrowserContext; page: Page }> {
+async function login(browser: Browser, user: { username: string }, password = fixture.password): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto('/login');
-  await page.getByLabel('Email').fill(user.email);
+  await page.getByLabel('Tên đăng nhập').fill(user.username);
   await page.getByLabel(/Mật khẩu/i).fill(password);
   await page.getByRole('button', { name: /Đăng nhập/i }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).not.toHaveURL(/\/login$/);
+  await expect(page.getByRole('button', { name: 'Mở menu tài khoản' })).toBeVisible();
   const expectedName = user === fixture.employee ? 'Employee'
     : user === fixture.manager ? 'Manager'
       : user === fixture.director ? 'Director' : 'Outside';
@@ -243,7 +244,7 @@ test('DIRECTOR duyệt PLAN của MANAGER trực thuộc nhưng manager ngoài p
   await directorSession.page.getByRole('button', { name: 'Duyệt BSC' }).click();
   await expect(directorSession.page.getByLabel('Trạng thái Đã duyệt').first()).toBeVisible();
   const apiLogin = await directorSession.page.request.post('/api/auth/login', {
-    data: { email: fixture.director.email, password: fixture.password },
+    data: { username: fixture.director.username, password: fixture.password },
   });
   const accessToken = (await apiLogin.json() as { accessToken: string }).accessToken;
   const crossScope = await directorSession.page.request.post(`/api/employee-bsc/${fixture.bscIds.outsideManagerApproval}/plan/approve`, {

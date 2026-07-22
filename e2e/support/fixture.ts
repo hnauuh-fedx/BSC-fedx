@@ -7,18 +7,20 @@ export const STATE_DIR = path.resolve('e2e/.state');
 export const STATE_FILE = path.join(STATE_DIR, 'fixture.json');
 export const PASSWORD = 'BscE2e!Test#1';
 
+type FixtureUser = { id: string; username: string; email: string };
+
 export type FixtureState = {
   marker: string;
   password: string;
   mainDepartmentId: string;
   otherDepartmentId: string;
   positionId: string;
-  manager: { id: string; email: string };
-  employee: { id: string; email: string };
-  director: { id: string; email: string };
-  outsideDirector: { id: string; email: string };
-  outsideManager: { id: string; email: string };
-  outsideEmployee: { id: string; email: string };
+  manager: FixtureUser;
+  employee: FixtureUser;
+  director: FixtureUser;
+  outsideDirector: FixtureUser;
+  outsideManager: FixtureUser;
+  outsideEmployee: FixtureUser;
   cycleIds: { flow: string; underweight: string; performance: string[]; duplicateTargets: string[] };
   bscIds: { reopenEvaluation: string; reopenPlan: string; duplicateSource: string; managerApproval: string; outsideEmployee: string; outsideManagerApproval: string };
   createdPermissionIds: string[];

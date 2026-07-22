@@ -8,10 +8,11 @@ async function login(browser: Browser, viewport = { width: 1366, height: 768 }) 
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
   await page.goto('/login');
-  await page.getByLabel('Email').fill(fixture.manager.email);
+  await page.getByLabel('Tên đăng nhập').fill(fixture.manager.username);
   await page.getByLabel('Mật khẩu').fill(fixture.password);
   await page.getByRole('button', { name: 'Đăng nhập' }).click();
-  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  await expect(page).not.toHaveURL(/\/login$/);
+  await expect(page.getByRole('button', { name: 'Mở menu tài khoản' })).toBeVisible();
   return { context, page };
 }
 
