@@ -37,6 +37,7 @@ jobs:
       - run: npm run prisma:validate
       - run: npm run prisma:generate
       - run: npm run prisma:test:deploy
+      - run: npm run prisma:test:fresh-verify --workspace=apps/api
       - run: npm run seed --workspace=apps/api
       - run: npm run typecheck --workspaces --if-present
       - run: npm run lint --workspaces --if-present
