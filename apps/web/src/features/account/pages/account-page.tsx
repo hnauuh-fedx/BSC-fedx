@@ -14,6 +14,7 @@ import {
 } from '../../../components/ui/card';
 import {
   Field,
+  FieldContent,
   FieldDescription,
   FieldError,
   FieldGroup,
@@ -43,6 +44,9 @@ type PasswordFieldProps = {
   maxLength?: number;
 };
 
+const accountFieldClassName = 'grid grid-cols-[11rem_minmax(0,1fr)] items-start gap-x-4 gap-y-2 max-sm:grid-cols-1';
+const accountFieldLabelClassName = 'pt-2 whitespace-nowrap max-sm:pt-0 max-sm:whitespace-normal';
+
 const PasswordField: React.FC<PasswordFieldProps> = ({
   id,
   label,
@@ -58,35 +62,37 @@ const PasswordField: React.FC<PasswordFieldProps> = ({
   return (
     <Field
       orientation="horizontal"
-      className="max-sm:flex-col max-sm:items-stretch"
+      className={accountFieldClassName}
       data-invalid={Boolean(error)}
       data-disabled={disabled}
     >
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
-      <InputGroup>
-        <InputGroupInput
-          id={id}
-          type={visible ? 'text' : 'password'}
-          autoComplete={autoComplete}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          aria-invalid={Boolean(error)}
-          disabled={disabled}
-          maxLength={maxLength}
-        />
-        <InputGroupAddon align="inline-end">
-          <InputGroupButton
-            size="icon-xs"
-            aria-label={visible ? `Ẩn ${label.toLowerCase()}` : `Hiện ${label.toLowerCase()}`}
-            onClick={() => setVisible((current) => !current)}
+      <FieldLabel className={accountFieldLabelClassName} htmlFor={id}>{label}</FieldLabel>
+      <FieldContent className="min-w-0">
+        <InputGroup>
+          <InputGroupInput
+            id={id}
+            type={visible ? 'text' : 'password'}
+            autoComplete={autoComplete}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            aria-invalid={Boolean(error)}
             disabled={disabled}
-          >
-            {visible ? <EyeOffIcon data-icon="inline-start" /> : <EyeIcon data-icon="inline-start" />}
-          </InputGroupButton>
-        </InputGroupAddon>
-      </InputGroup>
-      {description && <FieldDescription>{description}</FieldDescription>}
-      <FieldError>{error}</FieldError>
+            maxLength={maxLength}
+          />
+          <InputGroupAddon align="inline-end">
+            <InputGroupButton
+              size="icon-xs"
+              aria-label={visible ? `Ẩn ${label.toLowerCase()}` : `Hiện ${label.toLowerCase()}`}
+              onClick={() => setVisible((current) => !current)}
+              disabled={disabled}
+            >
+              {visible ? <EyeOffIcon data-icon="inline-start" /> : <EyeIcon data-icon="inline-start" />}
+            </InputGroupButton>
+          </InputGroupAddon>
+        </InputGroup>
+        {description && <FieldDescription>{description}</FieldDescription>}
+        <FieldError>{error}</FieldError>
+      </FieldContent>
     </Field>
   );
 };
@@ -232,26 +238,30 @@ export const AccountPage: React.FC = () => {
             <FieldGroup>
               <Field
                 orientation="horizontal"
-                className="max-sm:flex-col max-sm:items-stretch"
+                className={accountFieldClassName}
                 data-invalid={Boolean(profileError)}
                 data-disabled={profileSubmitting}
               >
-                <FieldLabel htmlFor="account-full-name">Họ và tên</FieldLabel>
-                <Input
-                  id="account-full-name"
-                  value={fullName}
-                  onChange={(event) => changeFullName(event.target.value)}
-                  autoComplete="name"
-                  maxLength={255}
-                  aria-invalid={Boolean(profileError)}
-                  disabled={profileSubmitting}
-                />
-                <FieldError>{profileError}</FieldError>
+                <FieldLabel className={accountFieldLabelClassName} htmlFor="account-full-name">Họ và tên</FieldLabel>
+                <FieldContent className="min-w-0">
+                  <Input
+                    id="account-full-name"
+                    value={fullName}
+                    onChange={(event) => changeFullName(event.target.value)}
+                    autoComplete="name"
+                    maxLength={255}
+                    aria-invalid={Boolean(profileError)}
+                    disabled={profileSubmitting}
+                  />
+                  <FieldError>{profileError}</FieldError>
+                </FieldContent>
               </Field>
-              <Field orientation="horizontal" className="max-sm:flex-col max-sm:items-stretch" data-disabled>
-                <FieldLabel htmlFor="account-email">Email</FieldLabel>
-                <Input id="account-email" value={user.email} disabled readOnly />
-                <FieldDescription>Liên hệ quản trị viên nếu email cần thay đổi.</FieldDescription>
+              <Field orientation="horizontal" className={accountFieldClassName} data-disabled>
+                <FieldLabel className={accountFieldLabelClassName} htmlFor="account-email">Email</FieldLabel>
+                <FieldContent className="min-w-0">
+                  <Input id="account-email" value={user.email} disabled readOnly />
+                  <FieldDescription>Liên hệ quản trị viên nếu email cần thay đổi.</FieldDescription>
+                </FieldContent>
               </Field>
             </FieldGroup>
           </CardContent>

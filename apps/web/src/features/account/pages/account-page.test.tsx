@@ -75,6 +75,19 @@ describe('AccountPage', () => {
     expect(screen.getByText('Vui lòng nhập họ và tên.')).toBeInTheDocument();
   });
 
+  it('uses one fixed label column and one full-width control column for every field', () => {
+    render(<MemoryRouter><AccountPage /></MemoryRouter>);
+
+    for (const label of ['Họ và tên', 'Email', 'Mật khẩu hiện tại', 'Mật khẩu mới', 'Xác nhận mật khẩu mới']) {
+      const field = screen.getByText(label).closest('[data-slot="field"]');
+      expect(field).toHaveClass('grid-cols-[11rem_minmax(0,1fr)]');
+      expect(field).toHaveClass('grid');
+      expect(field).not.toHaveClass('flex');
+      expect(screen.getByText(label)).toHaveClass('whitespace-nowrap');
+      expect(field?.querySelector(':scope > [data-slot="field-content"]')).toBeInTheDocument();
+    }
+  });
+
   it('validates password confirmation before submitting and signs out after success', async () => {
     const user = userEvent.setup();
     vi.mocked(accountApi.changePassword).mockResolvedValue({ reauthenticate: true });
