@@ -63,6 +63,80 @@ export class AuthRepository {
     return this.findAuthUserById(id);
   }
 
+  async findUserCredentialsById(id: string) {
+    return this.prisma.users.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        password_hash: true,
+        status: true,
+        deleted_at: true,
+      },
+    });
+  }
+
+  async updateOwnProfile(data: {
+    userId: string;
+    fullName: string;
+    ipAddress: string;
+    userAgent: string;
+  }) {
+    return this.prisma.$transaction(async (db) => {
+      const current = await db.users.findUnique({
+        where: { id: data.userId },
+        select: { full_name: true },
+      });
+      if (!current) throw new Error('User disappeared during profile update.');
+      await db.users.update({
+        where: { id: data.userId },
+        data: { full_name: data.fullName, updated_at: new Date() },
+      });
+      await db.audit_logs.create({
+        data: {
+          user_id: data.userId,
+          module: 'auth',
+          entity_type: 'users',
+          entity_id: data.userId,
+          action: 'SELF_PROFILE_UPDATED',
+          old_data: { fullName: current.full_name },
+          new_data: { fullName: data.fullName },
+          ip_address: data.ipAddress,
+          user_agent: data.userAgent,
+        },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  async changeOwnPassword(data: {
+    userId: string;
+    passwordHash: string;
+    ipAddress: string;
+    userAgent: string;
+  }) {
+    return this.prisma.$transaction(async (db) => {
+      await db.users.update({
+        where: { id: data.userId },
+        data: { password_hash: data.passwordHash, updated_at: new Date() },
+      });
+      await db.auth_refresh_tokens.updateMany({
+        where: { user_id: data.userId, revoked_at: null },
+        data: { revoked_at: new Date() },
+      });
+      await db.audit_logs.create({
+        data: {
+          user_id: data.userId,
+          module: 'auth',
+          entity_type: 'users',
+          entity_id: data.userId,
+          action: 'SELF_PASSWORD_CHANGED',
+          new_data: { sessionsRevoked: true },
+          ip_address: data.ipAddress,
+          user_agent: data.userAgent,
+        },
+      });
+    });
+  }
+
   /** Lưu hash của refresh token vào DB */
   async saveRefreshToken(data: SaveRefreshTokenData) {
     return this.prisma.auth_refresh_tokens.create({

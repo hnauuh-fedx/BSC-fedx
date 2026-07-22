@@ -1,6 +1,17 @@
 import React, { PropsWithChildren } from 'react';
 import { NavLink } from 'react-router-dom';
+import { ChevronDownIcon, LogOutIcon, UserRoundIcon } from 'lucide-react';
+import { Avatar, AvatarFallback } from '../../components/ui/avatar';
 import { Button } from '../../components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../../components/ui/dropdown-menu';
 import {
   hasAnyWorkspacePermission,
   MANAGEMENT_OVERVIEW_PERMISSIONS,
@@ -37,6 +48,14 @@ export const MainLayout: React.FC<PropsWithChildren> = ({ children }) => {
   );
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     isActive ? 'nav-link nav-link-active' : 'nav-link';
+  const userInitials = user?.fullName
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((_, index, words) => index === 0 || index === words.length - 1)
+    .map((word) => word[0])
+    .join('')
+    .toUpperCase() || '?';
 
   return (
     <div className="app-shell">
@@ -70,8 +89,32 @@ export const MainLayout: React.FC<PropsWithChildren> = ({ children }) => {
             ))}
           </nav>
           <div className="user-menu">
-            <span title={user?.email}>{user?.fullName}</span>
-            <Button variant="outline" type="button" onClick={() => void logout()}>Đăng xuất</Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" type="button" aria-label="Mở menu tài khoản">
+                  <Avatar size="sm"><AvatarFallback>{userInitials}</AvatarFallback></Avatar>
+                  <span className="user-menu-name" title={user?.email}>{user?.fullName}</span>
+                  <ChevronDownIcon data-icon="inline-end" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-56">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>
+                    <span className="block truncate text-foreground">{user?.fullName}</span>
+                    <span className="block truncate font-normal">{user?.email}</span>
+                  </DropdownMenuLabel>
+                  <DropdownMenuItem asChild>
+                    <NavLink to="/account"><UserRoundIcon />Thông tin tài khoản</NavLink>
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuItem onSelect={() => void logout()}>
+                    <LogOutIcon />Đăng xuất
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </header>

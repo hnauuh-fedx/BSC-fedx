@@ -1,5 +1,6 @@
 import {
   Injectable,
+  BadRequestException,
   UnauthorizedException,
   HttpException,
   HttpStatus,
@@ -16,6 +17,7 @@ import { LoginDto } from '../dto/login.dto';
 import { AccessTokenPayload, RefreshTokenPayload } from '../types/auth-token-payload.type';
 import { AUTH_ERRORS, RATE_LIMIT_DEFAULTS } from '../auth.constants';
 import { normalizeUsername } from '../../../common/username';
+import { ChangeOwnPasswordDto, UpdateOwnProfileDto } from '../dto/account.dto';
 
 /** Thông báo lỗi chung — không phân biệt username sai hay password sai */
 const INVALID_CREDENTIALS_MSG = 'Tên đăng nhập hoặc mật khẩu không chính xác.';
@@ -327,6 +329,72 @@ export class AuthService implements OnModuleDestroy {
     };
   }
 
+  async updateOwnProfile(
+    userId: string,
+    dto: UpdateOwnProfileDto,
+    ipAddress: string,
+    userAgent: string,
+  ) {
+    const user = await this.authRepository.findAuthUserById(userId);
+    if (!user || user.deleted_at !== null || user.status !== 'ACTIVE') {
+      throw new UnauthorizedException({
+        code: AUTH_ERRORS.TOKEN_INVALID,
+        message: 'Không tìm thấy người dùng.',
+      });
+    }
+
+    await this.authRepository.updateOwnProfile({
+      userId,
+      fullName: dto.fullName,
+      ipAddress,
+      userAgent,
+    });
+    return this.getCurrentUser(userId);
+  }
+
+  async changeOwnPassword(
+    userId: string,
+    dto: ChangeOwnPasswordDto,
+    ipAddress: string,
+    userAgent: string,
+  ) {
+    const rateLimitIdentity = `password-change:${userId}`;
+    this.checkRateLimit(ipAddress, rateLimitIdentity, AUTH_ERRORS.PASSWORD_RATE_LIMITED);
+    const user = await this.authRepository.findUserCredentialsById(userId);
+    if (!user || user.deleted_at !== null || user.status !== 'ACTIVE') {
+      throw new UnauthorizedException({
+        code: AUTH_ERRORS.TOKEN_INVALID,
+        message: 'Không tìm thấy người dùng.',
+      });
+    }
+
+    const currentPasswordValid = await argon2.verify(user.password_hash, dto.currentPassword).catch(() => false);
+    if (!currentPasswordValid) {
+      this.incrementFailedAttempt(ipAddress, rateLimitIdentity);
+      throw new BadRequestException({
+        code: AUTH_ERRORS.CURRENT_PASSWORD_INVALID,
+        message: 'Mật khẩu hiện tại không chính xác.',
+      });
+    }
+    if (dto.newPassword.length < 12 || dto.newPassword.length > 128) {
+      throw new BadRequestException({
+        code: AUTH_ERRORS.PASSWORD_POLICY_VIOLATION,
+        message: 'Mật khẩu mới phải có từ 12 đến 128 ký tự.',
+      });
+    }
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException({
+        code: AUTH_ERRORS.NEW_PASSWORD_SAME,
+        message: 'Mật khẩu mới phải khác mật khẩu hiện tại.',
+      });
+    }
+
+    const passwordHash = await argon2.hash(dto.newPassword);
+    await this.authRepository.changeOwnPassword({ userId, passwordHash, ipAddress, userAgent });
+    this.clearRateLimit(ipAddress, rateLimitIdentity);
+    return { reauthenticate: true };
+  }
+
   // ─────────────────────── Private helpers ───────────────────────
 
   private async generateTokenPair(userId: string, email: string) {
@@ -388,7 +456,11 @@ export class AuthService implements OnModuleDestroy {
     }
   }
 
-  private checkRateLimit(ipAddress: string, username: string): void {
+  private checkRateLimit(
+    ipAddress: string,
+    username: string,
+    errorCode: string = AUTH_ERRORS.RATE_LIMIT_EXCEEDED,
+  ): void {
     const { maxAttempts, windowMs } = this.rateLimitConfig();
     const key = this.rateLimitKey(ipAddress, username);
     const entry = this.rateLimitStore.get(key);
@@ -405,7 +477,7 @@ export class AuthService implements OnModuleDestroy {
     if (entry.count >= maxAttempts) {
       throw new HttpException(
         {
-          code: AUTH_ERRORS.RATE_LIMIT_EXCEEDED,
+          code: errorCode,
           message: 'Quá nhiều lần thử. Vui lòng thử lại sau.',
         },
         HttpStatus.TOO_MANY_REQUESTS,

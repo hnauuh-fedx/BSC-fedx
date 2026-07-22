@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuth } from '../../features/auth/hooks/use-auth';
@@ -59,5 +60,16 @@ describe('MainLayout navigation permissions', () => {
     expect(screen.getByRole('link', { name: 'Báo cáo' })).toHaveAttribute('href', '/reports/bsc');
     expect(screen.getByRole('link', { name: 'Tổng quan BSC' })).toHaveAttribute('href', '/management/bsc-overview');
     expect(screen.queryByRole('link', { name: 'BSC cá nhân' })).not.toBeInTheDocument();
+  });
+
+  it('opens the account menu and links every authenticated user to account settings', async () => {
+    const user = userEvent.setup();
+    auth([]);
+    render(<MemoryRouter><MainLayout><p>Nội dung</p></MainLayout></MemoryRouter>);
+
+    await user.click(screen.getByRole('button', { name: 'Mở menu tài khoản' }));
+    expect(screen.getByRole('menuitem', { name: 'Thông tin tài khoản' }))
+      .toHaveAttribute('href', '/account');
+    expect(screen.getByRole('menuitem', { name: 'Đăng xuất' })).toBeInTheDocument();
   });
 });

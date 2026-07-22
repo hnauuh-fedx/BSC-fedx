@@ -36,11 +36,22 @@ async function createApp() {
   let revoked = false;
   const auditPayloads: unknown[] = [];
   const prisma = {
-    users: { findUnique: async ({ where }: { where: { username?: string } }) => where.username === undefined || where.username === user.username ? user : null, update: async () => ({}) },
+    $transaction: async (callback: (db: unknown) => Promise<unknown>) => callback(prisma),
+    users: {
+      findUnique: async ({ where }: { where: { username?: string; id?: string } }) => {
+        if (where.username !== undefined) return where.username === user.username ? { ...user } : null;
+        return where.id === undefined || where.id === user.id ? { ...user } : null;
+      },
+      update: async ({ data }: { data: { full_name?: string; password_hash?: string } }) => {
+        if (data.full_name !== undefined) user.full_name = data.full_name;
+        if (data.password_hash !== undefined) user.password_hash = data.password_hash;
+        return user;
+      },
+    },
     auth_refresh_tokens: {
       create: async ({ data }: { data: { token_hash: string; jti: string } }) => { storedHash = data.token_hash; storedJti = data.jti; return {}; },
       findUnique: async () => ({ jti: storedJti, token_hash: storedHash, user_id: user.id, expires_at: new Date(Date.now() + 86_400_000), revoked_at: revoked ? new Date() : null }),
-      update: async () => { revoked = true; return {}; }, updateMany: async () => ({}),
+      update: async () => { revoked = true; return {}; }, updateMany: async () => { revoked = true; return { count: 1 }; },
     },
     audit_logs: { create: async ({ data }: { data: unknown }) => { auditPayloads.push(data); return {}; } },
   };
@@ -50,7 +61,7 @@ async function createApp() {
   @Module({ imports: [PrismaMockModule, PassportModule.register({ defaultStrategy: 'jwt-access' }), JwtModule.register({})], controllers: [AuthController], providers: [AuthService, AuthRepository, JwtAccessStrategy, JwtAccessGuard] })
   class TestAuthModule {}
   const app = await NestFactory.create(TestAuthModule, { logger: false });
-  app.use(cookieParser()); app.useGlobalFilters(new GlobalExceptionFilter()); app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  app.use(cookieParser()); app.useGlobalFilters(new GlobalExceptionFilter()); app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   await app.init();
   return { app, agent: request.agent(app.getHttpServer()), user, getStoredHash: () => storedHash, auditPayloads };
 }
@@ -163,4 +174,131 @@ test('audit payloads never include a password or token', async () => {
     const serialized = JSON.stringify(auditPayloads);
     for (const secret of ['do-not-log-me', 'password', 'token', 'refresh_token']) assert.equal(serialized.includes(secret), false);
   } finally { await app.close(); }
+});
+
+test('authenticated user updates only their own full name and the response is canonical', async () => {
+  const { app, agent, user, auditPayloads } = await createApp();
+  try {
+    const login = await agent.post('/auth/login').send({ username: user.username, password }).expect(200);
+    const response = await agent
+      .patch('/auth/me/profile')
+      .set('Authorization', `Bearer ${login.body.accessToken}`)
+      .send({ fullName: '  Nguyễn Văn A  ' })
+      .expect(200);
+
+    assert.equal(response.body.fullName, 'Nguyễn Văn A');
+    assert.equal(user.full_name, 'Nguyễn Văn A');
+    assert.match(JSON.stringify(auditPayloads), /SELF_PROFILE_UPDATED/);
+    assert.match(JSON.stringify(auditPayloads), /Test User/);
+
+    await agent
+      .patch('/auth/me/profile')
+      .set('Authorization', `Bearer ${login.body.accessToken}`)
+      .send({ fullName: '   ' })
+      .expect(400);
+    await agent
+      .patch('/auth/me/profile')
+      .set('Authorization', `Bearer ${login.body.accessToken}`)
+      .send({ fullName: 'a'.repeat(256) })
+      .expect(400);
+
+    await agent
+      .patch('/auth/me/profile')
+      .set('Authorization', `Bearer ${login.body.accessToken}`)
+      .send({ fullName: 'Tên hợp lệ', email: 'attacker@example.test' })
+      .expect(400);
+  } finally { await app.close(); }
+});
+
+test('changing password verifies the current password, revokes sessions, clears cookie, and never audits secrets', async () => {
+  const { app, agent, user, auditPayloads } = await createApp();
+  const nextPassword = 'New!Password#2026';
+  try {
+    const login = await agent.post('/auth/login').send({ username: user.username, password }).expect(200);
+
+    const wrong = await agent
+      .post('/auth/me/change-password')
+      .set('Authorization', `Bearer ${login.body.accessToken}`)
+      .send({ currentPassword: 'Wrong!Password#1', newPassword: nextPassword })
+      .expect(400);
+    assert.equal(wrong.body.code, 'AUTH_CURRENT_PASSWORD_INVALID');
+
+    const changed = await agent
+      .post('/auth/me/change-password')
+      .set('Authorization', `Bearer ${login.body.accessToken}`)
+      .send({ currentPassword: password, newPassword: nextPassword })
+      .expect(200);
+
+    assert.equal(changed.body.reauthenticate, true);
+    assert.match(changed.headers['set-cookie']?.[0] ?? '', /refresh_token=;/);
+    assert.equal(await argon2.verify(user.password_hash, nextPassword), true);
+    await agent.post('/auth/refresh').set('Origin', 'http://localhost:5173').expect(401);
+    await agent.post('/auth/login').send({ username: user.username, password }).expect(401);
+    await agent.post('/auth/login').send({ username: user.username, password: nextPassword }).expect(200);
+
+    const serialized = JSON.stringify(auditPayloads);
+    assert.match(serialized, /SELF_PASSWORD_CHANGED/);
+    for (const secret of [password, nextPassword, 'password_hash']) assert.equal(serialized.includes(secret), false);
+  } finally { await app.close(); }
+});
+
+test('account mutations require authentication and enforce password boundaries', async () => {
+  const { app, agent, user } = await createApp();
+  try {
+    await agent.patch('/auth/me/profile').send({ fullName: 'Tên mới' }).expect(401);
+    await agent.post('/auth/me/change-password').send({ currentPassword: password, newPassword: 'New!Password#2026' }).expect(401);
+
+    const login = await agent.post('/auth/login').send({ username: user.username, password }).expect(200);
+    const authorization = { Authorization: `Bearer ${login.body.accessToken}` };
+    await agent
+      .post('/auth/me/change-password')
+      .set(authorization)
+      .send({ currentPassword: password, newPassword: password })
+      .expect(400)
+      .expect(({ body }) => assert.equal(body.code, 'AUTH_NEW_PASSWORD_SAME'));
+    await agent
+      .post('/auth/me/change-password')
+      .set(authorization)
+      .send({ currentPassword: password, newPassword: 'TooShort1!' })
+      .expect(400)
+      .expect(({ body }) => assert.equal(body.code, 'AUTH_PASSWORD_POLICY_VIOLATION'));
+    await agent
+      .post('/auth/me/change-password')
+      .set(authorization)
+      .send({ currentPassword: password, newPassword: `A!1${'x'.repeat(126)}` })
+      .expect(400)
+      .expect(({ body }) => assert.equal(body.code, 'AUTH_PASSWORD_POLICY_VIOLATION'));
+  } finally { await app.close(); }
+});
+
+test('password policy accepts a 128-character password', async () => {
+  const { app, agent, user } = await createApp();
+  const boundaryPassword = `A!1${'x'.repeat(125)}`;
+  try {
+    const login = await agent.post('/auth/login').send({ username: user.username, password }).expect(200);
+    await agent
+      .post('/auth/me/change-password')
+      .set('Authorization', `Bearer ${login.body.accessToken}`)
+      .send({ currentPassword: password, newPassword: boundaryPassword })
+      .expect(200);
+    assert.equal(await argon2.verify(user.password_hash, boundaryPassword), true);
+  } finally { await app.close(); }
+});
+
+test('password change failures are rate-limited with a dedicated error code', async () => {
+  const previousMax = process.env.RATE_LIMIT_MAX_ATTEMPTS;
+  process.env.RATE_LIMIT_MAX_ATTEMPTS = '1';
+  const { app, agent, user } = await createApp();
+  try {
+    const login = await agent.post('/auth/login').send({ username: user.username, password }).expect(200);
+    const authorization = { Authorization: `Bearer ${login.body.accessToken}` };
+    await agent.post('/auth/me/change-password').set(authorization)
+      .send({ currentPassword: 'Wrong!Password#1', newPassword: 'New!Password#2026' }).expect(400);
+    await agent.post('/auth/me/change-password').set(authorization)
+      .send({ currentPassword: 'Wrong!Password#1', newPassword: 'New!Password#2026' }).expect(429)
+      .expect(({ body }) => assert.equal(body.code, 'AUTH_PASSWORD_RATE_LIMITED'));
+  } finally {
+    await app.close();
+    previousMax === undefined ? delete process.env.RATE_LIMIT_MAX_ATTEMPTS : process.env.RATE_LIMIT_MAX_ATTEMPTS = previousMax;
+  }
 });

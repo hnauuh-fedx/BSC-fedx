@@ -1,5 +1,6 @@
 import {
   Controller,
+  Patch,
   Post,
   Get,
   Body,
@@ -22,6 +23,7 @@ import { validateEnvironment } from '../../../config/env.validation';
 import { getAuthConfig } from '../../../config/auth.config';
 import { JwtService } from '@nestjs/jwt';
 import { RefreshTokenPayload } from '../types/auth-token-payload.type';
+import { ChangeOwnPasswordDto, UpdateOwnProfileDto } from '../dto/account.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -128,6 +130,42 @@ export class AuthController {
   @UseGuards(JwtAccessGuard)
   async getMe(@CurrentUser() currentUser: AuthUser) {
     return this.authService.getCurrentUser(currentUser.id);
+  }
+
+  /** PATCH /auth/me/profile */
+  @Patch('me/profile')
+  @UseGuards(JwtAccessGuard)
+  async updateOwnProfile(
+    @CurrentUser() currentUser: AuthUser,
+    @Body() dto: UpdateOwnProfileDto,
+    @Req() req: Request,
+  ) {
+    return this.authService.updateOwnProfile(
+      currentUser.id,
+      dto,
+      this.extractIp(req),
+      req.headers['user-agent'] ?? '',
+    );
+  }
+
+  /** POST /auth/me/change-password */
+  @Post('me/change-password')
+  @UseGuards(JwtAccessGuard)
+  @HttpCode(HttpStatus.OK)
+  async changeOwnPassword(
+    @CurrentUser() currentUser: AuthUser,
+    @Body() dto: ChangeOwnPasswordDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.changeOwnPassword(
+      currentUser.id,
+      dto,
+      this.extractIp(req),
+      req.headers['user-agent'] ?? '',
+    );
+    this.clearRefreshCookie(res, req);
+    return result;
   }
 
   // ─────────────────────── Cookie helpers ───────────────────────

@@ -10,6 +10,7 @@ import {
 import { useAuth } from '../../features/auth/hooks/use-auth';
 import { ForbiddenPage } from '../../features/auth/pages/forbidden-page';
 import { LoginPage } from '../../features/auth/pages/login-page';
+import { AccountPage } from '../../features/account/pages/account-page';
 import { AuditLogsPage } from '../../features/audit-logs';
 import { BscCycleDetailPage, BscCycleFormPage, BscCyclesPage } from '../../features/bsc-cycles';
 import { BscMinutesPage } from '../../features/bsc-minutes';
@@ -87,6 +88,7 @@ export const AppRouter: React.FC = () => (
       <Route path="/login" element={<LoginPage />} />
       <Route path="/" element={<PermissionLandingPage />} />
       <Route path="/forbidden" element={<ProtectedRoute><ForbiddenPage /></ProtectedRoute>} />
+      <Route path="/account" element={<ProtectedRoute><MainLayout><AccountPage /></MainLayout></ProtectedRoute>} />
 
       <Route path="/dashboard" element={<WorkspacePage><DashboardPage /></WorkspacePage>} />
       <Route path="/management/bsc-overview" element={<WorkspacePage><ManagementOverviewRoute /></WorkspacePage>} />

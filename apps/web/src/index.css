@@ -178,7 +178,7 @@
 .nav-link { border-radius: var(--radius-md); padding: .45rem .65rem; color: var(--muted-foreground); font-size: .9rem; font-weight: 600; text-decoration: none; }
 .nav-link:hover, .nav-link-active { background: var(--muted); color: var(--foreground); text-decoration: none; }
 .user-menu { display: flex; align-items: center; justify-content: flex-end; gap: .75rem; min-width: 0; }
-.user-menu span { max-width: 13rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .875rem; }
+.user-menu-name { max-width: 13rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .875rem; }
 .app-content { width: 100%; max-width: 100rem; margin-inline: auto; padding: clamp(1rem, 2.4vw, 2rem); }
 .skip-link { position: fixed; left: .75rem; top: .5rem; z-index: 100; transform: translateY(-160%); border-radius: var(--radius-md); background: var(--foreground); color: var(--background); padding: .6rem .8rem; }
 .skip-link:focus { transform: translateY(0); }
@@ -258,7 +258,7 @@ main > table { display: block; max-width: 100%; overflow-x: auto; border: 1px so
 }
 @media (max-width: 40rem) {
   .app-header-inner { padding-inline: .75rem; }
-  .user-menu span { display: none; }
+  .user-menu-name { display: none; }
   .page-header { flex-direction: column; }
   .page-actions { justify-content: flex-start; }
   .pagination { flex-wrap: wrap; justify-content: center; }

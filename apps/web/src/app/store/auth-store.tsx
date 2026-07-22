@@ -10,6 +10,7 @@ type AuthAction =
   | { type: 'LOGIN_SUCCESS'; payload: { user: AuthUser; accessToken: string; expiresAt: number } }
   | { type: 'LOGOUT' }
   | { type: 'REFRESH_SUCCESS'; payload: { accessToken: string; expiresAt: number } }
+  | { type: 'UPDATE_CURRENT_USER'; payload: AuthUser }
   | { type: 'SET_UNAUTHENTICATED' };
 
 const initialState: AuthState = {
@@ -40,6 +41,9 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
         expiresAt: action.payload.expiresAt,
       };
 
+    case 'UPDATE_CURRENT_USER':
+      return { ...state, user: action.payload };
+
     case 'LOGOUT':
     case 'SET_UNAUTHENTICATED':
       return {
@@ -62,6 +66,8 @@ interface AuthContextValue {
   logout: () => Promise<void>;
   /** Trả access token hiện tại, hoặc null nếu chưa đăng nhập */
   getAccessToken: () => string | null;
+  updateCurrentUser?: (user: AuthUser) => void;
+  clearSession?: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -123,6 +129,10 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
   }, [state.accessToken]);
 
   const getAccessToken = useCallback(() => stateRef.current.accessToken, []);
+  const updateCurrentUser = useCallback((user: AuthUser) => {
+    dispatch({ type: 'UPDATE_CURRENT_USER', payload: user });
+  }, []);
+  const clearSession = useCallback(() => dispatch({ type: 'LOGOUT' }), []);
 
   useEffect(() => {
     configureHttpClient({
@@ -137,7 +147,7 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
   }, [getAccessToken]);
 
   return (
-    <AuthContext.Provider value={{ state, login, logout, getAccessToken }}>
+    <AuthContext.Provider value={{ state, login, logout, getAccessToken, updateCurrentUser, clearSession }}>
       {children}
     </AuthContext.Provider>
   );
