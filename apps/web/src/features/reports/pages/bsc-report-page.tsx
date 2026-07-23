@@ -1,45 +1,181 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { DownloadIcon, RotateCcwIcon } from 'lucide-react';
+import { Badge } from '../../../components/ui/badge';
+import { Button } from '../../../components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card';
+import { Field, FieldGroup, FieldLabel } from '../../../components/ui/field';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
+import { Spinner } from '../../../components/ui/spinner';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { useAuth } from '../../auth/hooks/use-auth';
-import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SearchInput, TableContainer } from '../../organization/management-ui';
+import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SearchInput } from '../../organization/management-ui';
+import { BscStatusBadge } from '../../employee-bsc/components/bsc-status-badge';
 import { reportsApi } from '../reports-api';
 import { ReportOptions, ReportRow } from '../reports.types';
 import { workflowStatusLabel } from '../report-status';
 
 const PAGE_SIZE = 20;
+const ALL = 'ALL';
 const date = (value: string | null) => value ? new Intl.DateTimeFormat('vi-VN').format(new Date(value)) : '—';
 const statuses = ['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REOPENED'];
 
+const FilterSelect: React.FC<{
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}> = ({ id, label, value, onChange, options }) => <Field>
+  <FieldLabel htmlFor={id}>{label}</FieldLabel>
+  <Select value={value} onValueChange={onChange}>
+    <SelectTrigger id={id}><SelectValue/></SelectTrigger>
+    <SelectContent><SelectGroup>{options.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectGroup></SelectContent>
+  </Select>
+</Field>;
+
 export const BscReportPage: React.FC = () => {
   const navigate = useNavigate();
-  const { user } = useAuth(); const [options, setOptions] = useState<ReportOptions | null>(null), [items, setItems] = useState<ReportRow[]>([]);
-  const [cycleId, setCycleId] = useState(''), [departmentId, setDepartmentId] = useState(''), [employeeId, setEmployeeId] = useState('');
-  const [planStatus, setPlanStatus] = useState(''), [evaluationStatus, setEvaluationStatus] = useState(''), [finalGrade, setFinalGrade] = useState(''), [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState('created_at'), [sortOrder, setSortOrder] = useState('desc'), [page, setPage] = useState(1), [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true), [error, setError] = useState(''), [reload, setReload] = useState(0), [exporting, setExporting] = useState(false);
-  const filters = useMemo(() => ({ cycleId, departmentId, employeeId, planStatus, evaluationStatus, finalGrade, search, sortBy, sortOrder }), [cycleId, departmentId, employeeId, planStatus, evaluationStatus, finalGrade, search, sortBy, sortOrder]);
+  const { user } = useAuth();
+  const [options, setOptions] = useState<ReportOptions | null>(null);
+  const [items, setItems] = useState<ReportRow[]>([]);
+  const [cycleId, setCycleId] = useState(ALL);
+  const [departmentId, setDepartmentId] = useState(ALL);
+  const [employeeId, setEmployeeId] = useState(ALL);
+  const [planStatus, setPlanStatus] = useState(ALL);
+  const [evaluationStatus, setEvaluationStatus] = useState(ALL);
+  const [finalGrade, setFinalGrade] = useState(ALL);
+  const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('created_at');
+  const [sortOrder, setSortOrder] = useState('desc');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+  const [exporting, setExporting] = useState(false);
+
+  const filters = useMemo(() => ({
+    cycleId: cycleId === ALL ? '' : cycleId,
+    departmentId: departmentId === ALL ? '' : departmentId,
+    employeeId: employeeId === ALL ? '' : employeeId,
+    planStatus: planStatus === ALL ? '' : planStatus,
+    evaluationStatus: evaluationStatus === ALL ? '' : evaluationStatus,
+    finalGrade: finalGrade === ALL ? '' : finalGrade,
+    search,
+    sortBy,
+    sortOrder,
+  }), [cycleId, departmentId, employeeId, planStatus, evaluationStatus, finalGrade, search, sortBy, sortOrder]);
+
   useEffect(() => { reportsApi.options().then(setOptions).catch(() => undefined); }, []);
-  useEffect(() => { setLoading(true); setError(''); setItems([]); reportsApi.list({ ...filters, page, limit: PAGE_SIZE }).then(result => { setItems(result.items); setTotal(result.total); }).catch(cause => setError(cause instanceof Error ? cause.message : 'Không thể tải báo cáo BSC.')).finally(() => setLoading(false)); }, [filters, page, reload]);
-  const change = (setter: React.Dispatch<React.SetStateAction<string>>) => (event: React.ChangeEvent<HTMLSelectElement>) => { setter(event.target.value); setPage(1); };
-  const exportExcel = async () => { setExporting(true); setError(''); try { const result = await reportsApi.export(filters); const url = URL.createObjectURL(result.blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = result.fileName; anchor.click(); URL.revokeObjectURL(url); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể xuất Excel.'); } finally { setExporting(false); } };
-  const resetFilters = () => { setCycleId(''); setDepartmentId(''); setEmployeeId(''); setPlanStatus(''); setEvaluationStatus(''); setFinalGrade(''); setSearch(''); setSortBy('created_at'); setSortOrder('desc'); setPage(1); };
-  const activeFilterCount = [cycleId, departmentId, employeeId, planStatus, evaluationStatus, finalGrade, search].filter(Boolean).length;
-  return <main className="space-y-5"><PageHeader title="Báo cáo BSC" description="Dữ liệu được giới hạn theo quyền và phạm vi do backend xác định." action={user?.permissions.includes('bsc.report.export') && <button type="button" disabled={exporting} aria-busy={exporting} onClick={() => void exportExcel()}>{exporting ? 'Đang xuất…' : 'Xuất Excel'}</button>}/>
-    <section className="filter-bar" aria-label="Bộ lọc báo cáo">
-      <label>Kỳ BSC<select value={cycleId} onChange={change(setCycleId)}><option value="">Tất cả kỳ</option>{options?.cycles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label>Phòng ban<select value={departmentId} onChange={change(setDepartmentId)}><option value="">Tất cả phòng ban</option>{options?.departments.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label>Nhân viên<select value={employeeId} onChange={change(setEmployeeId)}><option value="">Tất cả nhân viên</option>{options?.employees.map(item => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label>
-      <label>Trạng thái PLAN<select value={planStatus} onChange={change(setPlanStatus)}><option value="">Tất cả</option>{statuses.map(value => <option key={value} value={value}>{workflowStatusLabel(value)}</option>)}</select></label>
-      <label>Trạng thái EVALUATION<select value={evaluationStatus} onChange={change(setEvaluationStatus)}><option value="">Tất cả</option>{['NOT_STARTED', ...statuses].map(value => <option key={value} value={value}>{workflowStatusLabel(value)}</option>)}</select></label>
-      <label>Xếp loại<select value={finalGrade} onChange={change(setFinalGrade)}><option value="">Tất cả</option>{['C', 'B', 'A', 'A+', 'A++'].map(value => <option key={value}>{value}</option>)}</select></label>
-      <label>Sắp xếp<select value={sortBy} onChange={change(setSortBy)}><option value="created_at">Ngày tạo</option><option value="final_score">Điểm cuối</option><option value="plan_approved_at">Ngày duyệt PLAN</option><option value="evaluation_approved_at">Ngày duyệt EVALUATION</option></select></label>
-      <label>Thứ tự<select value={sortOrder} onChange={change(setSortOrder)}><option value="desc">Giảm dần</option><option value="asc">Tăng dần</option></select></label>
-      <SearchInput value={search} onChange={value => { setSearch(value); setPage(1); }}/>
-      <button type="button" onClick={resetFilters} disabled={activeFilterCount === 0 && sortBy === 'created_at' && sortOrder === 'desc'}>Đặt lại bộ lọc</button>
-    </section>
-    <p className="filter-summary" role="status">{activeFilterCount > 0 ? `Đang áp dụng ${activeFilterCount} bộ lọc` : 'Đang hiển thị toàn bộ dữ liệu trong phạm vi'} · Sắp xếp {sortOrder === 'desc' ? 'giảm dần' : 'tăng dần'}.</p>
+  useEffect(() => {
+    setLoading(true);
+    setError('');
+    setItems([]);
+    reportsApi.list({ ...filters, page, limit: PAGE_SIZE })
+      .then(result => { setItems(result.items); setTotal(result.total); })
+      .catch(cause => setError(cause instanceof Error ? cause.message : 'Không thể tải báo cáo BSC.'))
+      .finally(() => setLoading(false));
+  }, [filters, page, reload]);
+
+  const change = (setter: React.Dispatch<React.SetStateAction<string>>) => (value: string) => {
+    setter(value);
+    setPage(1);
+  };
+  const exportExcel = async () => {
+    setExporting(true);
+    setError('');
+    try {
+      const result = await reportsApi.export(filters);
+      const url = URL.createObjectURL(result.blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = result.fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không thể xuất Excel.');
+    } finally {
+      setExporting(false);
+    }
+  };
+  const resetFilters = () => {
+    setCycleId(ALL); setDepartmentId(ALL); setEmployeeId(ALL); setPlanStatus(ALL);
+    setEvaluationStatus(ALL); setFinalGrade(ALL); setSearch(''); setSortBy('created_at');
+    setSortOrder('desc'); setPage(1);
+  };
+  const activeFilterCount = [cycleId, departmentId, employeeId, planStatus, evaluationStatus, finalGrade]
+    .filter(value => value !== ALL).length + (search ? 1 : 0);
+  const optionsWithAll = (values: Array<{ id: string; name: string }>, allLabel: string) => [
+    { value: ALL, label: allLabel },
+    ...values.map(value => ({ value: value.id, label: value.name })),
+  ];
+
+  return <main className="flex flex-col gap-5">
+    <PageHeader
+      title="Báo cáo BSC"
+      description="Dữ liệu được giới hạn theo quyền và phạm vi do backend xác định."
+      action={user?.permissions.includes('bsc.report.export') && <Button className="min-h-11 w-full md:min-h-0 md:w-auto" disabled={exporting} aria-busy={exporting} onClick={() => void exportExcel()}>
+        {exporting ? <Spinner data-icon="inline-start"/> : <DownloadIcon data-icon="inline-start"/>}{exporting ? 'Đang xuất…' : 'Xuất Excel'}
+      </Button>}
+    />
+    <Card>
+      <CardHeader>
+        <CardTitle>Bộ lọc báo cáo</CardTitle>
+        <CardDescription>Kết hợp nhiều điều kiện để thu hẹp dữ liệu cần phân tích.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <FieldGroup className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <FilterSelect id="report-cycle" label="Kỳ BSC" value={cycleId} onChange={change(setCycleId)} options={optionsWithAll(options?.cycles ?? [], 'Tất cả kỳ')}/>
+          <FilterSelect id="report-department" label="Phòng ban" value={departmentId} onChange={change(setDepartmentId)} options={optionsWithAll(options?.departments ?? [], 'Tất cả phòng ban')}/>
+          <FilterSelect id="report-employee" label="Nhân viên" value={employeeId} onChange={change(setEmployeeId)} options={[
+            { value: ALL, label: 'Tất cả nhân viên' },
+            ...(options?.employees ?? []).map(item => ({ value: item.id, label: item.full_name })),
+          ]}/>
+          <FilterSelect id="report-plan" label="Trạng thái kế hoạch" value={planStatus} onChange={change(setPlanStatus)} options={[
+            { value: ALL, label: 'Tất cả' }, ...statuses.map(value => ({ value, label: workflowStatusLabel(value) })),
+          ]}/>
+          <FilterSelect id="report-evaluation" label="Trạng thái đánh giá" value={evaluationStatus} onChange={change(setEvaluationStatus)} options={[
+            { value: ALL, label: 'Tất cả' }, ...['NOT_STARTED', ...statuses].map(value => ({ value, label: workflowStatusLabel(value) })),
+          ]}/>
+          <FilterSelect id="report-grade" label="Xếp loại" value={finalGrade} onChange={change(setFinalGrade)} options={[
+            { value: ALL, label: 'Tất cả' }, ...['C', 'B', 'A', 'A+', 'A++'].map(value => ({ value, label: value })),
+          ]}/>
+          <FilterSelect id="report-sort" label="Sắp xếp" value={sortBy} onChange={change(setSortBy)} options={[
+            { value: 'created_at', label: 'Ngày tạo' }, { value: 'final_score', label: 'Điểm cuối' },
+            { value: 'plan_approved_at', label: 'Ngày duyệt kế hoạch' }, { value: 'evaluation_approved_at', label: 'Ngày duyệt đánh giá' },
+          ]}/>
+          <FilterSelect id="report-order" label="Thứ tự" value={sortOrder} onChange={change(setSortOrder)} options={[
+            { value: 'desc', label: 'Giảm dần' }, { value: 'asc', label: 'Tăng dần' },
+          ]}/>
+          <SearchInput value={search} onChange={value => { setSearch(value); setPage(1); }}/>
+          <Field><FieldLabel className="sr-only">Đặt lại</FieldLabel><Button className="min-h-11 w-full md:min-h-0" variant="outline" onClick={resetFilters} disabled={activeFilterCount === 0 && sortBy === 'created_at' && sortOrder === 'desc'}>
+            <RotateCcwIcon data-icon="inline-start"/>Đặt lại bộ lọc
+          </Button></Field>
+        </FieldGroup>
+      </CardContent>
+    </Card>
+    <div role="status"><Badge variant="secondary">{activeFilterCount > 0 ? `${activeFilterCount} bộ lọc đang áp dụng` : 'Toàn bộ dữ liệu trong phạm vi'}</Badge></div>
     {error && <ErrorState error={error} onRetry={() => setReload(value => value + 1)}/>}
-    {loading ? <LoadingState/> : !error && items.length === 0 ? <EmptyState message="Không có dữ liệu BSC phù hợp."/> : !error && <TableContainer label="Báo cáo BSC chi tiết"><table className="min-w-[1300px] w-full"><thead><tr><th scope="col">Họ tên</th><th scope="col">Phòng ban</th><th scope="col">Chức danh</th><th scope="col">Quản lý trực tiếp</th><th scope="col">Kỳ BSC</th><th scope="col">Kế hoạch</th><th scope="col">Đánh giá kết quả</th><th scope="col">Tổng tỷ trọng</th><th scope="col">Số KPI</th><th scope="col">Điểm chính thức</th><th scope="col">Xếp loại chính thức</th><th scope="col">Duyệt kế hoạch</th><th scope="col">Duyệt kết quả</th></tr></thead><tbody>{items.map(row => <tr key={row.id} className="cursor-pointer hover:bg-muted/50 focus-within:outline-2 focus-within:outline-offset-[-2px] focus-within:outline-ring" onClick={() => navigate(`/employee-bsc/${row.id}`)}><td><Link to={`/employee-bsc/${row.id}`} onClick={event => event.stopPropagation()} aria-label={`Xem BSC của ${row.employeeName} kỳ ${row.cycleName}`} className="font-medium text-foreground no-underline">{row.employeeName}</Link></td><td>{row.departmentName}</td><td>{row.positionName}</td><td>{row.directManagerName}</td><td>{row.cycleName}</td><td>{workflowStatusLabel(row.planStatus)}</td><td>{workflowStatusLabel(row.evaluationStatus)}</td><td>{row.totalWeight}%</td><td>{row.kpiCount}</td><td>{row.officialScore ?? '—'}</td><td>{row.officialGrade ?? '—'}</td><td>{date(row.planApprovedAt)}</td><td>{date(row.evaluationApprovedAt)}</td></tr>)}</tbody></table></TableContainer>}
+    {loading ? <LoadingState/> : !error && items.length === 0 ? <EmptyState message="Không có dữ liệu BSC phù hợp."/> : !error && <>
+      <div className="flex flex-col gap-3 md:hidden">{items.map(row => <Card key={row.id}>
+        <CardHeader><CardTitle><Link to={`/employee-bsc/${row.id}`}>{row.employeeName}</Link></CardTitle><CardDescription>{row.departmentName} · {row.positionName}</CardDescription></CardHeader>
+        <CardContent className="flex flex-col gap-3"><dl><dt>Kỳ</dt><dd>{row.cycleName}</dd><dt>Quản lý trực tiếp</dt><dd>{row.directManagerName}</dd><dt>Kế hoạch</dt><dd><BscStatusBadge status={row.planStatus}/></dd><dt>Đánh giá</dt><dd><BscStatusBadge status={row.evaluationStatus}/></dd><dt>Tỷ trọng / KPI</dt><dd>{row.totalWeight}% / {row.kpiCount}</dd><dt>Điểm / Xếp loại</dt><dd>{row.officialScore ?? '—'} / {row.officialGrade ?? '—'}</dd><dt>Duyệt kế hoạch</dt><dd>{date(row.planApprovedAt)}</dd><dt>Duyệt đánh giá</dt><dd>{date(row.evaluationApprovedAt)}</dd></dl><Button className="min-h-11 w-full" variant="outline" asChild><Link to={`/employee-bsc/${row.id}`}>Xem chi tiết</Link></Button></CardContent>
+      </Card>)}</div>
+      <Card className="hidden md:flex">
+        <CardHeader><CardTitle>Báo cáo BSC chi tiết</CardTitle><CardDescription>{total} BSC phù hợp với điều kiện hiện tại.</CardDescription></CardHeader>
+        <CardContent><Table className="min-w-[1300px]">
+          <TableHeader><TableRow><TableHead>Họ tên</TableHead><TableHead>Phòng ban</TableHead><TableHead>Chức danh</TableHead><TableHead>Quản lý trực tiếp</TableHead><TableHead>Kỳ BSC</TableHead><TableHead>Kế hoạch</TableHead><TableHead>Đánh giá</TableHead><TableHead>Tỷ trọng</TableHead><TableHead>Số KPI</TableHead><TableHead>Điểm</TableHead><TableHead>Xếp loại</TableHead><TableHead>Duyệt kế hoạch</TableHead><TableHead>Duyệt đánh giá</TableHead></TableRow></TableHeader>
+          <TableBody>{items.map(row => <TableRow key={row.id} className="cursor-pointer focus-within:outline-2 focus-within:outline-offset-[-2px] focus-within:outline-ring" onClick={() => navigate(`/employee-bsc/${row.id}`)}>
+            <TableCell><Link to={`/employee-bsc/${row.id}`} onClick={event => event.stopPropagation()} aria-label={`Xem BSC của ${row.employeeName} kỳ ${row.cycleName}`}>{row.employeeName}</Link></TableCell>
+            <TableCell>{row.departmentName}</TableCell><TableCell>{row.positionName}</TableCell><TableCell>{row.directManagerName}</TableCell><TableCell>{row.cycleName}</TableCell>
+            <TableCell><BscStatusBadge status={row.planStatus}/></TableCell><TableCell><BscStatusBadge status={row.evaluationStatus}/></TableCell>
+            <TableCell>{row.totalWeight}%</TableCell><TableCell>{row.kpiCount}</TableCell><TableCell>{row.officialScore ?? '—'}</TableCell><TableCell>{row.officialGrade ?? '—'}</TableCell>
+            <TableCell>{date(row.planApprovedAt)}</TableCell><TableCell>{date(row.evaluationApprovedAt)}</TableCell>
+          </TableRow>)}</TableBody>
+        </Table></CardContent>
+      </Card>
+    </>}
     <Pagination page={page} total={total} limit={PAGE_SIZE} onChange={setPage}/>
   </main>;
 };
