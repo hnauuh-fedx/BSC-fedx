@@ -1,8 +1,10 @@
 import React, { useEffect, useId, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Button } from '../../../components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Input } from '../../../components/ui/input';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
+import { Spinner } from '../../../components/ui/spinner';
 import { rolesApi } from '../../roles/services/roles.service';
 import type { RoleDetail, RoleSummary } from '../../roles/types/roles.types';
 import { Department, organizationApi, Position, User } from '../organization-api';
@@ -103,31 +105,34 @@ export const UserFormPage: React.FC = () => {
   return <main className="flex flex-col gap-6">
     <PageHeader title={edit ? 'Sửa người dùng' : 'Tạo người dùng'} description={edit ? 'Cập nhật thông tin tổ chức của người dùng.' : 'Tạo tài khoản và gán vai trò, phạm vi quyền ngay trong một bước.'} />
     {loading ? <LoadingState /> : <form className="flex flex-col gap-6" onSubmit={event => void save(event)} noValidate>
-      <section aria-labelledby="user-information-title" className="rounded-xl border bg-card p-5">
-        <h2 id="user-information-title" className="mb-4 text-lg font-semibold">Thông tin người dùng</h2>
-        <div className="grid gap-4 md:grid-cols-2">
+      <Card>
+        <CardHeader><CardTitle><h2>Thông tin người dùng</h2></CardTitle><CardDescription>Thông tin nhận diện và đăng nhập của tài khoản.</CardDescription></CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2">
           {!edit && <FormField label="Mã nhân viên"><Input value={form.employeeCode} onChange={event => setForm({ ...form, employeeCode: event.target.value })} disabled={submitting} /></FormField>}
           <FormField label="Tên đăng nhập"><Input value={form.username} onChange={event => setForm({ ...form, username: event.target.value.toLowerCase() })} autoComplete="username" autoCapitalize="none" spellCheck={false} minLength={3} maxLength={50} pattern="[A-Za-z0-9._-]+" disabled={submitting} /></FormField>
           <FormField label="Họ tên"><Input value={form.fullName} onChange={event => setForm({ ...form, fullName: event.target.value })} disabled={submitting} /></FormField>
           <FormField label="Email"><Input type="email" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} disabled={submitting} /></FormField>
           {!edit && <FormField label="Mật khẩu ban đầu"><Input type="password" value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} disabled={submitting} /></FormField>}
-        </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      <section aria-labelledby="organization-title" className="rounded-xl border bg-card p-5">
-        <h2 id="organization-title" className="mb-4 text-lg font-semibold">Cơ cấu tổ chức</h2>
-        <div className="grid gap-4 md:grid-cols-2">
-          <FormField label="Đơn vị"><select value={form.departmentId} onChange={event => setForm({ ...form, departmentId: event.target.value })} disabled={submitting}><option value="">Chọn đơn vị</option>{departments.filter(item => item.status === 'ACTIVE').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></FormField>
+      <Card>
+        <CardHeader><CardTitle><h2>Cơ cấu tổ chức</h2></CardTitle><CardDescription>Đơn vị, chức danh và tuyến quản lý trực tiếp của người dùng.</CardDescription></CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          <FormField label="Đơn vị"><select className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50" value={form.departmentId} onChange={event => setForm({ ...form, departmentId: event.target.value })} disabled={submitting}><option value="">Chọn đơn vị</option>{departments.filter(item => item.status === 'ACTIVE').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></FormField>
           <SelectField label="Chức danh" value={form.positionId} placeholder="Chọn chức danh" onChange={value => setForm({ ...form, positionId: value })} disabled={submitting} helper={positions.length ? `${positions.length} chức danh đang hoạt động.` : 'Chưa có chức danh đang hoạt động. Hãy tạo hoặc kích hoạt chức danh trước.'}>
             {positions.map(item => <SelectItem key={item.id} value={item.id} title={`${item.code} · Thứ bậc ${item.level}`}>{item.name}</SelectItem>)}
           </SelectField>
-          <FormField label="Quản lý trực tiếp"><select value={form.directManagerId} onChange={event => setForm({ ...form, directManagerId: event.target.value })} disabled={submitting}><option value="">Không có</option>{managers.map(item => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></FormField>
-        </div>
-      </section>
+          <SelectField label="Quản lý trực tiếp" value={form.directManagerId || 'NONE'} placeholder="Chọn quản lý trực tiếp" onChange={value => setForm({ ...form, directManagerId: value === 'NONE' ? '' : value })} disabled={submitting}>
+            <SelectItem value="NONE">Không có</SelectItem>
+            {managers.map(item => <SelectItem key={item.id} value={item.id}>{item.full_name}</SelectItem>)}
+          </SelectField>
+        </CardContent>
+      </Card>
 
-      {!edit && <section aria-labelledby="role-permission-title" className="rounded-xl border bg-card p-5">
-        <h2 id="role-permission-title" className="text-lg font-semibold">Vai trò &amp; Quyền</h2>
-        <p className="mb-4 text-sm text-muted-foreground">Quyền được kế thừa từ vai trò đã chọn và được giới hạn theo phạm vi dữ liệu.</p>
+      {!edit && <Card>
+        <CardHeader><CardTitle><h2>Vai trò &amp; Quyền</h2></CardTitle><CardDescription>Quyền được kế thừa từ vai trò đã chọn và được giới hạn theo phạm vi dữ liệu.</CardDescription></CardHeader>
+        <CardContent>
         <div className="grid gap-4 md:grid-cols-2">
           <SelectField label="Vai trò" value={form.roleId} placeholder="Chọn vai trò" onChange={value => {
             const role = roles.find(item => item.id === value);
@@ -152,12 +157,13 @@ export const UserFormPage: React.FC = () => {
             </div>)}
           </div>}
         </div>}
-      </section>}
+        </CardContent>
+      </Card>}
 
       {error && <ErrorState error={error} />}
-      <div className="flex gap-3">
-        <Button type="submit" disabled={submitting}>{submitting ? 'Đang lưu…' : 'Lưu người dùng'}</Button>
-        <Button asChild type="button" variant="outline"><Link to="/management/users">Hủy</Link></Button>
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <Button className="min-h-11 w-full sm:min-h-8 sm:w-auto" type="submit" disabled={submitting}>{submitting && <Spinner data-icon="inline-start" />}{submitting ? 'Đang lưu…' : 'Lưu người dùng'}</Button>
+        <Button className="min-h-11 w-full sm:min-h-8 sm:w-auto" asChild type="button" variant="outline"><Link to="/management/users">Hủy</Link></Button>
       </div>
     </form>}
   </main>;

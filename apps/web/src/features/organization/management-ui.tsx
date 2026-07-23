@@ -35,10 +35,11 @@ type ConfirmButtonProps = React.PropsWithChildren<{
   tone?: 'default' | 'destructive';
   onConfirm: () => void | Promise<void>;
   className?: string;
+  disabled?: boolean;
 }>;
-export const ConfirmButton: React.FC<ConfirmButtonProps> = ({ message, description = 'Thao tác sẽ được thực hiện ngay sau khi bạn xác nhận.', confirmLabel = 'Xác nhận', tone = 'default', onConfirm, children, className }) => {
+export const ConfirmButton: React.FC<ConfirmButtonProps> = ({ message, description = 'Thao tác sẽ được thực hiện ngay sau khi bạn xác nhận.', confirmLabel = 'Xác nhận', tone = 'default', onConfirm, children, className, disabled }) => {
   const confirm = useSystemConfirm();
-  return <Button type="button" variant="outline" className={className} onClick={async () => {
+  return <Button type="button" variant="outline" className={className} disabled={disabled} onClick={async () => {
     if (await confirm({ title: message, description, confirmLabel, tone })) await onConfirm();
   }}>{children}</Button>;
 };

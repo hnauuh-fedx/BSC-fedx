@@ -1,8 +1,8 @@
 import React, { useId, useState } from 'react';
-import { LoaderCircle } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
+import { Spinner } from '../../../components/ui/spinner';
 import { ErrorState, FormField } from '../management-ui';
 
 export type PositionFormValues = { code: string; name: string; level: string };
@@ -104,7 +104,7 @@ export function PositionForm({
     </div>
     {apiError && <div className="md:col-span-2"><ErrorState error={apiError} /></div>}
     <Button type="submit" className="w-fit md:col-span-2" disabled={submitting}>
-      {submitting && <LoaderCircle data-icon="inline-start" className="animate-spin" />}
+      {submitting && <Spinner data-icon="inline-start" />}
       {submitting ? 'Đang lưu…' : submitLabel}
     </Button>
   </form>;
