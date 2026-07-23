@@ -258,17 +258,11 @@ main > table { display: block; max-width: 100%; overflow-x: auto; border: 1px so
 .capability-list li { border: 1px solid var(--border); border-radius: 999px; background: var(--muted); padding: .35rem .7rem; }
 
 .login-page { min-height: 100vh; display: grid; place-items: center; padding: 1rem; background: radial-gradient(circle at 50% 15%, color-mix(in srgb, var(--chart-1), transparent 78%), transparent 22rem), var(--secondary); }
-.login-card { width: min(26rem, 100%); border: 1px solid var(--border); border-radius: var(--radius-2xl); background: var(--card); padding: clamp(1.5rem, 5vw, 2.25rem); box-shadow: 0 1.5rem 4rem oklch(0 0 0 / 10%); }
-.login-brand { margin-bottom: 1.5rem; text-align: center; }
+.login-card { width: min(26rem, 100%); border-radius: var(--radius-2xl); box-shadow: 0 .75rem 2rem oklch(0 0 0 / 7%); }
+.login-brand { text-align: center; }
 .login-brand-icon { display: grid; width: 3rem; height: 3rem; margin: 0 auto .8rem; place-items: center; border-radius: .85rem; background: var(--secondary); color: var(--secondary-foreground); font-weight: 750; }
-.login-title { font-size: 1.5rem; }
-.login-subtitle { margin-top: .3rem; color: var(--muted-foreground); }
-.login-form, .login-field { display: flex; flex-direction: column; gap: .45rem; }
-.login-form { gap: 1rem; }
-.login-label { font-size: .875rem; font-weight: 650; }
-.login-input { width: 100%; }
-.login-error { border-radius: var(--radius-md); background: color-mix(in oklch, var(--destructive), transparent 90%); padding: .65rem; color: var(--destructive); font-size: .875rem; }
-.login-btn { min-height: 2.65rem !important; background: var(--primary) !important; color: var(--primary-foreground); }
+.login-form { display: flex; flex-direction: column; gap: 1rem; }
+.login-form [data-slot="button"] { min-height: 2.75rem; width: 100%; }
 
 @media (max-width: 64rem) {
   .app-sidebar { display: none; }

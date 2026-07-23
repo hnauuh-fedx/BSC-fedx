@@ -147,7 +147,7 @@ describe('BscDetailPage background refresh', () => {
     print.mockRestore();
   });
 
-  it('hides the detail header, general information and unavailable evidence notice', async () => {
+  it('shows the detail header while keeping unavailable sections hidden', async () => {
     vi.mocked(employeeBscApi.detail).mockResolvedValue({ ...bsc, plan_status: 'APPROVED', evaluation_status: 'DRAFT' });
 
     render(
@@ -157,9 +157,9 @@ describe('BscDetailPage background refresh', () => {
     );
 
     expect(await screen.findByRole('button', { name: 'Lưu KPI mô phỏng' })).toBeVisible();
-    expect(screen.queryByText('BSC-TEST')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'BSC-TEST' })).toBeVisible();
     expect(screen.queryByText('BSC / Chi tiết')).not.toBeInTheDocument();
-    expect(screen.queryByText('Quay lại danh sách')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Quay lại danh sách' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Thông tin chung' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Minh chứng KPI' })).not.toBeInTheDocument();
     expect(screen.queryByText(/PLAN đã được duyệt/)).not.toBeInTheDocument();

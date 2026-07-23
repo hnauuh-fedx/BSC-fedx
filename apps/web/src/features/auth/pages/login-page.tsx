@@ -1,5 +1,12 @@
 import React, { useEffect, useState, FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { AlertCircleIcon, ArrowRightIcon } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '../../../components/ui/alert';
+import { Button } from '../../../components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card';
+import { Field, FieldGroup, FieldLabel } from '../../../components/ui/field';
+import { Input } from '../../../components/ui/input';
+import { Spinner } from '../../../components/ui/spinner';
 import { resolvePostLoginPath } from '../landing';
 import { useAuth } from '../hooks/use-auth';
 
@@ -55,21 +62,19 @@ export const LoginPage: React.FC = () => {
 
   return (
     <div className="login-page">
-      <div className="login-card">
-        {/* Logo / Brand */}
-        <div className="login-brand">
+      <Card className="login-card">
+        <CardHeader className="login-brand">
           <div className="login-brand-icon">BSC</div>
-          <h1 className="login-title">Hệ thống Quản lý BSC</h1>
-          <p className="login-subtitle">Đăng nhập để tiếp tục</p>
-        </div>
+          <CardTitle><h1>Hệ thống Quản lý BSC</h1></CardTitle>
+          <CardDescription>Đăng nhập để tiếp tục công việc của bạn</CardDescription>
+        </CardHeader>
 
-        {/* Form */}
+        <CardContent>
         <form onSubmit={handleSubmit} className="login-form" noValidate>
-          <div className="login-field">
-            <label htmlFor="login-username" className="login-label">
-              Tên đăng nhập
-            </label>
-            <input
+          <FieldGroup>
+          <Field data-invalid={Boolean(form.error)} data-disabled={form.isSubmitting}>
+            <FieldLabel htmlFor="login-username">Tên đăng nhập</FieldLabel>
+            <Input
               id="login-username"
               name="username"
               type="text"
@@ -83,18 +88,15 @@ export const LoginPage: React.FC = () => {
               disabled={form.isSubmitting}
               value={form.username}
               onChange={handleChange}
-              className="login-input"
               aria-invalid={Boolean(form.error)}
               aria-describedby={form.error ? 'login-error' : undefined}
               placeholder="Ví dụ: nguyenvana"
             />
-          </div>
+          </Field>
 
-          <div className="login-field">
-            <label htmlFor="login-password" className="login-label">
-              Mật khẩu
-            </label>
-            <input
+          <Field data-invalid={Boolean(form.error)} data-disabled={form.isSubmitting}>
+            <FieldLabel htmlFor="login-password">Mật khẩu</FieldLabel>
+            <Input
               id="login-password"
               name="password"
               type="password"
@@ -103,33 +105,33 @@ export const LoginPage: React.FC = () => {
               disabled={form.isSubmitting}
               value={form.password}
               onChange={handleChange}
-              className="login-input"
               aria-invalid={Boolean(form.error)}
               aria-describedby={form.error ? 'login-error' : undefined}
               placeholder="••••••••"
             />
-          </div>
+          </Field>
+          </FieldGroup>
 
           {form.error && (
-            <div id="login-error" className="login-error" role="alert" aria-live="assertive">
-              {form.error}
-            </div>
+            <Alert id="login-error" variant="destructive" role="alert" aria-live="assertive">
+              <AlertCircleIcon />
+              <AlertTitle>Không thể đăng nhập</AlertTitle>
+              <AlertDescription>{form.error}</AlertDescription>
+            </Alert>
           )}
 
-          <button
+          <Button
             id="login-submit"
             type="submit"
             disabled={form.isSubmitting}
             aria-busy={form.isSubmitting}
-            className="login-btn"
           >
-            {form.isSubmitting ? (
-              <span className="login-btn-spinner" aria-hidden="true" />
-            ) : null}
+            {form.isSubmitting ? <Spinner data-icon="inline-start" /> : <ArrowRightIcon data-icon="inline-end" />}
             {form.isSubmitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
-          </button>
+          </Button>
         </form>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 };

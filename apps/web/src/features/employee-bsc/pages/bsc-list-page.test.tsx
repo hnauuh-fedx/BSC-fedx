@@ -72,7 +72,7 @@ describe('BscListPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Sao chép BSC' }));
 
     expect(await screen.findByText('BSC nguồn chưa có phiên bản 1; BSC mới sẽ để trống.')).toBeVisible();
-    expect(screen.getByRole('combobox', { name: 'Kỳ đích' })).toHaveValue('cycle-2');
+    expect(screen.getByRole('combobox', { name: 'Kỳ đích' })).toHaveTextContent('Tháng 8/2026');
   });
 
   it('distinguishes an available source version from a missing target cycle', async () => {
