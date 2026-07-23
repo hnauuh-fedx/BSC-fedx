@@ -6,6 +6,7 @@ import { Button } from '../../../components/ui/button';
 import { Field, FieldGroup, FieldLabel } from '../../../components/ui/field';
 import { Input } from '../../../components/ui/input';
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
+import { Textarea } from '../../../components/ui/textarea';
 import { ErrorState } from '../../organization/management-ui';
 import { BSC_PRIMARY_GOAL_GROUP_CODE } from '../constants/employee-bsc.constants';
 import { employeeBscApi } from '../services/employee-bsc.service';
@@ -115,7 +116,7 @@ export const BscItemTable: React.FC<Props> = ({ bscId, goalGroups, items, scorin
             <TableHead>Điểm công việc</TableHead>
             <TableHead>Điểm trọng số</TableHead>
             <TableHead>TM KQTH</TableHead>
-            <TableHead className="w-28 text-right">Thao tác</TableHead>
+            <TableHead className="sticky right-0 z-10 w-28 bg-muted text-right">Thao tác</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -131,7 +132,7 @@ export const BscItemTable: React.FC<Props> = ({ bscId, goalGroups, items, scorin
                   {groupWeights.get(group.code) ?? 0}%
                 </TableCell>
                 <TableCell colSpan={6} />
-                <TableCell className="text-right">
+                <TableCell className="sticky right-0 z-10 bg-muted text-right">
                   {canManage && group.code !== BSC_PRIMARY_GOAL_GROUP_CODE && <Button type="button" variant="ghost" size="icon-sm" aria-label={`Thêm KPI vào ${group.name}`} title={`Thêm KPI vào ${group.name}`} onClick={() => setEditor({ mode: 'create', groupCode: group.code })}>
                     <PlusIcon data-icon="inline-start"/>
                   </Button>}
@@ -154,7 +155,7 @@ export const BscItemTable: React.FC<Props> = ({ bscId, goalGroups, items, scorin
                     <TableCell>{score?.roundedWorkScore == null ? '—' : String(score.roundedWorkScore)}</TableCell>
                     <TableCell>{score?.weightedScore == null ? '—' : String(score.weightedScore)}{score?.reason && <span className="block text-xs text-muted-foreground">{reasonMessage[score.reason] ?? 'Chưa thể tính điểm'}</span>}</TableCell>
                     <TableCell className="max-w-56 whitespace-normal">{item.employee_note?.trim() || '—'}</TableCell>
-                    <TableCell><div className="flex justify-end gap-1">
+                    <TableCell className="sticky right-0 z-10 bg-background"><div className="flex justify-end gap-1">
                       {canManage && <><Button type="button" variant="ghost" size="icon-sm" aria-label={`Sửa KPI ${item.kpi_name}`} onClick={() => setEditor({ mode: 'edit', groupCode: group.code, item })}><PencilIcon data-icon="inline-start"/></Button><Button type="button" variant="ghost" size="icon-sm" aria-label={`Xóa KPI ${item.kpi_name}`} disabled={savingId === item.id} onClick={async () => {
                         const accepted = await confirm({
                           title: 'Xóa KPI?',
@@ -230,8 +231,8 @@ function KpiEditorRow({ group, item, busy, onCancel, onSubmit }: { group: BscGoa
       <form aria-label={`${item ? 'Sửa KPI trong' : 'Thêm KPI vào'} ${group.name}`} onSubmit={onSubmit} className="flex flex-col gap-4 py-2">
         <p className="font-medium">{group.marker}. {group.name}</p>
         <FieldGroup className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <Field><FieldLabel htmlFor={`${prefix}-kpo`}>Mục tiêu chiến lược (KPO)</FieldLabel><Input id={`${prefix}-kpo`} name="description" defaultValue={item?.description ?? ''} required/></Field>
-          <Field><FieldLabel htmlFor={`${prefix}-kpi`}>Đo lường hiệu suất (KPI)</FieldLabel><Input id={`${prefix}-kpi`} name="kpiName" defaultValue={item?.kpi_name ?? ''} required/></Field>
+          <Field className="xl:col-span-2"><FieldLabel htmlFor={`${prefix}-kpo`}>Mục tiêu chiến lược (KPO)</FieldLabel><Textarea id={`${prefix}-kpo`} name="description" rows={4} defaultValue={item?.description ?? ''} required/></Field>
+          <Field className="xl:col-span-2"><FieldLabel htmlFor={`${prefix}-kpi`}>Đo lường hiệu suất (KPI)</FieldLabel><Textarea id={`${prefix}-kpi`} name="kpiName" rows={4} defaultValue={item?.kpi_name ?? ''} required/></Field>
           <Field data-disabled><FieldLabel htmlFor={`${prefix}-unit`}>Đơn vị tính</FieldLabel><Input id={`${prefix}-unit`} value="%" disabled/></Field>
           <Field><FieldLabel htmlFor={`${prefix}-target`}>Chỉ tiêu</FieldLabel><Input id={`${prefix}-target`} name="targetValue" type="number" step="any" defaultValue={item ? item.target_value ?? '' : 100} required/></Field>
           <Field><FieldLabel htmlFor={`${prefix}-weight`}>Tỷ trọng (%)</FieldLabel><Input id={`${prefix}-weight`} name="weight" type="number" min="0" max="100" step="0.01" defaultValue={item?.weight ?? ''} required/></Field>

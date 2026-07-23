@@ -34,7 +34,9 @@ async function responseFor(path: string, init: RequestInit = {}, retry = true): 
 }
 async function execute<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await responseFor(path, init);
-  return response.status === 204 ? undefined as T : response.json() as Promise<T>;
+  if (response.status === 204) return undefined as T;
+  const body = await response.text();
+  return body ? JSON.parse(body) as T : undefined as T;
 }
 export const httpClient = {
   get: <T>(path: string) => execute<T>(path),

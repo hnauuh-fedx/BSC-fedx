@@ -200,7 +200,7 @@
 .mobile-navigation-header + .shell-navigation { padding: 1rem .75rem; }
 .user-menu { display: flex; align-items: center; justify-content: flex-end; gap: .75rem; min-width: 0; }
 .user-menu-name { max-width: 13rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .875rem; }
-.app-content { width: 100%; max-width: 92rem; margin-inline: auto; padding: clamp(1rem, 2.4vw, 2rem) clamp(1rem, 3vw, 2.75rem) 3rem; }
+.app-content { width: 100%; max-width: 104rem; margin-inline: auto; padding: clamp(1rem, 2.4vw, 2rem) clamp(1rem, 3vw, 2.75rem) 3rem; }
 .skip-link { position: fixed; left: .75rem; top: .5rem; z-index: 100; transform: translateY(-160%); border-radius: var(--radius-md); background: var(--foreground); color: var(--background); padding: .6rem .8rem; }
 .skip-link:focus { transform: translateY(0); }
 
