@@ -28,6 +28,7 @@ describe('BscMinutesPage', () => {
       isAuthenticated: true, isLoading: false, status: 'authenticated', login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(),
     });
     vi.mocked(reportsApi.options).mockResolvedValue({
+      capabilities: { canViewPersonal: false, canViewManagement: true, canExportPersonal: false, canExportManagement: true, defaultScope: 'MANAGEMENT' },
       cycles: [{ id: 'cycle-1', code: 'T7', name: 'Tháng 7/2026', year: 2026, month: 7, status: 'OPEN' }],
       departments: [{ id: 'department-1', name: 'Marketing' }, { id: 'department-2', name: 'Kinh doanh' }],
       employees: [
@@ -143,6 +144,7 @@ describe('BscMinutesPage', () => {
   it('blocks export while changing cycles and ignores a stale response', async () => {
     const user = userEvent.setup();
     vi.mocked(reportsApi.options).mockResolvedValue({
+      capabilities: { canViewPersonal: false, canViewManagement: true, canExportPersonal: false, canExportManagement: true, defaultScope: 'MANAGEMENT' },
       cycles: [
         { id: 'cycle-1', code: 'T7', name: 'Tháng 7/2026', year: 2026, month: 7, status: 'OPEN' },
         { id: 'cycle-2', code: 'T8', name: 'Tháng 8/2026', year: 2026, month: 8, status: 'LOCKED' },

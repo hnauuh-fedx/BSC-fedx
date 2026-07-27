@@ -9,6 +9,6 @@ export const reportsApi = {
   dashboard: (params: Record<string, string | number | undefined> = {}) => httpClient.get<DashboardData>(`/bsc-reports/dashboard${reportQuery(params)}`),
   summary: (params: Record<string, string | number | undefined>) => httpClient.get<ReportSummary>(`/bsc-reports/summary${reportQuery(params)}`),
   list: (params: Record<string, string | number | undefined>) => httpClient.get<ReportPage>(`/bsc-reports${reportQuery(params)}`),
-  options: () => httpClient.get<ReportOptions>('/bsc-reports/options'),
+  options: (params: Record<string, string | number | undefined> = {}) => httpClient.get<ReportOptions>(`/bsc-reports/options${reportQuery(params)}`),
   export: (params: Record<string, string | number | undefined>) => httpClient.download(`/bsc-reports/export${reportQuery(params)}`),
 };

@@ -21,7 +21,7 @@ export class BscReportsController {
   summary(@CurrentUser() actor: AuthUser, @Query() query: BscReportFilterDto) { return this.service.summary(actor, query); }
 
   @Get('options') @RequireAnyPermission(...BSC_REPORT_VIEW_PERMISSIONS)
-  options(@CurrentUser() actor: AuthUser) { return this.service.options(actor); }
+  options(@CurrentUser() actor: AuthUser, @Query() query: BscReportFilterDto) { return this.service.options(actor, query); }
 
   @Get('export') @RequireAnyPermission(BSC_REPORT_PERMISSIONS.EXPORT)
   async export(@CurrentUser() actor: AuthUser, @Query() query: BscReportQueryDto, @Req() request: Request, @Res() response: Response) {

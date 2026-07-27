@@ -106,18 +106,39 @@ export class BscReportsService {
     return { kind: 'MANAGEMENT', currentCycle: cycle, notCreated: cycle ? await this.notCreated(actor, cycle.id, access) : 0, ...summary };
   }
 
-  async options(actor: AuthUser) {
+  async options(actor: AuthUser, query: BscReportFilterDto = new BscReportFilterDto()) {
     const access = await this.reportAccess(actor);
-    const scope = this.scopeWhere(actor, access);
+    const scope = this.scopeWhere(actor, access, query.viewScope);
     const bscs = await this.prisma.employee_bsc.findMany({ where: { AND: [scope, this.activeOrganizationWhere()] }, distinct: ['employee_id'], select: { employee_id: true, department_id: true } });
     const employeeIds = bscs.map(row => row.employee_id);
     const departmentIds = [...new Set(bscs.map(row => row.department_id))];
+    const canExportPersonal = access.personal && access.exportScope !== null && (
+      access.exportScope.self
+      || access.exportScope.global
+      || access.exportScope.departmentIds.includes(actor.departmentId)
+    );
+    const canExportManagement = access.management && access.exportScope !== null && (
+      access.exportScope.global
+      || (access.global && access.exportScope.departmentIds.length > 0)
+      || access.exportScope.departmentIds.some(id => access.departmentIds.includes(id))
+    );
     const [cycles, departments, employees] = await Promise.all([
       this.prisma.bsc_cycles.findMany({ orderBy: [{ year: 'desc' }, { month: 'desc' }], select: { id: true, code: true, name: true, year: true, month: true, status: true } }),
       this.prisma.departments.findMany({ where: { id: { in: departmentIds } }, orderBy: { name: 'asc' }, select: { id: true, name: true } }),
       this.prisma.users.findMany({ where: { id: { in: employeeIds } }, orderBy: { full_name: 'asc' }, select: { id: true, employee_code: true, full_name: true, department_id: true } }),
     ]);
-    return { cycles, departments, employees };
+    return {
+      capabilities: {
+        canViewPersonal: access.personal,
+        canViewManagement: access.management,
+        canExportPersonal,
+        canExportManagement,
+        defaultScope: access.management ? 'MANAGEMENT' : 'PERSONAL',
+      },
+      cycles,
+      departments,
+      employees,
+    };
   }
 
   async export(actor: AuthUser, query: BscReportQueryDto, metadata: AuditRequestMetadata = {}) {
@@ -182,7 +203,7 @@ export class BscReportsService {
 
   private async where(actor: AuthUser, query: BscReportFilterDto, access: ReportAccess): Promise<Prisma.employee_bscWhereInput> {
     if (query.departmentId) await this.assertDepartmentAccess(actor, query.departmentId, access);
-    const filters: Prisma.employee_bscWhereInput[] = [this.scopeWhere(actor, access), this.activeOrganizationWhere()];
+    const filters: Prisma.employee_bscWhereInput[] = [this.scopeWhere(actor, access, query.viewScope), this.activeOrganizationWhere()];
     if (query.cycleId) filters.push({ cycle_id: query.cycleId });
     if (query.departmentId) filters.push({ department_id: query.departmentId });
     if (query.employeeId) filters.push({ employee_id: query.employeeId });
@@ -193,7 +214,25 @@ export class BscReportsService {
     return { AND: filters };
   }
 
-  private scopeWhere(actor: AuthUser, access: ReportAccess): Prisma.employee_bscWhereInput {
+  private scopeWhere(
+    actor: AuthUser,
+    access: ReportAccess,
+    requestedScope?: 'PERSONAL' | 'MANAGEMENT',
+  ): Prisma.employee_bscWhereInput {
+    if (requestedScope === 'PERSONAL') {
+      if (!access.personal) {
+        throw new ForbiddenException({ code: 'AUTH_SCOPE_DENIED', message: 'Bạn không có quyền xem báo cáo cá nhân.' });
+      }
+      return { employee_id: actor.id };
+    }
+    if (requestedScope === 'MANAGEMENT') {
+      if (!access.management) {
+        throw new ForbiddenException({ code: 'AUTH_SCOPE_DENIED', message: 'Bạn không có quyền xem báo cáo đơn vị.' });
+      }
+      if (access.global) return {};
+      if (access.departmentIds.length) return { department_id: { in: access.departmentIds } };
+      throw new ForbiddenException({ code: 'AUTH_SCOPE_DENIED', message: 'Bạn chưa được gán phạm vi đơn vị để xem báo cáo.' });
+    }
     const clauses: Prisma.employee_bscWhereInput[] = [];
     if (access.personal) clauses.push({ employee_id: actor.id });
     if (access.management) {
@@ -320,6 +359,6 @@ export class BscReportsService {
       throw new ForbiddenException({ code: 'AUTH_SCOPE_DENIED', message: 'Bạn không có quyền truy cập đơn vị này.' });
     }
   }
-  private safeFilters(query: BscReportFilterDto) { return { cycleId: query.cycleId, departmentId: query.departmentId, employeeId: query.employeeId, planStatus: query.planStatus, evaluationStatus: query.evaluationStatus, finalGrade: query.finalGrade, search: query.search?.slice(0, 100) }; }
+  private safeFilters(query: BscReportFilterDto) { return { viewScope: query.viewScope, cycleId: query.cycleId, departmentId: query.departmentId, employeeId: query.employeeId, planStatus: query.planStatus, evaluationStatus: query.evaluationStatus, finalGrade: query.finalGrade, search: query.search?.slice(0, 100) }; }
   private statusLabel(status: string) { return WORKFLOW_STATUS_LABELS[status] ?? status; }
 }

@@ -7,6 +7,13 @@ export type ReportRow = {
 };
 export type ReportPage = { items: ReportRow[]; page: number; limit: number; total: number };
 export type ReportOptions = {
+  capabilities: {
+    canViewPersonal: boolean;
+    canViewManagement: boolean;
+    canExportPersonal: boolean;
+    canExportManagement: boolean;
+    defaultScope: 'PERSONAL' | 'MANAGEMENT';
+  };
   cycles: Array<{ id: string; code: string; name: string; year: number; month: number | null; status: string }>;
   departments: Array<{ id: string; name: string }>;
   employees: Array<{ id: string; employee_code: string; full_name: string; department_id: string }>;

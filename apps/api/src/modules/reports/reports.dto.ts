@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import { IsIn, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
 export class BscReportFilterDto {
+  @IsOptional() @IsIn(['PERSONAL', 'MANAGEMENT']) viewScope?: 'PERSONAL' | 'MANAGEMENT';
   @IsOptional() @IsUUID() cycleId?: string;
   @IsOptional() @IsUUID() departmentId?: string;
   @IsOptional() @IsUUID() employeeId?: string;

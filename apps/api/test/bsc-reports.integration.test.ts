@@ -72,7 +72,7 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
       return role;
     };
     const employeeRole = await makeRole('EMPLOYEE', [REPORT_PERMISSIONS.PERSONAL, REPORT_PERMISSIONS.EXPORT]);
-    const managerRole = await makeRole('MANAGER', [REPORT_PERMISSIONS.UNIT, REPORT_PERMISSIONS.EXPORT]);
+    const managerRole = await makeRole('MANAGER', [REPORT_PERMISSIONS.PERSONAL, REPORT_PERMISSIONS.UNIT, REPORT_PERMISSIONS.EXPORT]);
     const unrelatedGlobalRole = await makeRole('GLOBAL_TECH', []);
     const globalViewRole = await makeRole('GLOBAL_VIEW', [REPORT_PERMISSIONS.ORGANIZATION]);
     const departmentExportRole = await makeRole('DEPT_EXPORT', [REPORT_PERMISSIONS.EXPORT]);
@@ -146,6 +146,30 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
       const emptyDashboard = await request(server).get(`/bsc-reports/dashboard?cycleId=${cycle.id}`).set(auth(tokens.employeeWithoutBsc)).expect(200);
       assert.equal(emptyDashboard.body.currentBsc, null);
       assert.deepEqual(emptyDashboard.body.actions.map((action: { code: string }) => action.code), ['CREATE_BSC']);
+    });
+
+    await t.test('report options expose capabilities and explicit scopes stay isolated', async () => {
+      const employeeOptions = await request(server).get('/bsc-reports/options?viewScope=PERSONAL').set(auth(tokens.employee)).expect(200);
+      assert.deepEqual(employeeOptions.body.capabilities, {
+        canViewPersonal: true,
+        canViewManagement: false,
+        canExportPersonal: true,
+        canExportManagement: false,
+        defaultScope: 'PERSONAL',
+      });
+      assert.deepEqual(employeeOptions.body.employees.map((row: { id: string }) => row.id), [employee.id]);
+      await request(server).get('/bsc-reports?viewScope=MANAGEMENT').set(auth(tokens.employee)).expect(403);
+
+      const managerOptions = await request(server).get('/bsc-reports/options?viewScope=MANAGEMENT').set(auth(tokens.manager)).expect(200);
+      assert.deepEqual(managerOptions.body.capabilities, {
+        canViewPersonal: true,
+        canViewManagement: true,
+        canExportPersonal: true,
+        canExportManagement: true,
+        defaultScope: 'MANAGEMENT',
+      });
+      const personalReport = await request(server).get('/bsc-reports?viewScope=PERSONAL&limit=100').set(auth(tokens.manager)).expect(200);
+      assert.deepEqual(personalReport.body.items.map((row: { employeeId: string }) => row.employeeId), [manager.id]);
     });
 
     await t.test('manager report enforces scope and backend filters', async () => {
