@@ -46,7 +46,7 @@ export const BscListPage: React.FC = () => {
     <PageHeader title="BSC cá nhân" description="Theo dõi độc lập trạng thái kế hoạch và đánh giá kết quả của từng kỳ." action={<>
       <PermissionGate anyOf={REVIEW_PERMISSIONS}><Button variant="outline" asChild><Link to="/management/bsc-reviews">BSC chờ duyệt</Link></Button></PermissionGate>
       <PermissionGate permission={BSC_PERMISSIONS.REVIEW_REOPEN}><Button variant="outline" asChild><Link to="/management/bsc-reopen-requests">Yêu cầu mở lại</Link></Button></PermissionGate>
-      <PermissionGate permission={BSC_PERMISSIONS.CREATE_OWN}><Button asChild><Link to="/employee-bsc/new"><PlusIcon data-icon="inline-start"/>Tạo BSC nháp</Link></Button></PermissionGate>
+      <PermissionGate permission={BSC_PERMISSIONS.CREATE_OWN}><Button asChild><Link to="/employee-bsc/new"><PlusIcon data-icon="inline-start"/>Tạo BSC cá nhân</Link></Button></PermissionGate>
     </>}/>
     <Card><CardHeader><CardTitle>Bộ lọc</CardTitle><CardDescription>Tìm và lọc BSC theo trạng thái của từng giai đoạn.</CardDescription></CardHeader><CardContent className="grid gap-4 md:grid-cols-3">
       <SearchInput value={search} onChange={value => { setSearch(value); setPage(1); }}/>
