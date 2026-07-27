@@ -43,7 +43,7 @@ export const BscCreatePage: React.FC = () => {
   };
 
   return <main>
-    <PageHeader title="Tạo BSC nháp"/>
+    <PageHeader title="Tạo BSC cá nhân"/>
     {loading ? <LoadingState/> : loadError ? <><ErrorState error={loadError}/><button onClick={() => void loadCycles()}>Thử lại</button></> : cycles.length === 0 ? <EmptyState message="Hiện không có kỳ BSC đang mở."/> : <FormField label="Kỳ BSC">
       <select value={cycleId} onChange={(event) => setCycleId(event.target.value)}>{cycles.map((cycle) => <option key={cycle.id} value={cycle.id}>{cycleLabel(cycle)}</option>)}</select>
     </FormField>}

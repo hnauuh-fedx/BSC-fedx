@@ -220,7 +220,7 @@ export const BscDetailPage: React.FC = () => {
     && (item.target_value !== null || Boolean(item.target_text?.trim())) && ['ACTUAL_DIV_TARGET', 'TARGET_DIV_ACTUAL', 'BINARY'].includes(item.calculation_method));
   const remove = async () => {
     const accepted = await confirm({
-      title: 'Xóa BSC nháp?',
+      title: 'Xóa BSC các nhân?',
       description: 'BSC nháp và toàn bộ KPI bên trong sẽ bị xóa. Hành động này không thể hoàn tác.',
       confirmLabel: 'Xóa BSC',
       tone: 'destructive',
