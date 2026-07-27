@@ -23,9 +23,12 @@ describe('BscScoreSummary', () => {
     const card = container.querySelector('[data-slot="card"]');
     expect(card).toHaveAttribute('data-size', 'sm');
 
-    const metrics = container.querySelector('[data-slot="score-metrics"]');
+    const metrics = container.querySelector<HTMLElement>('[data-slot="score-metrics"]');
     expect(metrics).toHaveAccessibleName('Tóm tắt điểm BSC');
-    const cells = Array.from(metrics?.querySelectorAll(':scope > [data-slot="score-metric"]') ?? []);
+    if (!metrics) throw new Error('Score metrics container was not rendered');
+    const cells = Array.from(
+      metrics.querySelectorAll<HTMLElement>(':scope > [data-slot="score-metric"]'),
+    );
     expect(cells).toHaveLength(4);
 
     expect(cells.map((cell) => ({
