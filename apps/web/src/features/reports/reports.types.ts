@@ -23,6 +23,7 @@ export type ReportSummary = {
   pendingPlanReviews: number; pendingEvaluationReviews: number; pendingReopenRequests: number;
   gradeDistribution: Record<string, number>; approvedAverageScore: string | null;
   departmentProgress: Array<{ departmentId: string; departmentName: string; totalBsc: number; approvedBsc: number; completionPercentage: number }>;
+  scoreTrend: Array<{ cycleId: string; cycleName: string; year: number; month: number | null; approvedAverageScore: string | null; approvedCount: number }>;
 };
 export type EmployeeDashboard = { kind: 'EMPLOYEE'; currentCycle: ReportOptions['cycles'][number] | null; currentBsc: ReportRow | null; actions: Array<{ code: string; label: string; href: string }>; recentBsc: ReportRow[] };
 export type ManagementDashboard = ReportSummary & { kind: 'MANAGEMENT'; currentCycle: ReportOptions['cycles'][number] | null; notCreated: number };

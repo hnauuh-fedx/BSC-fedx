@@ -114,6 +114,7 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
     await makeBsc('DRAFT_PREVIEW', employee2, manager, { plan: 'APPROVED', evaluation: 'DRAFT', score: 130, grade: 'A++' });
     await makeBsc('OUTSIDE', outsideEmployee, outsideManager, { plan: 'APPROVED', evaluation: 'APPROVED', score: 111, grade: 'A++' });
     await makeBsc('CROSS_DEPARTMENT', crossDepartmentEmployee, manager, { plan: 'APPROVED', evaluation: 'APPROVED', score: 90, grade: 'A', cycleId: otherCycle.id });
+    await makeBsc('PERSONAL_TREND', employee, manager, { plan: 'APPROVED', evaluation: 'APPROVED', score: 90, grade: 'A', cycleId: otherCycle.id });
     await makeBsc('PENDING', employee3, manager, { plan: 'SUBMITTED', evaluation: 'NOT_STARTED' });
     await makeBsc('MGR_PENDING', manager, admin, { plan: 'SUBMITTED', evaluation: 'NOT_STARTED' });
     await makeBsc('OTHER_CYCLE', employee2, manager, { plan: 'SUBMITTED', evaluation: 'NOT_STARTED', cycleId: otherCycle.id });
@@ -142,7 +143,8 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
       assert.equal(dashboard.body.currentBsc.id, approved.id);
       assert.equal(dashboard.body.currentBsc.officialScore, '100');
       const report = await request(server).get('/bsc-reports?limit=100').set(auth(tokens.employee)).expect(200);
-      assert.deepEqual(report.body.items.map((row: { employeeId: string }) => row.employeeId), [employee.id]);
+      assert.equal(report.body.items.length, 2);
+      assert.ok(report.body.items.every((row: { employeeId: string }) => row.employeeId === employee.id));
       const emptyDashboard = await request(server).get(`/bsc-reports/dashboard?cycleId=${cycle.id}`).set(auth(tokens.employeeWithoutBsc)).expect(200);
       assert.equal(emptyDashboard.body.currentBsc, null);
       assert.deepEqual(emptyDashboard.body.actions.map((action: { code: string }) => action.code), ['CREATE_BSC']);
@@ -192,6 +194,13 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
       assert.equal(summary.body.evaluationStatusCounts.DRAFT, 1);
       assert.equal(summary.body.evaluationStatusCounts.APPROVED, 1);
       assert.equal(summary.body.pendingPlanReviews, 1);
+      assert.deepEqual(summary.body.scoreTrend, [
+        { cycleId: cycle.id, cycleName: cycle.name, year: 2099, month: 1, approvedAverageScore: '100', approvedCount: 1 },
+        { cycleId: otherCycle.id, cycleName: otherCycle.name, year: 2099, month: 2, approvedAverageScore: '90', approvedCount: 1 },
+      ]);
+
+      const personalSummary = await request(server).get(`/bsc-reports/summary?viewScope=PERSONAL&cycleId=${cycle.id}`).set(auth(tokens.employee)).expect(200);
+      assert.deepEqual(personalSummary.body.scoreTrend.map((point: { approvedAverageScore: string }) => point.approvedAverageScore), ['100', '90']);
     });
 
     await t.test('export applies the same scope/filter and writes a safe audit record', async () => {

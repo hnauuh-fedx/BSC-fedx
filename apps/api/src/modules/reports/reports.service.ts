@@ -53,8 +53,10 @@ export class BscReportsService {
 
   private async summaryWithAccess(actor: AuthUser, query: BscReportFilterDto, access: ReportAccess) {
     const where = await this.where(actor, query, access);
+    const trendQuery = Object.assign(new BscReportFilterDto(), query, { cycleId: undefined });
+    const trendWhere = await this.where(actor, trendQuery, access);
     const approvedWhere: Prisma.employee_bscWhereInput = { AND: [where, { evaluation_status: 'APPROVED', final_score: { not: null }, final_grade: { not: null } }] };
-    const [totalBsc, planGroups, evaluationGroups, gradeGroups, average, pendingPlanReviews, pendingEvaluationReviews, pendingReopenRequests, departmentProgress] = await Promise.all([
+    const [totalBsc, planGroups, evaluationGroups, gradeGroups, average, pendingPlanReviews, pendingEvaluationReviews, pendingReopenRequests, departmentProgress, scoreTrend] = await Promise.all([
       this.prisma.employee_bsc.count({ where }),
       this.prisma.employee_bsc.groupBy({ by: ['plan_status'], where, _count: { _all: true } }),
       this.prisma.employee_bsc.groupBy({ by: ['evaluation_status'], where, _count: { _all: true } }),
@@ -64,6 +66,7 @@ export class BscReportsService {
       this.prisma.bsc_approval_steps.count({ where: { approver_id: actor.id, stage: 'EVALUATION', status: 'PENDING', employee_bsc: { is: { AND: [where, this.activeManagerWhere(actor.id)] } } } }),
       this.prisma.bsc_unlock_requests.count({ where: { status: 'PENDING', reviewer_id: actor.id, employee_bsc: { AND: [where, this.activeManagerWhere(actor.id)] } } }),
       this.departmentProgress(where),
+      this.scoreTrend(trendWhere),
     ]);
     return {
       totalBsc,
@@ -75,6 +78,7 @@ export class BscReportsService {
       gradeDistribution: this.countMap(GRADES, gradeGroups.map(row => [row.final_grade ?? '', row._count._all])),
       approvedAverageScore: average._avg.final_score?.toString() ?? null,
       departmentProgress,
+      scoreTrend,
     };
   }
 
@@ -294,6 +298,35 @@ export class BscReportsService {
     const names = await this.prisma.departments.findMany({ where: { id: { in: totals.map(row => row.department_id) } }, select: { id: true, name: true } });
     const nameById = new Map(names.map(row => [row.id, row.name])); const approvedById = new Map(approved.map(row => [row.department_id, row._count._all]));
     return totals.map(row => ({ departmentId: row.department_id, departmentName: nameById.get(row.department_id) ?? '', totalBsc: row._count._all, approvedBsc: approvedById.get(row.department_id) ?? 0, completionPercentage: row._count._all ? Math.round(((approvedById.get(row.department_id) ?? 0) / row._count._all) * 10_000) / 100 : 0 }));
+  }
+
+  private async scoreTrend(where: Prisma.employee_bscWhereInput) {
+    const groups = await this.prisma.employee_bsc.groupBy({
+      by: ['cycle_id'],
+      where: { AND: [where, { evaluation_status: 'APPROVED', final_score: { not: null } }] },
+      _avg: { final_score: true },
+      _count: { _all: true },
+    });
+    if (!groups.length) return [];
+    const cycles = await this.prisma.bsc_cycles.findMany({
+      where: { id: { in: groups.map(row => row.cycle_id) } },
+      select: { id: true, name: true, year: true, month: true },
+    });
+    const groupByCycle = new Map(groups.map(row => [row.cycle_id, row]));
+    return cycles
+      .map(cycle => {
+        const group = groupByCycle.get(cycle.id);
+        return {
+          cycleId: cycle.id,
+          cycleName: cycle.name,
+          year: cycle.year,
+          month: cycle.month,
+          approvedAverageScore: group?._avg.final_score?.toString() ?? null,
+          approvedCount: group?._count._all ?? 0,
+        };
+      })
+      .sort((left, right) => left.year - right.year || (left.month ?? 0) - (right.month ?? 0) || left.cycleName.localeCompare(right.cycleName))
+      .slice(-12);
   }
 
   private async notCreated(actor: AuthUser, cycleId: string, access: ReportAccess) {

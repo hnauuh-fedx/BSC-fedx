@@ -53,6 +53,9 @@ const summary = {
   departmentProgress: [
     { departmentId: 'department-1', departmentName: 'Marketing', totalBsc: 1, approvedBsc: 1, completionPercentage: 100 },
   ],
+  scoreTrend: [
+    { cycleId: 'cycle-1', cycleName: 'Tháng 7', year: 2026, month: 7, approvedAverageScore: '94', approvedCount: 1 },
+  ],
 };
 
 const personalOptions: ReportOptions = {
@@ -108,11 +111,18 @@ describe('BscReportPage desktop report', () => {
     renderPage();
 
     expect(await screen.findByRole('heading', { name: 'Báo cáo BSC cá nhân' })).toBeVisible();
-    expect(screen.getByText('Điểm trung bình')).toBeVisible();
-    expect(screen.getByText('94')).toBeVisible();
+    expect(await screen.findByText('Điểm trung bình')).toBeVisible();
+    expect(screen.getByText('94,00')).toBeVisible();
+    expect(await screen.findByRole(
+      'heading',
+      { name: 'Xu hướng điểm BSC' },
+      { timeout: 5_000 },
+    )).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Phân bố xếp loại' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Tiến độ phê duyệt theo phòng ban' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Phòng ban')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Nhân viên')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Phạm vi báo cáo')).not.toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: 'Phạm vi báo cáo' })).not.toBeInTheDocument();
     expect(reportsApi.summary).toHaveBeenCalledWith(expect.objectContaining({ viewScope: 'PERSONAL' }));
     expect(reportsApi.list).toHaveBeenCalledWith(expect.objectContaining({ viewScope: 'PERSONAL' }));
     expect(vi.mocked(reportsApi.summary).mock.calls[0][0]).not.toHaveProperty('sortBy');
@@ -134,14 +144,16 @@ describe('BscReportPage desktop report', () => {
 
     renderPage();
 
-    const scope = await screen.findByLabelText('Phạm vi báo cáo');
-    expect(scope).toHaveTextContent('Đơn vị phụ trách');
+    await screen.findByRole('radiogroup', { name: 'Phạm vi báo cáo' });
+    expect(screen.getByRole('radio', { name: 'Đơn vị phụ trách' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
     await userEvent.click(screen.getByRole('tab', { name: 'Danh sách BSC' }));
     expect(screen.getByLabelText('Phòng ban')).toBeVisible();
     expect(screen.getByLabelText('Nhân viên')).toBeVisible();
 
-    await user.click(scope);
-    await user.click(await screen.findByRole('option', { name: 'Cá nhân' }));
+    await user.click(screen.getByRole('radio', { name: 'Cá nhân' }));
 
     await waitFor(() => expect(reportsApi.summary).toHaveBeenLastCalledWith(expect.objectContaining({ viewScope: 'PERSONAL' })));
     expect(reportsApi.options).toHaveBeenLastCalledWith({ viewScope: 'PERSONAL' });
@@ -164,11 +176,63 @@ describe('BscReportPage desktop report', () => {
 
     renderPage();
 
-    const scope = await screen.findByLabelText('Phạm vi báo cáo');
+    await screen.findByRole('radiogroup', { name: 'Phạm vi báo cáo' });
     expect(screen.queryByRole('button', { name: 'Xuất Excel' })).not.toBeInTheDocument();
-    await user.click(scope);
-    await user.click(await screen.findByRole('option', { name: 'Cá nhân' }));
+    await user.click(screen.getByRole('radio', { name: 'Cá nhân' }));
     expect(await screen.findByRole('button', { name: 'Xuất Excel' })).toBeVisible();
+  });
+
+  it('uses a searchable employee combobox and collapsible advanced filters for management', async () => {
+    const user = userEvent.setup();
+    vi.mocked(reportsApi.options).mockResolvedValue({
+      ...personalOptions,
+      capabilities: {
+        canViewPersonal: true,
+        canViewManagement: true,
+        canExportPersonal: true,
+        canExportManagement: true,
+        defaultScope: 'MANAGEMENT',
+      },
+    });
+
+    renderPage();
+
+    await user.click(await screen.findByRole('tab', { name: 'Danh sách BSC' }));
+    const employee = screen.getByRole('combobox', { name: 'Nhân viên' });
+    await user.click(employee);
+    await user.clear(employee);
+    await user.type(employee, 'NV001');
+    await user.click(await screen.findByRole('option', { name: /NV001/ }));
+    await waitFor(() => expect(reportsApi.summary).toHaveBeenLastCalledWith(expect.objectContaining({ employeeId: 'employee-1' })));
+
+    expect(screen.queryByLabelText('Trạng thái kế hoạch')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Bộ lọc nâng cao' }));
+    expect(screen.getByLabelText('Trạng thái kế hoạch')).toBeVisible();
+  });
+
+  it('retries scope-specific filter options after a request failure', async () => {
+    const user = userEvent.setup();
+    const managementOptions: ReportOptions = {
+      ...personalOptions,
+      capabilities: {
+        canViewPersonal: true,
+        canViewManagement: true,
+        canExportPersonal: true,
+        canExportManagement: true,
+        defaultScope: 'MANAGEMENT',
+      },
+    };
+    vi.mocked(reportsApi.options)
+      .mockResolvedValueOnce(managementOptions)
+      .mockRejectedValueOnce(new Error('Không thể tải bộ lọc phạm vi.'))
+      .mockResolvedValue(managementOptions);
+
+    renderPage();
+
+    expect(await screen.findByText('Không thể tải bộ lọc phạm vi.')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Thử lại' }));
+    await waitFor(() => expect(reportsApi.options).toHaveBeenCalledTimes(3));
+    expect(reportsApi.options).toHaveBeenLastCalledWith({ viewScope: 'MANAGEMENT' });
   });
 
   it('shows the desktop table and opens detail from its accessible link', async () => {
