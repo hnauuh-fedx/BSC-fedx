@@ -8,9 +8,10 @@ import { BscClassificationService } from './services/bsc-classification.service'
 import { BscScoringService } from './services/bsc-scoring.service';
 import { BscWorkflowService } from './services/bsc-workflow.service';
 import { BscCyclesModule } from '../bsc-cycles/bsc-cycles.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [AuthModule, BscCyclesModule],
+  imports: [AuthModule, BscCyclesModule, NotificationsModule],
   controllers: [EmployeeBscController],
   providers: [EmployeeBscService, EmployeeBscRepository, BscAccessPolicy, BscClassificationService, BscScoringService, BscWorkflowService],
   exports: [BscClassificationService, BscScoringService],

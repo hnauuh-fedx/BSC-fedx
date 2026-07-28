@@ -34,6 +34,7 @@ import { UserFormPage } from '../../features/organization/pages/user-form-page';
 import { UsersPage } from '../../features/organization/pages/users-page';
 import { BscReportPage, DashboardPage, ManagementBscOverviewPage } from '../../features/reports';
 import { RoleDetailPage, RolesListPage } from '../../features/roles';
+import { NotificationsPage } from '../../features/notifications';
 import { MainLayout } from '../layouts/main-layout';
 
 const LoadingPage: React.FC = () => (
@@ -89,6 +90,7 @@ export const AppRouter: React.FC = () => (
       <Route path="/" element={<PermissionLandingPage />} />
       <Route path="/forbidden" element={<ProtectedRoute><ForbiddenPage /></ProtectedRoute>} />
       <Route path="/account" element={<ProtectedRoute><MainLayout><AccountPage /></MainLayout></ProtectedRoute>} />
+      <Route path="/notifications" element={<ProtectedRoute><MainLayout><NotificationsPage /></MainLayout></ProtectedRoute>} />
 
       <Route path="/dashboard" element={<WorkspacePage><DashboardPage /></WorkspacePage>} />
       <Route path="/management/bsc-overview" element={<WorkspacePage><ManagementOverviewRoute /></WorkspacePage>} />

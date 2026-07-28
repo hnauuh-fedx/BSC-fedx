@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { CheckIcon, EyeIcon, XIcon } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '../../../components/ui/alert';
 import { Button } from '../../../components/ui/button';
@@ -24,7 +24,8 @@ const formatDate = (value?: string | null) => value
 const stageLabel = (value: Stage) => value === 'PLAN' ? 'Kế hoạch' : 'Đánh giá kết quả';
 
 export const BscReopenRequestsPage: React.FC = () => {
-  const [stage, setStage] = useState<Stage>('PLAN');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [stage, setStage] = useState<Stage>(searchParams.get('stage') === 'EVALUATION' ? 'EVALUATION' : 'PLAN');
   const [items, setItems] = useState<BscReopenRequest[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -132,6 +133,7 @@ export const BscReopenRequestsPage: React.FC = () => {
 
   const switchStage = (value: string) => {
     setStage(value as Stage);
+    setSearchParams({ stage: value });
     setPage(1);
     setSelected(null);
     setRejecting(null);

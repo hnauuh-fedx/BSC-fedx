@@ -6,6 +6,15 @@ Object.defineProperties(HTMLElement.prototype, {
   scrollIntoView: { configurable: true, value: () => undefined },
   setPointerCapture: { configurable: true, value: () => undefined },
 });
+
+class ResizeObserverMock implements ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+globalThis.ResizeObserver = ResizeObserverMock;
+
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
 

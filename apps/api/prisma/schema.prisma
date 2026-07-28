@@ -512,6 +512,8 @@ model users {
   positions                                                      positions               @relation(fields: [position_id], references: [id], onUpdate: NoAction, map: "users_position_fk")
 
   auth_refresh_tokens auth_refresh_tokens[]
+  notifications_received notifications[] @relation("notifications_recipient")
+  notifications_acted    notifications[] @relation("notifications_actor")
 
   @@index([department_id], map: "users_department_idx")
   @@index([direct_manager_id], map: "users_direct_manager_idx")
@@ -531,6 +533,28 @@ model auth_refresh_tokens {
 
   @@index([user_id], map: "auth_refresh_tokens_user_id_idx")
   @@index([expires_at], map: "auth_refresh_tokens_expires_at_idx")
+}
+
+model notifications {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  recipient_id String   @db.Uuid
+  actor_id     String?  @db.Uuid
+  type         String   @db.VarChar(80)
+  title        String   @db.VarChar(200)
+  message      String   @db.VarChar(500)
+  entity_type  String   @db.VarChar(50)
+  entity_id    String   @db.Uuid
+  target_path  String   @db.VarChar(255)
+  metadata     Json?
+  dedupe_key   String   @unique @db.VarChar(255)
+  read_at      DateTime? @db.Timestamptz(6)
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+
+  recipient users  @relation("notifications_recipient", fields: [recipient_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  actor     users? @relation("notifications_actor", fields: [actor_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([recipient_id, read_at, created_at(sort: Desc)], map: "notifications_recipient_unread_idx")
+  @@index([recipient_id, created_at(sort: Desc), id], map: "notifications_recipient_feed_idx")
 }
 
 model department_manager_assignments {

@@ -10,6 +10,8 @@ import { QueryReopenRequestDto } from '../dto/reopen-bsc.dto';
 import { assertTotalWeight } from '../validators/bsc-item.validator';
 import { BscScoringResult } from '../services/bsc-scoring.service';
 import { BscCycleBusinessAction, BscCyclePolicy, CycleTiming } from '../../bsc-cycles/bsc-cycle.policy';
+import { NotificationPublisher } from '../../notifications/notifications.publisher';
+import { NOTIFICATION_EVENT } from '../../notifications/notifications.types';
 
 const bscAccessSelect = {
   id: true,
@@ -94,7 +96,11 @@ type Transaction = Prisma.TransactionClient;
 
 @Injectable()
 export class EmployeeBscRepository {
-  constructor(private readonly prisma: PrismaService, private readonly cyclePolicy: BscCyclePolicy) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cyclePolicy: BscCyclePolicy,
+    private readonly notifications: NotificationPublisher,
+  ) {}
 
   findEmployeeContext(id: string) {
     return this.prisma.users.findUnique({
@@ -195,7 +201,7 @@ export class EmployeeBscRepository {
         data: { plan_status: 'SUBMITTED', plan_submitted_at: now, updated_at: now },
       });
       if (changed.count !== 1) this.workflowConflict();
-      await db.bsc_status_histories.create({ data: {
+      const history = await db.bsc_status_histories.create({ data: {
         employee_bsc_id: id, stage: 'PLAN', from_status: snapshot.plan_status, to_status: 'SUBMITTED', action: 'SUBMIT_PLAN',
         changed_by: actor.id, changed_at: now, ip_address: metadata.ipAddress, user_agent: metadata.userAgent,
       } });
@@ -207,6 +213,12 @@ export class EmployeeBscRepository {
       await this.audit(db, actor, 'BSC_PLAN_SUBMITTED', 'employee_bsc', id,
         { bscId: id, employeeId: snapshot.employee_id, stage: 'PLAN', status: snapshot.plan_status },
         { bscId: id, employeeId: snapshot.employee_id, stage: 'PLAN', status: 'SUBMITTED' }, metadata);
+      await this.notifications.publish(db, {
+        type: NOTIFICATION_EVENT.EMPLOYEE_BSC_PLAN_SUBMITTED,
+        resourceId: id,
+        sourceId: history.id,
+        actorId: actor.id,
+      });
       return db.employee_bsc.findUniqueOrThrow({ where: { id }, select: bscDetailSelect });
     });
   }
@@ -242,7 +254,7 @@ export class EmployeeBscRepository {
             },
       });
       if (changed.count !== 1) this.workflowConflict();
-      await db.bsc_status_histories.create({ data: {
+      const history = await db.bsc_status_histories.create({ data: {
         employee_bsc_id: id, stage: 'PLAN', from_status: 'SUBMITTED', to_status: targetStatus, action,
         comment: reason, changed_by: actor.id, changed_at: now,
         ip_address: metadata.ipAddress, user_agent: metadata.userAgent,
@@ -263,6 +275,14 @@ export class EmployeeBscRepository {
       await this.audit(db, actor, action === 'APPROVE_PLAN' ? 'BSC_PLAN_APPROVED' : 'BSC_PLAN_RETURNED', 'employee_bsc', id,
         { bscId: id, employeeId: snapshot.employee_id, stage: 'PLAN', status: 'SUBMITTED' },
         { bscId: id, employeeId: snapshot.employee_id, stage: 'PLAN', status: targetStatus, reason }, metadata);
+      await this.notifications.publish(db, {
+        type: action === 'APPROVE_PLAN'
+          ? NOTIFICATION_EVENT.EMPLOYEE_BSC_PLAN_APPROVED
+          : NOTIFICATION_EVENT.EMPLOYEE_BSC_PLAN_RETURNED,
+        resourceId: id,
+        sourceId: history.id,
+        actorId: actor.id,
+      });
       return db.employee_bsc.findUniqueOrThrow({ where: { id }, select: bscDetailSelect });
     });
   }
@@ -280,7 +300,7 @@ export class EmployeeBscRepository {
         data: { evaluation_status: 'SUBMITTED', evaluation_submitted_at: now, locked_at: now, updated_at: now },
       });
       if (changed.count !== 1) this.workflowConflict();
-      await db.bsc_status_histories.create({ data: { employee_bsc_id: id, stage: 'EVALUATION', from_status: snapshot.evaluation_status,
+      const history = await db.bsc_status_histories.create({ data: { employee_bsc_id: id, stage: 'EVALUATION', from_status: snapshot.evaluation_status,
         to_status: 'SUBMITTED', action: 'SUBMIT_EVALUATION', changed_by: actor.id, changed_at: now,
         ip_address: metadata.ipAddress, user_agent: metadata.userAgent } });
       await db.bsc_approval_steps.upsert({
@@ -291,6 +311,12 @@ export class EmployeeBscRepository {
       await this.audit(db, actor, 'BSC_EVALUATION_SUBMITTED', 'employee_bsc', id,
         { bscId: id, employeeId: snapshot.employee_id, stage: 'EVALUATION', status: snapshot.evaluation_status },
         { bscId: id, employeeId: snapshot.employee_id, stage: 'EVALUATION', status: 'SUBMITTED', previewScore: scoring.totalWeightedScore }, metadata);
+      await this.notifications.publish(db, {
+        type: NOTIFICATION_EVENT.EMPLOYEE_BSC_EVALUATION_SUBMITTED,
+        resourceId: id,
+        sourceId: history.id,
+        actorId: actor.id,
+      });
       return db.employee_bsc.findUniqueOrThrow({ where: { id }, select: bscDetailSelect });
     });
   }
@@ -321,7 +347,7 @@ export class EmployeeBscRepository {
         },
       });
       if (changed.count !== 1) this.workflowConflict();
-      await db.bsc_status_histories.create({ data: { employee_bsc_id: id, stage: 'EVALUATION', from_status: 'SUBMITTED', to_status: targetStatus,
+      const history = await db.bsc_status_histories.create({ data: { employee_bsc_id: id, stage: 'EVALUATION', from_status: 'SUBMITTED', to_status: targetStatus,
         action, comment: reason, changed_by: actor.id, changed_at: now, ip_address: metadata.ipAddress, user_agent: metadata.userAgent } });
       await db.bsc_approval_steps.update({ where: { employee_bsc_id_stage_step_order: { employee_bsc_id: id, stage: 'EVALUATION', step_order: 1 } },
         data: { approver_id: actor.id, approver_role: reviewerRole, status: targetStatus, comment: reason, acted_at: now } });
@@ -338,6 +364,14 @@ export class EmployeeBscRepository {
         { bscId: id, employeeId: snapshot.employee_id, stage: 'EVALUATION', status: 'SUBMITTED' },
         { bscId: id, employeeId: snapshot.employee_id, stage: 'EVALUATION', status: targetStatus, reason,
           ...(approved ? { score: scoring.canonicalTotalWeightedScore.toString(), classification: scoring.classification } : {}) }, metadata);
+      await this.notifications.publish(db, {
+        type: approved
+          ? NOTIFICATION_EVENT.EMPLOYEE_BSC_EVALUATION_APPROVED
+          : NOTIFICATION_EVENT.EMPLOYEE_BSC_EVALUATION_RETURNED,
+        resourceId: id,
+        sourceId: history.id,
+        actorId: actor.id,
+      });
       return db.employee_bsc.findUniqueOrThrow({ where: { id }, select: bscDetailSelect });
     });
   }
@@ -411,6 +445,12 @@ export class EmployeeBscRepository {
       }, select: reopenRequestSelect });
       await this.audit(db, actor, stage === 'PLAN' ? 'BSC_PLAN_REOPEN_REQUESTED' : 'BSC_EVALUATION_REOPEN_REQUESTED',
         'bsc_reopen_request', request.id, null, { bscId, stage, reason, reviewerId: snapshot.direct_manager_id, sourceVersionId: version.id }, metadata);
+      await this.notifications.publish(db, {
+        type: NOTIFICATION_EVENT.EMPLOYEE_BSC_REOPEN_REQUESTED,
+        resourceId: request.id,
+        sourceId: request.id,
+        actorId: actor.id,
+      });
       return request;
     });
   }
@@ -533,6 +573,12 @@ export class EmployeeBscRepository {
       await this.audit(db, actor, request.stage === 'PLAN' ? 'BSC_PLAN_REOPEN_APPROVED' : 'BSC_EVALUATION_REOPEN_APPROVED',
         'bsc_reopen_request', request.id, { status: 'PENDING' },
         { bscId: request.employee_bsc_id, stage: request.stage, status: 'APPROVED', resultingVersionId: version.id }, metadata);
+      await this.notifications.publish(db, {
+        type: NOTIFICATION_EVENT.EMPLOYEE_BSC_REOPEN_APPROVED,
+        resourceId: request.id,
+        sourceId: request.id,
+        actorId: actor.id,
+      });
       return db.bsc_unlock_requests.findUniqueOrThrow({ where: { id: request.id }, select: reopenRequestSelect });
     });
   }
@@ -556,6 +602,12 @@ export class EmployeeBscRepository {
       await this.audit(db, actor, request.stage === 'PLAN' ? 'BSC_PLAN_REOPEN_REJECTED' : 'BSC_EVALUATION_REOPEN_REJECTED',
         'bsc_reopen_request', request.id, { status: 'PENDING' },
         { bscId: request.employee_bsc_id, stage: request.stage, status: 'REJECTED', reason }, metadata);
+      await this.notifications.publish(db, {
+        type: NOTIFICATION_EVENT.EMPLOYEE_BSC_REOPEN_REJECTED,
+        resourceId: request.id,
+        sourceId: request.id,
+        actorId: actor.id,
+      });
       return db.bsc_unlock_requests.findUniqueOrThrow({ where: { id: request.id }, select: reopenRequestSelect });
     });
   }

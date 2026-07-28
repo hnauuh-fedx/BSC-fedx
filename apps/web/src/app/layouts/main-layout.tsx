@@ -46,6 +46,7 @@ import {
   ADMINISTRATION_DESTINATIONS,
   hasAnyPermission,
 } from '../../features/organization/administration-navigation';
+import { NotificationBell, NotificationCenterProvider } from '../../features/notifications';
 
 type NavigationItem = {
   href: string;
@@ -120,7 +121,7 @@ export const MainLayout: React.FC<PropsWithChildren> = ({ children }) => {
   const administration: NavigationItem[] = ADMINISTRATION_DESTINATIONS
     .filter((item) => hasAnyPermission(permissions, item.permissions))
     .map((item) => ({ href: item.href, label: item.label, icon: navigationIcon(item.href) }));
-  const currentLabel = [...workspace, ...management, ...administration]
+  const currentLabel = location.pathname === '/notifications' ? 'Thông báo' : [...workspace, ...management, ...administration]
     .filter((item) => location.pathname === item.href || location.pathname.startsWith(`${item.href}/`))
     .sort((a, b) => b.href.length - a.href.length)[0]?.label ?? 'BSC Management';
 
@@ -145,7 +146,7 @@ export const MainLayout: React.FC<PropsWithChildren> = ({ children }) => {
     </DropdownMenuContent>
   </DropdownMenu>;
 
-  return <div className="app-shell">
+  return <NotificationCenterProvider><div className="app-shell">
     <a className="skip-link" href="#main-content">Bỏ qua điều hướng</a>
     <aside className="app-sidebar">
       <NavLink to="/" className="brand"><span className="brand-mark">B</span><span>BSC Management</span></NavLink>
@@ -164,9 +165,9 @@ export const MainLayout: React.FC<PropsWithChildren> = ({ children }) => {
           </Sheet>
         </div>
         <div className="app-header-context"><span>Không gian làm việc</span><strong>{currentLabel}</strong></div>
-        <div className="user-menu">{accountMenu}</div>
+        <div className="user-menu"><NotificationBell />{accountMenu}</div>
       </header>
       <div id="main-content" className="app-content" tabIndex={-1}>{children}</div>
     </div>
-  </div>;
+  </div></NotificationCenterProvider>;
 };

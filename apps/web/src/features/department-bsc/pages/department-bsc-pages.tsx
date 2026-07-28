@@ -1,6 +1,6 @@
 import React, { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeftIcon, CopyIcon, EyeIcon, FilePlus2Icon, FileSpreadsheetIcon, PencilIcon, PlusIcon, Trash2Icon, XIcon } from 'lucide-react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Badge } from '../../../components/ui/badge';
 import { Button } from '../../../components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../../../components/ui/card';
@@ -126,7 +126,11 @@ export const DepartmentBscCreatePage: React.FC = () => {
 };
 
 export const DepartmentBscPendingReviewPage: React.FC = () => {
-  const [stage, setStage] = useState<'PLAN' | 'EVALUATION' | 'REOPEN'>('PLAN'), [items, setItems] = useState<DepartmentBsc[]>([]), [reopens, setReopens] = useState<DepartmentBscReopenRequest[]>([]), [error, setError] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialStage = searchParams.get('stage');
+  const [stage, setStage] = useState<'PLAN' | 'EVALUATION' | 'REOPEN'>(
+    initialStage === 'EVALUATION' || initialStage === 'REOPEN' ? initialStage : 'PLAN',
+  ), [items, setItems] = useState<DepartmentBsc[]>([]), [reopens, setReopens] = useState<DepartmentBscReopenRequest[]>([]), [error, setError] = useState('');
   const [loading, setLoading] = useState(true), [busyAction, setBusyAction] = useState(''), [reason, setReason] = useState('');
   const busy = Boolean(busyAction);
   const load = useCallback(async () => { setLoading(true); setError(''); try {
@@ -140,7 +144,10 @@ export const DepartmentBscPendingReviewPage: React.FC = () => {
   } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể xử lý yêu cầu mở lại.'); } finally { setBusyAction(''); } };
   return <main className="flex flex-col gap-6"><PageHeader title="BSC phòng ban chờ duyệt" description="Giám đốc xử lý độc lập kế hoạch và kết quả đánh giá." action={<Button asChild variant="outline"><Link to="/department-bsc"><ArrowLeftIcon data-icon="inline-start"/>Danh sách</Link></Button>}/>
     <Card><CardHeader><CardTitle>Bộ lọc xử lý</CardTitle><CardDescription>Chọn giai đoạn và nhập lý do khi từ chối yêu cầu mở lại.</CardDescription></CardHeader><CardContent><FieldGroup className="grid lg:grid-cols-2">
-      <Field><FieldLabel htmlFor="review-stage">Giai đoạn</FieldLabel><Select value={stage} onValueChange={(value) => setStage(value as 'PLAN' | 'EVALUATION' | 'REOPEN')}><SelectTrigger id="review-stage" className="w-full"><SelectValue/></SelectTrigger><SelectContent><SelectGroup><SelectItem value="PLAN">PLAN — Kế hoạch</SelectItem><SelectItem value="EVALUATION">EVALUATION — Kết quả</SelectItem><SelectItem value="REOPEN">Yêu cầu mở lại</SelectItem></SelectGroup></SelectContent></Select></Field>
+      <Field><FieldLabel htmlFor="review-stage">Giai đoạn</FieldLabel><Select value={stage} onValueChange={(value) => {
+        setStage(value as 'PLAN' | 'EVALUATION' | 'REOPEN');
+        setSearchParams({ stage: value });
+      }}><SelectTrigger id="review-stage" className="w-full"><SelectValue/></SelectTrigger><SelectContent><SelectGroup><SelectItem value="PLAN">PLAN — Kế hoạch</SelectItem><SelectItem value="EVALUATION">EVALUATION — Kết quả</SelectItem><SelectItem value="REOPEN">Yêu cầu mở lại</SelectItem></SelectGroup></SelectContent></Select></Field>
       {stage === 'REOPEN' && <Field><FieldLabel htmlFor="reopen-review-reason">Lý do từ chối</FieldLabel><Textarea id="reopen-review-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Bắt buộc khi từ chối"/></Field>}
     </FieldGroup></CardContent></Card>
     {error && <ErrorState error={error}/>} {loading ? <LoadingState/> : stage === 'REOPEN' ? (reopens.length === 0 ? <EmptyState message="Không có yêu cầu mở lại đang chờ xử lý."/> : <Card><CardHeader><CardTitle>Yêu cầu mở lại</CardTitle><CardDescription>{reopens.length} yêu cầu cần xử lý.</CardDescription></CardHeader><CardContent><Table className="min-w-[760px]"><TableHeader><TableRow><TableHead>Giai đoạn</TableHead><TableHead>Lý do</TableHead><TableHead>Ngày yêu cầu</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader><TableBody>{reopens.map((request) => <TableRow key={request.id}><TableCell>{request.stage === 'PLAN' ? 'Duyệt nội dung BSC' : 'Đánh giá kết quả'}</TableCell><TableCell className="max-w-80 whitespace-normal">{request.request_reason}</TableCell><TableCell>{formatDate(request.created_at)}</TableCell><TableCell><div className="flex justify-end gap-2"><Button asChild variant="outline" size="sm"><Link to={`/department-bsc/${request.department_bsc_id}`}>Xem BSC</Link></Button><Button variant="outline" size="sm" disabled={busy || !reason.trim()} onClick={() => void reviewReopen(request.id, 'REJECT')}>{busyAction === `${request.id}:REJECT` && <Spinner data-icon="inline-start"/>}Từ chối</Button><Button size="sm" disabled={busy} onClick={() => void reviewReopen(request.id, 'APPROVE')}>{busyAction === `${request.id}:APPROVE` && <Spinner data-icon="inline-start"/>}Chấp thuận</Button></div></TableCell></TableRow>)}</TableBody></Table></CardContent></Card>) : items.length === 0 ? <EmptyState message={`Không có BSC phòng ban chờ duyệt ${stage === 'PLAN' ? 'nội dung' : 'kết quả'}.`}/> : <Card><CardHeader><CardTitle>{stage === 'PLAN' ? 'Duyệt nội dung BSC' : 'Đánh giá kết quả'}</CardTitle><CardDescription>{items.length} BSC cần xử lý.</CardDescription></CardHeader><CardContent><Table className="min-w-[760px]"><TableHeader><TableRow><TableHead>Kỳ</TableHead><TableHead>Phòng ban</TableHead><TableHead>Trưởng phòng</TableHead><TableHead>Ngày nộp</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.id}><TableCell>{item.bsc_cycles.name}</TableCell><TableCell>{item.departments.name}</TableCell><TableCell>{item.responsible_manager.full_name}</TableCell><TableCell>{formatDate(stage === 'PLAN' ? item.plan_submitted_at : item.evaluation_submitted_at)}</TableCell><TableCell className="text-right"><Button asChild size="sm"><Link to={`/department-bsc/${item.id}`}>Xử lý</Link></Button></TableCell></TableRow>)}</TableBody></Table></CardContent></Card>}

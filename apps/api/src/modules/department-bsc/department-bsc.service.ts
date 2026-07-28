@@ -11,6 +11,8 @@ import { assertBinaryActual, assertTargetCompatible, assertValidWeight } from '.
 import { CreateDepartmentBscItemDto, DepartmentBscReopenDto, QueryDepartmentBscDto, UpdateDepartmentBscActualDto,
   UpdateDepartmentBscDto, UpdateDepartmentBscItemDto } from './department-bsc.dto';
 import { DEPARTMENT_BSC_PERMISSIONS as P } from './department-bsc.permissions';
+import { NotificationPublisher } from '../notifications/notifications.publisher';
+import { NOTIFICATION_EVENT, NotificationEventType } from '../notifications/notifications.types';
 
 type Db = PrismaService | Prisma.TransactionClient;
 type BscRow = Awaited<ReturnType<DepartmentBscService['requireBsc']>>;
@@ -19,7 +21,11 @@ const EVALUATION_EDITABLE = new Set(['DRAFT', 'RETURNED', 'REOPENED']);
 
 @Injectable()
 export class DepartmentBscService {
-  constructor(private readonly prisma: PrismaService, private readonly scoring: BscScoringService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly scoring: BscScoringService,
+    private readonly notifications: NotificationPublisher,
+  ) {}
 
   async create(actor: AuthUser, cycleId: string, metadata: AuditRequestMetadata) {
     const assignment = await this.activeAssignment(actor.id);
@@ -418,6 +424,12 @@ export class DepartmentBscService {
         const request = await db.department_bsc_unlock_requests.create({ data: { department_bsc_id: id, stage: dto.stage,
           requested_by: actor.id, reviewer_id: current.reviewer_id, request_reason: this.reason(dto.reason) } });
         await this.audit(db, actor, 'DEPARTMENT_BSC_REOPEN_REQUESTED', 'department_bsc_unlock_request', request.id, null, request, metadata);
+        await this.notifications.publish(db, {
+          type: NOTIFICATION_EVENT.DEPARTMENT_BSC_REOPEN_REQUESTED,
+          resourceId: request.id,
+          sourceId: request.id,
+          actorId: actor.id,
+        });
         return request;
       });
     } catch (error) { this.mapUnique(error); }
@@ -462,6 +474,14 @@ export class DepartmentBscService {
         await this.recordTransition(db, actor, reopenedBsc, request.stage as 'PLAN' | 'EVALUATION', 'APPROVED', 'REOPENED', 'REOPEN', reason, reopenedItems, metadata);
       }
       await this.audit(db, actor, `DEPARTMENT_BSC_REOPEN_${action}`, 'department_bsc_unlock_request', request.id, request, updatedRequest, metadata);
+      await this.notifications.publish(db, {
+        type: action === 'APPROVE'
+          ? NOTIFICATION_EVENT.DEPARTMENT_BSC_REOPEN_APPROVED
+          : NOTIFICATION_EVENT.DEPARTMENT_BSC_REOPEN_REJECTED,
+        resourceId: request.id,
+        sourceId: request.id,
+        actorId: actor.id,
+      });
       return updatedRequest;
     });
   }
@@ -624,7 +644,7 @@ export class DepartmentBscService {
 
   private async recordTransition(db: Prisma.TransactionClient, actor: AuthUser, bsc: BscRow, stage: 'PLAN' | 'EVALUATION', from: string,
     to: string, action: string, comment: string | null, items: unknown[], metadata: AuditRequestMetadata, scoring?: BscScoringResult) {
-    await db.department_bsc_status_histories.create({ data: { department_bsc_id: bsc.id, stage, from_status: from, to_status: to,
+    const history = await db.department_bsc_status_histories.create({ data: { department_bsc_id: bsc.id, stage, from_status: from, to_status: to,
       action, comment, changed_by: actor.id, ip_address: metadata.ipAddress, user_agent: metadata.userAgent } });
     const count = await db.department_bsc_versions.count({ where: { department_bsc_id: bsc.id } });
     const snapshot = JSON.parse(JSON.stringify({ bsc, items,
@@ -633,6 +653,25 @@ export class DepartmentBscService {
     await db.department_bsc_versions.create({ data: { department_bsc_id: bsc.id, version_number: count + 1, stage,
       version_type: `${stage}_${action}`, snapshot, created_by: actor.id } });
     await this.audit(db, actor, `DEPARTMENT_BSC_${stage}_${action}`, 'department_bsc', bsc.id, { status: from }, { status: to, comment }, metadata);
+    const notificationType = this.transitionNotificationType(stage, action);
+    if (notificationType) {
+      await this.notifications.publish(db, {
+        type: notificationType,
+        resourceId: bsc.id,
+        sourceId: history.id,
+        actorId: actor.id,
+      });
+    }
+  }
+
+  private transitionNotificationType(stage: 'PLAN' | 'EVALUATION', action: string): NotificationEventType | null {
+    if (stage === 'PLAN' && action === 'SUBMIT') return NOTIFICATION_EVENT.DEPARTMENT_BSC_PLAN_SUBMITTED;
+    if (stage === 'PLAN' && action === 'APPROVE') return NOTIFICATION_EVENT.DEPARTMENT_BSC_PLAN_APPROVED;
+    if (stage === 'PLAN' && action === 'RETURN') return NOTIFICATION_EVENT.DEPARTMENT_BSC_PLAN_RETURNED;
+    if (stage === 'EVALUATION' && action === 'SUBMIT') return NOTIFICATION_EVENT.DEPARTMENT_BSC_EVALUATION_SUBMITTED;
+    if (stage === 'EVALUATION' && action === 'APPROVE') return NOTIFICATION_EVENT.DEPARTMENT_BSC_EVALUATION_APPROVED;
+    if (stage === 'EVALUATION' && action === 'RETURN') return NOTIFICATION_EVENT.DEPARTMENT_BSC_EVALUATION_RETURNED;
+    return null;
   }
 
   private itemAudit(item: { id: string; department_bsc_id: string; kpi_code: string; kpi_name: string; target_value: Prisma.Decimal | null; weight: Prisma.Decimal; calculation_method: string }) {
