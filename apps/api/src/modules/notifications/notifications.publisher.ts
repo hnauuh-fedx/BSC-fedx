@@ -39,71 +39,117 @@ const DEPARTMENT_EVENTS = new Set<NotificationEventType>([
 @Injectable()
 export class NotificationPublisher {
   async publish(db: Prisma.TransactionClient, event: NotificationEvent) {
-    const draft = await this.resolveDraft(db, event);
-    const dedupeKey = `${event.type}:${event.sourceId}:${draft.recipientId}`;
-
-    return db.notifications.upsert({
-      where: { dedupe_key: dedupeKey },
-      create: {
-        recipient_id: draft.recipientId,
-        actor_id: event.actorId,
-        type: event.type,
-        title: draft.title,
-        message: draft.message,
-        entity_type: draft.entityType,
-        entity_id: draft.entityId,
-        target_path: draft.targetPath,
-        metadata: draft.metadata,
-        dedupe_key: dedupeKey,
-      },
-      update: {},
-    });
+    const drafts = await this.resolveDrafts(db, event);
+    return Promise.all(drafts.map((draft) => {
+      const dedupeKey = `${event.type}:${event.sourceId}:${draft.recipientId}`;
+      return db.notifications.upsert({
+        where: { dedupe_key: dedupeKey },
+        create: {
+          recipient_id: draft.recipientId,
+          actor_id: event.actorId,
+          type: event.type,
+          title: draft.title,
+          message: draft.message,
+          entity_type: draft.entityType,
+          entity_id: draft.entityId,
+          target_path: draft.targetPath,
+          metadata: draft.metadata,
+          dedupe_key: dedupeKey,
+        },
+        update: {},
+      });
+    }));
   }
 
-  private async resolveDraft(db: Prisma.TransactionClient, event: NotificationEvent): Promise<NotificationDraft> {
-    if (EMPLOYEE_EVENTS.has(event.type)) return this.employeeBscDraft(db, event);
-    if (EMPLOYEE_REOPEN_EVENTS.has(event.type)) return this.employeeReopenDraft(db, event);
-    if (DEPARTMENT_EVENTS.has(event.type)) return this.departmentBscDraft(db, event);
-    return this.departmentReopenDraft(db, event);
+  private async resolveDrafts(db: Prisma.TransactionClient, event: NotificationEvent): Promise<NotificationDraft[]> {
+    if (EMPLOYEE_EVENTS.has(event.type)) return this.employeeBscDrafts(db, event);
+    if (EMPLOYEE_REOPEN_EVENTS.has(event.type)) return this.employeeReopenDrafts(db, event);
+    if (DEPARTMENT_EVENTS.has(event.type)) return [await this.departmentBscDraft(db, event)];
+    return [await this.departmentReopenDraft(db, event)];
   }
 
-  private async employeeBscDraft(db: Prisma.TransactionClient, event: NotificationEvent): Promise<NotificationDraft> {
+  private async employeeBscDrafts(db: Prisma.TransactionClient, event: NotificationEvent): Promise<NotificationDraft[]> {
     const bsc = await db.employee_bsc.findUnique({
       where: { id: event.resourceId },
-      select: { id: true, bsc_code: true, employee_id: true, direct_manager_id: true },
+      select: { id: true, bsc_code: true, employee_id: true, department_id: true },
     });
     if (!bsc) this.sourceNotFound();
     const submitted = event.type.endsWith('_SUBMITTED');
-    const recipientId = submitted ? bsc.direct_manager_id : bsc.employee_id;
     const owner = await db.users.findUnique({ where: { id: bsc.employee_id }, select: { full_name: true } });
     const { stage, action } = this.stageAction(event.type);
-    return {
+    const recipientIds = submitted
+      ? await this.directorRecipientIds(db, bsc.department_id, bsc.employee_id, this.approvalPermission(stage))
+      : [bsc.employee_id];
+    return recipientIds.map((recipientId) => ({
       recipientId,
       ...this.copy(stage, action, 'cá nhân', owner?.full_name ?? bsc.bsc_code),
       entityType: 'employee_bsc',
       entityId: bsc.id,
       targetPath: `/employee-bsc/${bsc.id}`,
       metadata: { stage, action, bscId: bsc.id },
-    };
+    }));
   }
 
-  private async employeeReopenDraft(db: Prisma.TransactionClient, event: NotificationEvent): Promise<NotificationDraft> {
+  private approvalPermission(stage: NotificationStage): string {
+    return stage === 'PLAN' ? 'bsc.plan.approve.subordinate' : 'bsc.evaluation.approve.subordinate';
+  }
+
+  private async directorRecipientIds(
+    db: Prisma.TransactionClient,
+    departmentId: string,
+    ownerId: string,
+    permission: string,
+  ): Promise<string[]> {
+    const now = new Date();
+    const directors = await db.users.findMany({
+      where: {
+        id: { not: ownerId },
+        status: 'ACTIVE',
+        deleted_at: null,
+        departments: { status: 'ACTIVE' },
+        positions: { status: 'ACTIVE' },
+        user_roles_user_roles_user_idTousers: {
+          some: {
+            AND: [
+              { OR: [{ expires_at: null }, { expires_at: { gt: now } }] },
+              {
+                OR: [
+                  { scope_type: 'GLOBAL' },
+                  { scope_type: 'DEPARTMENT', scope_id: departmentId },
+                ],
+              },
+            ],
+            roles: {
+              code: 'DIRECTOR',
+              status: 'ACTIVE',
+              role_permissions: { some: { permissions: { code: permission } } },
+            },
+          },
+        },
+      },
+      select: { id: true },
+    });
+    return directors.map((director) => director.id);
+  }
+
+  private async employeeReopenDrafts(db: Prisma.TransactionClient, event: NotificationEvent): Promise<NotificationDraft[]> {
     const request = await db.bsc_unlock_requests.findUnique({
       where: { id: event.resourceId },
-      select: { id: true, employee_bsc_id: true, stage: true, requested_by: true, reviewer_id: true },
+      select: { id: true, employee_bsc_id: true, stage: true, requested_by: true },
     });
     if (!request) this.sourceNotFound();
     const bsc = await db.employee_bsc.findUnique({
       where: { id: request.employee_bsc_id },
-      select: { id: true, bsc_code: true, employee_id: true },
+      select: { id: true, bsc_code: true, employee_id: true, department_id: true },
     });
     if (!bsc) this.sourceNotFound();
     const requested = event.type.endsWith('_REQUESTED');
-    const recipientId = requested ? request.reviewer_id : request.requested_by;
-    if (!recipientId) this.sourceNotFound();
+    const recipientIds = requested
+      ? await this.directorRecipientIds(db, bsc.department_id, bsc.employee_id, 'bsc.reopen.subordinate')
+      : [request.requested_by];
     const owner = await db.users.findUnique({ where: { id: bsc.employee_id }, select: { full_name: true } });
     const action = requested ? 'REQUESTED' : event.type.endsWith('_APPROVED') ? 'APPROVED' : 'REJECTED';
-    return {
+    return recipientIds.map((recipientId) => ({
       recipientId,
       ...this.reopenCopy(request.stage as NotificationStage, action, 'cá nhân', owner?.full_name ?? bsc.bsc_code),
       entityType: 'employee_bsc',
@@ -112,7 +158,7 @@ export class NotificationPublisher {
         ? `/management/bsc-reopen-requests?stage=${request.stage}`
         : `/employee-bsc/${bsc.id}`,
       metadata: { stage: request.stage, action, bscId: bsc.id, reopenRequestId: request.id },
-    };
+    }));
   }
 
   private async departmentBscDraft(db: Prisma.TransactionClient, event: NotificationEvent): Promise<NotificationDraft> {
