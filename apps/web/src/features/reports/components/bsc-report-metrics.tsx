@@ -38,11 +38,11 @@ export const BscReportMetrics: React.FC<{ summary: ReportSummary; isManagement: 
     <section className="grid grid-cols-4 gap-4" aria-label="Chỉ số tổng quan">
       <MetricCard label="Tổng số BSC" value={summary.totalBsc} description="Hồ sơ phù hợp với bộ lọc hiện tại." icon={FileSpreadsheetIcon}/>
       <MetricCard label="Đã duyệt đánh giá" value={approvedCount} description="Có điểm và xếp loại chính thức." icon={ClipboardCheckIcon}/>
-      <MetricCard label="Điểm trung bình" value={formatReportScore(summary.approvedAverageScore)} description="Chỉ tính BSC đã duyệt EVALUATION." icon={TargetIcon}/>
+      <MetricCard label="Điểm trung bình" value={formatReportScore(summary.approvedAverageScore)} description="Chỉ tính BSC có đánh giá đã duyệt." icon={TargetIcon}/>
       <MetricCard
         label={isManagement ? 'Đang chờ bạn xử lý' : 'BSC cần hoàn thiện'}
         value={isManagement ? pendingCount : (summary.planStatusCounts.DRAFT ?? 0) + (summary.evaluationStatusCounts.DRAFT ?? 0)}
-        description={isManagement ? 'PLAN và EVALUATION đang chờ duyệt.' : 'Hồ sơ đang ở trạng thái nháp.'}
+        description={isManagement ? 'Kế hoạch và đánh giá đang chờ duyệt.' : 'Hồ sơ đang ở trạng thái nháp.'}
         icon={ClipboardCheckIcon}
       />
     </section>

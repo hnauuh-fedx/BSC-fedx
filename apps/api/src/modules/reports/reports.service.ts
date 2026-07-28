@@ -192,7 +192,7 @@ export class BscReportsService {
     sheet.mergeCells('A1:N1'); sheet.getCell('A1').value = 'BÁO CÁO TỔNG HỢP BSC'; sheet.getCell('A1').font = { bold: true, size: 16 };
     sheet.mergeCells('A2:N2'); sheet.getCell('A2').value = `Kỳ: ${cycle?.name ?? 'Tất cả kỳ'}`;
     sheet.mergeCells('A3:N3'); sheet.getCell('A3').value = `Thời gian xuất: ${new Date().toISOString()}`;
-    const headers = ['Mã nhân viên', 'Họ tên', 'Phòng ban', 'Chức danh', 'Quản lý trực tiếp', 'Kỳ BSC', 'PLAN status', 'EVALUATION status', 'Tổng tỷ trọng', 'Số KPI', 'Final score', 'Final grade', 'Ngày duyệt PLAN', 'Ngày duyệt EVALUATION'];
+    const headers = ['Mã nhân viên', 'Họ tên', 'Phòng ban', 'Chức danh', 'Quản lý trực tiếp', 'Kỳ BSC', 'Trạng thái kế hoạch', 'Trạng thái đánh giá', 'Tổng tỷ trọng', 'Số KPI', 'Final score', 'Final grade', 'Ngày duyệt kế hoạch', 'Ngày duyệt đánh giá'];
     const header = sheet.addRow([]); const headerRow = sheet.addRow(headers); void header;
     headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }; headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
     for (const row of rows) sheet.addRow([row.employeeCode, row.employeeName, row.departmentName, row.positionName, row.directManagerName, row.cycleName, this.statusLabel(row.planStatus), this.statusLabel(row.evaluationStatus), Number(row.totalWeight), row.kpiCount, row.officialScore === null ? null : Number(row.officialScore), row.officialGrade, row.planApprovedAt, row.evaluationApprovedAt]);
@@ -341,8 +341,8 @@ export class BscReportsService {
   }
 
   private ownerActions(row: Awaited<ReturnType<BscReportsService['rows']>>[number]) {
-    if (['DRAFT', 'RETURNED', 'REOPENED'].includes(row.planStatus)) return [{ code: 'COMPLETE_PLAN', label: 'Hoàn thiện và nộp PLAN', href: `/employee-bsc/${row.id}` }];
-    if (row.planStatus === 'APPROVED' && ['DRAFT', 'RETURNED', 'REOPENED'].includes(row.evaluationStatus)) return [{ code: 'COMPLETE_EVALUATION', label: 'Hoàn thiện và nộp EVALUATION', href: `/employee-bsc/${row.id}` }];
+    if (['DRAFT', 'RETURNED', 'REOPENED'].includes(row.planStatus)) return [{ code: 'COMPLETE_PLAN', label: 'Hoàn thiện và nộp kế hoạch', href: `/employee-bsc/${row.id}` }];
+    if (row.planStatus === 'APPROVED' && ['DRAFT', 'RETURNED', 'REOPENED'].includes(row.evaluationStatus)) return [{ code: 'COMPLETE_EVALUATION', label: 'Hoàn thiện và nộp đánh giá', href: `/employee-bsc/${row.id}` }];
     return [];
   }
 

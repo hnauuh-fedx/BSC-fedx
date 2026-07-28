@@ -35,7 +35,7 @@ export const BscScoreSummary: React.FC<{ preview: BscScoringPreview; isOfficial?
       <CardDescription>
         {isOfficial
           ? 'Kết quả đã được duyệt và khóa.'
-          : 'Điểm chỉ trở thành chính thức sau khi đánh giá kết quả được duyệt.'}
+          : 'Điểm chỉ trở thành chính thức sau khi đánh giá được duyệt.'}
       </CardDescription>
       <CardAction>
         <Badge variant={isOfficial ? 'default' : 'secondary'}>

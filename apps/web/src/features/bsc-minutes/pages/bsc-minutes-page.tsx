@@ -199,7 +199,7 @@ export const BscMinutesPage: React.FC = () => {
       <div className="minutes-editor flex flex-col gap-5">
       <PageHeader
         title="Biên bản họp đánh giá BSC"
-        description="Mẫu biên bản được tự động điền từ toàn bộ BSC đã duyệt kết quả trong kỳ của công ty."
+        description="Mẫu biên bản được tự động điền từ toàn bộ BSC đã duyệt đánh giá trong kỳ của công ty."
         action={<div className="flex gap-2 print:hidden">
           <Button type="button" variant="outline" onClick={reset}><RotateCcwIcon data-icon="inline-start" />Làm lại</Button>
           <Button type="button" variant="outline" disabled={exportingPdf || !minutesDataReady} onClick={() => void savePdf()}>{exportingPdf ? <LoaderCircleIcon data-icon="inline-start" className="animate-spin" /> : <FileDownIcon data-icon="inline-start" />}{exportingPdf ? 'Đang tạo PDF…' : 'Lưu PDF'}</Button>
@@ -240,10 +240,10 @@ export const BscMinutesPage: React.FC = () => {
         <Card className="minutes-results-card">
           <CardHeader>
             <CardTitle>Kết quả đánh giá</CardTitle>
-            <CardDescription>Toàn công ty · {rows.length} BSC cá nhân và {collectiveRows.length} BSC phòng ban đã duyệt kết quả</CardDescription>
+            <CardDescription>Toàn công ty · {rows.length} BSC cá nhân và {collectiveRows.length} BSC phòng ban đã duyệt đánh giá</CardDescription>
           </CardHeader>
           <CardContent>
-            {loadingRows ? <LoadingState message="Đang tải kết quả BSC…" /> : rows.length === 0 && collectiveRows.length === 0 ? <EmptyState message="Chưa có BSC đã duyệt kết quả trong kỳ này." /> : <div className="overflow-x-auto rounded-lg border">
+            {loadingRows ? <LoadingState message="Đang tải kết quả BSC…" /> : rows.length === 0 && collectiveRows.length === 0 ? <EmptyState message="Chưa có BSC đã duyệt đánh giá trong kỳ này." /> : <div className="overflow-x-auto rounded-lg border">
               <Table className="min-w-[1100px] border-collapse [&_td]:border-r [&_th]:border-r [&_tr>*:last-child]:border-r-0">
                 <TableHeader><TableRow><TableHead>Họ và tên</TableHead><TableHead>Điểm tự đánh giá</TableHead><TableHead>Xếp loại tự đánh giá</TableHead><TableHead>Điểm đơn vị đánh giá</TableHead><TableHead>Xếp loại đơn vị đánh giá</TableHead><TableHead className="min-w-64">Thuyết minh</TableHead></TableRow></TableHeader>
                 <TableBody>{rows.map((row) => <TableRow key={row.id}>
@@ -261,7 +261,7 @@ export const BscMinutesPage: React.FC = () => {
                   <TableCell>{row.unitScore || '—'}</TableCell>
                   <TableCell>{row.unitGrade || '—'}</TableCell>
                   <TableCell>{row.explanation || '—'}</TableCell>
-                </TableRow>) : <TableRow><TableHead scope="row">Tập thể</TableHead><TableCell colSpan={5}>{canViewDepartmentBsc ? 'Chưa có BSC phòng ban đã duyệt kết quả.' : 'Bạn không có quyền xem dữ liệu BSC phòng ban.'}</TableCell></TableRow>}</TableFooter>
+                </TableRow>) : <TableRow><TableHead scope="row">Tập thể</TableHead><TableCell colSpan={5}>{canViewDepartmentBsc ? 'Chưa có BSC phòng ban đã duyệt đánh giá.' : 'Bạn không có quyền xem dữ liệu BSC phòng ban.'}</TableCell></TableRow>}</TableFooter>
               </Table>
             </div>}
           </CardContent>

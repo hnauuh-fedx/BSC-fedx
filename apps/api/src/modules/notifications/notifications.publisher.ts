@@ -167,7 +167,7 @@ export class NotificationPublisher {
   }
 
   private copy(stage: NotificationStage, action: string, scope: string, subject: string) {
-    const stageLabel = stage === 'PLAN' ? 'kế hoạch' : 'kết quả đánh giá';
+    const stageLabel = this.stageLabel(stage);
     if (action === 'SUBMITTED') return {
       title: `BSC ${scope} chờ duyệt`,
       message: `${subject} đã nộp ${stageLabel} BSC và đang chờ bạn xem xét.`,
@@ -183,7 +183,7 @@ export class NotificationPublisher {
   }
 
   private reopenCopy(stage: NotificationStage, action: string, scope: string, subject: string) {
-    const stageLabel = stage === 'PLAN' ? 'kế hoạch' : 'kết quả đánh giá';
+    const stageLabel = this.stageLabel(stage);
     if (action === 'REQUESTED') return {
       title: `Yêu cầu mở lại BSC ${scope}`,
       message: `${subject} đã gửi yêu cầu mở lại ${stageLabel} BSC.`,
@@ -203,5 +203,9 @@ export class NotificationPublisher {
       code: 'NOTIFICATION_SOURCE_NOT_FOUND',
       message: 'Không tìm thấy dữ liệu nguồn để tạo thông báo.',
     });
+  }
+
+  private stageLabel(stage: NotificationStage): string {
+    return stage === 'PLAN' ? 'kế hoạch' : 'đánh giá';
   }
 }

@@ -42,6 +42,22 @@ const EVALUATION_TRANSITIONS: Record<EvaluationAction, Partial<Record<Evaluation
   APPROVE_EVALUATION: { SUBMITTED: 'APPROVED' },
   RETURN_EVALUATION: { SUBMITTED: 'RETURNED' },
 };
+const ACTION_LABELS: Record<PlanAction | EvaluationAction, string> = {
+  SUBMIT_PLAN: 'nộp kế hoạch',
+  APPROVE_PLAN: 'duyệt kế hoạch',
+  RETURN_PLAN: 'trả lại kế hoạch',
+  SUBMIT_EVALUATION: 'nộp đánh giá',
+  APPROVE_EVALUATION: 'duyệt đánh giá',
+  RETURN_EVALUATION: 'trả lại đánh giá',
+};
+const STATUS_LABELS: Record<PlanStatus | EvaluationStatus, string> = {
+  NOT_STARTED: 'chưa bắt đầu',
+  DRAFT: 'nháp',
+  SUBMITTED: 'chờ duyệt',
+  RETURNED: 'đã trả lại',
+  APPROVED: 'đã duyệt',
+  REOPENED: 'đã mở lại',
+};
 const SUPPORTED_METHODS = new Set(['ACTUAL_DIV_TARGET', 'TARGET_DIV_ACTUAL', 'BINARY']);
 
 @Injectable()
@@ -50,13 +66,13 @@ export class BscWorkflowService {
 
   assertPlanTransition(fromStatus: string, action: PlanAction): PlanStatus {
     const target = PLAN_TRANSITIONS[action][fromStatus as PlanStatus];
-    if (!target) this.conflict('BSC_PLAN_INVALID_TRANSITION', `Không thể thực hiện ${action} khi kế hoạch ở trạng thái ${fromStatus}.`);
+    if (!target) this.conflict('BSC_PLAN_INVALID_TRANSITION', `Không thể ${ACTION_LABELS[action]} khi kế hoạch ở trạng thái ${this.statusLabel(fromStatus)}.`);
     return target;
   }
 
   assertEvaluationTransition(fromStatus: string, action: EvaluationAction): EvaluationStatus {
     const target = EVALUATION_TRANSITIONS[action][fromStatus as EvaluationStatus];
-    if (!target) this.conflict('BSC_EVALUATION_INVALID_TRANSITION', `Không thể thực hiện ${action} khi đánh giá ở trạng thái ${fromStatus}.`);
+    if (!target) this.conflict('BSC_EVALUATION_INVALID_TRANSITION', `Không thể ${ACTION_LABELS[action]} khi đánh giá ở trạng thái ${this.statusLabel(fromStatus)}.`);
     return target;
   }
 
@@ -145,6 +161,9 @@ export class BscWorkflowService {
     const normalized = (reason ?? '').trim().replace(/<[^>]*>/g, '').trim();
     if (!normalized) this.badRequest(code, 'Lý do trả lại là bắt buộc.');
     return normalized;
+  }
+  private statusLabel(status: string): string {
+    return STATUS_LABELS[status as PlanStatus | EvaluationStatus] ?? status;
   }
   private deny(): never { throw new ForbiddenException({ code: 'BSC_ACCESS_DENIED', message: 'Bạn không có quyền thực hiện thao tác workflow này.' }); }
   private badRequest(code: string, message: string): never { throw new BadRequestException({ code, message }); }

@@ -10,6 +10,7 @@ import { Spinner } from '../../../components/ui/spinner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '../../../components/ui/tabs';
 import { Textarea } from '../../../components/ui/textarea';
+import { bscStageLabel } from '../../../lib/bsc-stage';
 import { PermissionGate } from '../../auth/components/permission-gate';
 import { AccessibleDialog, EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SearchInput } from '../../organization/management-ui';
 import { BscStatusBadge } from '../components/bsc-status-badge';
@@ -151,8 +152,8 @@ export const BscPendingReviewPage: React.FC = () => {
       />
       <Tabs value={stage} onValueChange={switchStage}>
         <TabsList aria-label="Giai đoạn duyệt">
-          <TabsTrigger value="PLAN">Chờ duyệt BSC</TabsTrigger>
-          <TabsTrigger value="EVALUATION">Chờ duyệt kết quả</TabsTrigger>
+          <TabsTrigger value="PLAN">Chờ duyệt kế hoạch</TabsTrigger>
+          <TabsTrigger value="EVALUATION">Chờ duyệt đánh giá</TabsTrigger>
         </TabsList>
       </Tabs>
       {!allowed ? <ErrorState error="Bạn không có quyền xử lý giai đoạn này."/> : <>
@@ -189,7 +190,7 @@ export const BscPendingReviewPage: React.FC = () => {
         </Card>
         {error && <ErrorState error={error} onRetry={() => setReload(value => value + 1)}/>}
         {loading ? <LoadingState/> : !error && items.length === 0
-          ? <EmptyState message={stage === 'PLAN' ? 'Không có BSC chờ duyệt nội dung.' : 'Không có BSC chờ duyệt kết quả.'}/>
+          ? <EmptyState message={`Không có BSC chờ duyệt ${bscStageLabel(stage).toLowerCase()}.`}/>
           : !error && <>
           <div className="flex flex-col gap-3 md:hidden">{items.map(item => <Card key={item.id}>
             <CardHeader><CardTitle><Link to={`/employee-bsc/${item.id}`}>{item.bsc_code}</Link></CardTitle><CardDescription>{item.users_employee_bsc_employee_idTousers.full_name} · {item.bsc_cycles.name}</CardDescription></CardHeader>
@@ -240,7 +241,7 @@ export const BscPendingReviewPage: React.FC = () => {
       </>}
       <AccessibleDialog
         open={Boolean(approving)}
-        title={`Duyệt ${stage === 'PLAN' ? 'nội dung' : 'kết quả'} ${approving?.bsc_code ?? ''}`}
+        title={`Duyệt ${bscStageLabel(stage).toLowerCase()} ${approving?.bsc_code ?? ''}`}
         description={stage === 'PLAN' ? 'Sau khi duyệt, định nghĩa KPI sẽ bị khóa và chủ sở hữu có thể nhập kết quả.' : 'Sau khi duyệt, điểm và xếp loại trở thành chính thức; toàn bộ BSC sẽ bị khóa.'}
         onClose={() => setApproving(null)}
         busy={Boolean(actingId)}
@@ -254,7 +255,7 @@ export const BscPendingReviewPage: React.FC = () => {
       </AccessibleDialog>
       <AccessibleDialog
         open={Boolean(returning)}
-        title={`Trả lại ${stage === 'PLAN' ? 'nội dung' : 'kết quả'} ${returning?.bsc_code ?? ''}`}
+        title={`Trả lại ${bscStageLabel(stage).toLowerCase()} ${returning?.bsc_code ?? ''}`}
         description="BSC sẽ được mở đúng nhóm trường của giai đoạn này để chủ sở hữu chỉnh sửa và nộp lại."
         onClose={() => setReturning(null)}
         busy={Boolean(actingId)}

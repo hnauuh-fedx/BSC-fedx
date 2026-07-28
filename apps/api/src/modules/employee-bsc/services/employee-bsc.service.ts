@@ -84,7 +84,7 @@ export class EmployeeBscService {
   }
 
   async pendingReview(actor: AuthUser, query: QueryEmployeeBscDto) {
-    if (!query.stage) throw new BadRequestException({ code: 'BSC_REVIEW_STAGE_REQUIRED', message: 'Phải chọn giai đoạn PLAN hoặc EVALUATION.' });
+    if (!query.stage) throw new BadRequestException({ code: 'BSC_REVIEW_STAGE_REQUIRED', message: 'Phải chọn giai đoạn kế hoạch hoặc đánh giá.' });
     const approvePermission = query.stage === 'PLAN' ? BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE : BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE;
     const returnPermission = query.stage === 'PLAN' ? BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE : BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE;
     if (!actor.permissions.includes(approvePermission) && !actor.permissions.includes(returnPermission)) {

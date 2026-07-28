@@ -234,8 +234,8 @@ describe('BscDetailPage background refresh', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole('button', { name: 'Duyệt BSC' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Trả lại BSC' })).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Duyệt kế hoạch' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Trả lại kế hoạch' })).toBeVisible();
   });
 
   it('keeps a canonical MANAGER in view-only mode even when stale review permissions remain', async () => {
@@ -291,8 +291,8 @@ describe('BscDetailPage background refresh', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole('button', { name: 'Duyệt kết quả' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Trả lại kết quả' })).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Duyệt đánh giá' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Trả lại đánh giá' })).toBeVisible();
   });
 
   it('does not show review actions for a DIRECTOR-owned BSC', async () => {
@@ -317,8 +317,8 @@ describe('BscDetailPage background refresh', () => {
     );
 
     expect(await screen.findByRole('button', { name: 'Lưu KPI mô phỏng' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Duyệt BSC' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Trả lại BSC' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Duyệt kế hoạch' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Trả lại kế hoạch' })).not.toBeInTheDocument();
   });
 
   it('shows reopen approval actions to a DIRECTOR in scope', async () => {

@@ -9,6 +9,7 @@ import { Spinner } from '../../../components/ui/spinner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '../../../components/ui/tabs';
 import { Textarea } from '../../../components/ui/textarea';
+import { bscStageLabel } from '../../../lib/bsc-stage';
 import { PermissionGate } from '../../auth/components/permission-gate';
 import { AccessibleDialog, EmptyState, ErrorState, LoadingState, PageHeader, Pagination } from '../../organization/management-ui';
 import { BscStatusBadge } from '../components/bsc-status-badge';
@@ -21,7 +22,6 @@ const LIMIT = 10;
 const formatDate = (value?: string | null) => value
   ? new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
   : '—';
-const stageLabel = (value: Stage) => value === 'PLAN' ? 'Kế hoạch' : 'Đánh giá kết quả';
 
 export const BscReopenRequestsPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -150,7 +150,7 @@ export const BscReopenRequestsPage: React.FC = () => {
       <Tabs value={stage} onValueChange={switchStage}>
         <TabsList aria-label="Loại yêu cầu mở lại">
           <TabsTrigger value="PLAN">Yêu cầu sửa kế hoạch</TabsTrigger>
-          <TabsTrigger value="EVALUATION">Yêu cầu sửa kết quả</TabsTrigger>
+          <TabsTrigger value="EVALUATION">Yêu cầu sửa đánh giá</TabsTrigger>
         </TabsList>
       </Tabs>
       {error && <ErrorState error={error} onRetry={() => setReload(value => value + 1)}/>}
@@ -161,7 +161,7 @@ export const BscReopenRequestsPage: React.FC = () => {
           <CardHeader><CardTitle>{item.employee_bsc.users_employee_bsc_employee_idTousers.full_name}</CardTitle><CardDescription>{item.employee_bsc.departments.name} · {item.employee_bsc.bsc_cycles.name}</CardDescription></CardHeader>
           <CardContent className="flex flex-col gap-3">
             <p>{item.request_reason}</p>
-            <dl><dt>Giai đoạn</dt><dd>{stageLabel(item.stage)}</dd><dt>Người duyệt</dt><dd>{item.users_bsc_unlock_requests_reviewer_idTousers?.full_name ?? '—'}</dd><dt>Thời gian</dt><dd>{formatDate(item.requested_at)}</dd><dt>Trạng thái</dt><dd><BscStatusBadge status={item.status}/></dd></dl>
+            <dl><dt>Giai đoạn</dt><dd>{bscStageLabel(item.stage)}</dd><dt>Người duyệt</dt><dd>{item.users_bsc_unlock_requests_reviewer_idTousers?.full_name ?? '—'}</dd><dt>Thời gian</dt><dd>{formatDate(item.requested_at)}</dd><dt>Trạng thái</dt><dd><BscStatusBadge status={item.status}/></dd></dl>
             <div className="flex flex-col gap-2">
               <Button className="min-h-11 w-full" variant="outline" disabled={Boolean(actingId)} onClick={() => void openDetail(item.id)}><EyeIcon data-icon="inline-start"/>Chi tiết</Button>
               <Button className="min-h-11 w-full" variant="outline" disabled={Boolean(actingId)} onClick={() => { setRejecting(item); setReason(''); }}><XIcon data-icon="inline-start"/>Từ chối</Button>
@@ -185,7 +185,7 @@ export const BscReopenRequestsPage: React.FC = () => {
                 <TableCell>{item.employee_bsc.users_employee_bsc_employee_idTousers.full_name}</TableCell>
                 <TableCell>{item.employee_bsc.departments.name}</TableCell>
                 <TableCell>{item.employee_bsc.bsc_cycles.name}</TableCell>
-                <TableCell>{stageLabel(item.stage)}</TableCell>
+                <TableCell>{bscStageLabel(item.stage)}</TableCell>
                 <TableCell className="max-w-64 whitespace-normal">{item.request_reason}</TableCell>
                 <TableCell>{item.users_bsc_unlock_requests_reviewer_idTousers?.full_name ?? '—'}</TableCell>
                 <TableCell>{formatDate(item.requested_at)}</TableCell>
@@ -210,7 +210,7 @@ export const BscReopenRequestsPage: React.FC = () => {
 
       <AccessibleDialog
         open={Boolean(selected) && !sourceVersion}
-        title={`Chi tiết yêu cầu ${selected ? stageLabel(selected.stage) : ''}`}
+        title={`Chi tiết yêu cầu ${selected ? bscStageLabel(selected.stage) : ''}`}
         description="Kiểm tra lý do, BSC hiện tại và phiên bản nguồn trước khi quyết định."
         onClose={() => setSelected(null)}
         busy={Boolean(actingId)}
@@ -240,7 +240,7 @@ export const BscReopenRequestsPage: React.FC = () => {
 
       <AccessibleDialog
         open={Boolean(approving)}
-        title={`Duyệt mở lại ${approving ? stageLabel(approving.stage) : ''}`}
+        title={`Duyệt mở lại ${approving ? bscStageLabel(approving.stage) : ''}`}
         description={approving?.stage === 'PLAN'
           ? 'Định nghĩa KPI được mở lại và dữ liệu đánh giá hiện tại sẽ được đặt lại.'
           : 'Chỉ trường kết quả và thuyết minh kết quả được mở lại; định nghĩa KPI vẫn khóa.'}

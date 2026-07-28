@@ -762,7 +762,7 @@ export class EmployeeBscRepository {
     return this.serializable(async (db) => {
       await this.assertCycleActionForBscInTransaction(db, id, 'EDIT_PLAN');
       const current = await db.employee_bsc.findUniqueOrThrow({ where: { id }, select: { employee_comment: true, plan_status: true } });
-      if (!['DRAFT', 'RETURNED', 'REOPENED'].includes(current.plan_status)) throw new ForbiddenException({ code: 'BSC_FIELD_NOT_EDITABLE_IN_CURRENT_STAGE', message: 'Nội dung BSC đang bị khóa.' });
+      if (!['DRAFT', 'RETURNED', 'REOPENED'].includes(current.plan_status)) throw new ForbiddenException({ code: 'BSC_FIELD_NOT_EDITABLE_IN_CURRENT_STAGE', message: 'Kế hoạch BSC đang bị khóa.' });
       const bsc = await db.employee_bsc.update({ where: { id }, data: { employee_comment: comment, updated_at: new Date() }, select: bscDetailSelect });
       await this.audit(db, actor, 'BSC_UPDATED', 'employee_bsc', id, { employeeComment: current.employee_comment }, { employeeComment: bsc.employee_comment }, metadata);
       return bsc;

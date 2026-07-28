@@ -25,6 +25,7 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
+import { BSC_STAGE_LABELS } from '@/lib/bsc-stage';
 import { EmptyState } from '../../organization/management-ui';
 import { formatReportScore, reportScoreNumber } from '../report-format';
 import { ReportSummary } from '../reports.types';
@@ -42,8 +43,8 @@ const gradeConfig = {
 } satisfies ChartConfig;
 
 const workflowConfig = {
-  plan: { label: 'PLAN', color: 'var(--chart-1)' },
-  evaluation: { label: 'EVALUATION', color: 'var(--chart-3)' },
+  plan: { label: BSC_STAGE_LABELS.PLAN, color: 'var(--chart-1)' },
+  evaluation: { label: BSC_STAGE_LABELS.EVALUATION, color: 'var(--chart-3)' },
 } satisfies ChartConfig;
 
 const departmentConfig = {
@@ -67,7 +68,7 @@ const ScoreTrendChart: React.FC<{ summary: ReportSummary }> = ({ summary }) => {
     <Card className="col-span-2">
       <CardHeader>
         <ChartCardTitle>Xu hướng điểm BSC</ChartCardTitle>
-        <CardDescription>Điểm trung bình của tối đa 12 kỳ có EVALUATION đã duyệt, trong cùng phạm vi dữ liệu.</CardDescription>
+        <CardDescription>Điểm trung bình của tối đa 12 kỳ có đánh giá đã duyệt, trong cùng phạm vi dữ liệu.</CardDescription>
       </CardHeader>
       <CardContent>
         {data.length === 0 ? <EmptyState message="Chưa có điểm đã duyệt để hiển thị xu hướng."/> : (
@@ -103,7 +104,7 @@ const GradeDistributionChart: React.FC<{ summary: ReportSummary }> = ({ summary 
     <Card>
       <CardHeader>
         <ChartCardTitle>Phân bố xếp loại</ChartCardTitle>
-        <CardDescription>Chỉ sử dụng kết quả EVALUATION đã duyệt.</CardDescription>
+        <CardDescription>Chỉ sử dụng đánh giá đã duyệt.</CardDescription>
       </CardHeader>
       <CardContent>
         {!hasData ? <EmptyState message="Chưa có xếp loại đã duyệt."/> : (
@@ -132,12 +133,12 @@ const WorkflowChart: React.FC<{ summary: ReportSummary }> = ({ summary }) => {
   return (
     <Card>
       <CardHeader>
-        <ChartCardTitle>Trạng thái PLAN và EVALUATION</ChartCardTitle>
+        <ChartCardTitle>Trạng thái kế hoạch và đánh giá</ChartCardTitle>
         <CardDescription>So sánh số hồ sơ ở từng trạng thái của hai giai đoạn duyệt.</CardDescription>
       </CardHeader>
       <CardContent>
         {data.length === 0 ? <EmptyState message="Chưa có dữ liệu workflow."/> : (
-          <ChartContainer config={workflowConfig} className="h-[320px] w-full" aria-label="Biểu đồ trạng thái PLAN và EVALUATION">
+          <ChartContainer config={workflowConfig} className="h-[320px] w-full" aria-label="Biểu đồ trạng thái kế hoạch và đánh giá">
             <BarChart accessibilityLayer data={data} margin={{ left: 4, right: 12 }}>
               <CartesianGrid vertical={false}/>
               <XAxis dataKey="status" tickLine={false} axisLine={false} tickMargin={10}/>
@@ -167,7 +168,7 @@ const DepartmentProgressChart: React.FC<{ summary: ReportSummary }> = ({ summary
     <Card>
       <CardHeader>
         <ChartCardTitle>Tiến độ phê duyệt theo phòng ban</ChartCardTitle>
-        <CardDescription>Tỷ lệ BSC được duyệt EVALUATION trên tổng số hồ sơ của từng phòng ban.</CardDescription>
+        <CardDescription>Tỷ lệ BSC có đánh giá đã duyệt trên tổng số hồ sơ của từng phòng ban.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         {data.length === 0 ? <EmptyState message="Chưa có dữ liệu tiến độ phòng ban."/> : (
