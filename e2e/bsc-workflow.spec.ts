@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { readState, type FixtureState } from './support/fixture';
 
 let fixture: FixtureState;
@@ -22,12 +22,14 @@ async function login(browser: Browser, user: { username: string }, password = fi
   return { context, page };
 }
 
-async function createBsc(page: Page, cycleId: string): Promise<string> {
+async function createBsc(page: Page, cycleId: string): Promise<{ bscId: string; cycleName: string }> {
   await page.goto('/employee-bsc/new');
-  await page.getByLabel('Kỳ BSC').selectOption(cycleId);
+  const cycleSelect = page.getByLabel('Kỳ BSC');
+  await cycleSelect.selectOption(cycleId);
+  const cycleName = (await cycleSelect.locator('option:checked').textContent())!.split(' — ')[0].trim();
   await page.getByRole('button', { name: 'Tạo BSC' }).click();
   await expect(page).toHaveURL(/\/employee-bsc\/[0-9a-f-]+$/);
-  return page.url().split('/').at(-1)!;
+  return { bscId: page.url().split('/').at(-1)!, cycleName };
 }
 
 async function addKpi(page: Page, bscId: string, weight: string) {
@@ -41,22 +43,38 @@ async function addKpi(page: Page, bscId: string, weight: string) {
   await expect(page.getByText('KPI Browser E2E')).toBeVisible();
 }
 
+const pendingTableRows = (page: Page): Locator =>
+  page.getByRole('table').locator('tbody').getByRole('row');
+
+async function openPendingEvaluation(page: Page, employeeName: string, bscTitle: string) {
+  await page.goto('/management/bsc-reviews');
+  await page.getByRole('tab', { name: 'Chờ duyệt đánh giá' }).click();
+  await page.getByLabel('Tìm kiếm').fill(employeeName);
+  await page.getByRole('row').filter({ hasText: employeeName }).getByRole('link', { name: bscTitle }).click();
+}
+
+async function selectOption(page: Page, label: string, optionName: string) {
+  await page.getByRole('combobox', { name: label }).click();
+  await page.getByRole('option', { name: optionName }).click();
+}
+
 test('luồng PLAN/EVALUATION thật giữ khóa trường, return/resubmit, refresh và chống double-click', async ({ browser }) => {
   test.setTimeout(120_000);
   const employeeSession = await login(browser, fixture.employee);
-  const bscId = await createBsc(employeeSession.page, fixture.cycleIds.flow);
-  const bscCode = (await employeeSession.page.getByRole('heading').first().textContent())!.trim();
+  const { bscId, cycleName } = await createBsc(employeeSession.page, fixture.cycleIds.flow);
+  const bscTitle = (await employeeSession.page.getByRole('heading').first().textContent())!.trim();
+  const employeeName = `${fixture.marker} Employee`;
   const managerSession = await login(browser, fixture.manager);
   await addKpi(managerSession.page, bscId, '100');
   await expect(managerSession.page.getByLabel(new RegExp(`Trọng số ${fixture.marker}_FLOW_KPI`))).toBeVisible();
 
   const employee = employeeSession.page;
   await employee.goto('/employee-bsc');
-  const detailLink = employee.getByRole('link', { name: bscCode });
+  const detailLink = employee.getByRole('row').filter({ hasText: cycleName }).getByRole('link', { name: 'Xem chi tiết' });
   await detailLink.focus();
   await employee.keyboard.press('Enter');
   await expect(employee).toHaveURL(new RegExp(`/employee-bsc/${bscId}$`));
-  await expect(employee.getByRole('button', { name: 'Gửi duyệt BSC' })).toBeEnabled();
+  await expect(employee.getByRole('button', { name: 'Gửi duyệt kế hoạch' })).toBeEnabled();
   let submitPlanPosts = 0;
   let failNextDetail = false;
   employee.on('request', (request) => {
@@ -70,11 +88,11 @@ test('luồng PLAN/EVALUATION thật giữ khóa trường, return/resubmit, ref
     else await route.continue();
   });
   employee.on('dialog', (dialog) => void dialog.accept());
-  const submitPlan = employee.getByRole('button', { name: 'Gửi duyệt BSC' });
+  const submitPlan = employee.getByRole('button', { name: 'Gửi duyệt kế hoạch' });
   await submitPlan.focus();
   await employee.keyboard.press('Enter');
   await expect(employee.getByRole('button', { name: 'Thử lại' })).toBeVisible();
-  await expect(employee.getByRole('button', { name: 'Gửi duyệt BSC' })).toHaveCount(0);
+  await expect(employee.getByRole('button', { name: 'Gửi duyệt kế hoạch' })).toHaveCount(0);
   expect(submitPlanPosts).toBe(1);
   await employee.getByRole('button', { name: 'Thử lại' }).click();
   await expect(employee.getByText('Đang chờ duyệt nội dung BSC.')).toBeVisible();
@@ -92,14 +110,14 @@ test('luồng PLAN/EVALUATION thật giữ khóa trường, return/resubmit, ref
   let approvePlanPosts = 0;
   manager.on('request', (request) => { if (request.method() === 'POST' && request.url().endsWith(`/employee-bsc/${bscId}/plan/approve`)) approvePlanPosts += 1; });
   manager.on('dialog', (dialog) => void dialog.accept());
-  await manager.getByRole('button', { name: 'Duyệt BSC' }).dblclick();
+  await manager.getByRole('button', { name: 'Duyệt kế hoạch' }).dblclick();
   await expect(manager.getByLabel('Trạng thái Đã duyệt').first()).toBeVisible();
   expect(approvePlanPosts).toBe(1);
   await manager.goto('/management/bsc-reviews');
-  await expect(manager.getByRole('link', { name: bscCode })).toHaveCount(0);
+  await expect(manager.getByRole('row').filter({ hasText: employeeName })).toHaveCount(0);
   await manager.goto(`/employee-bsc/${bscId}`);
   await manager.reload();
-  await expect(manager.getByRole('button', { name: 'Duyệt BSC' })).toHaveCount(0);
+  await expect(manager.getByRole('button', { name: 'Duyệt kế hoạch' })).toHaveCount(0);
 
   await employee.reload();
   await expect(employee.getByLabel(new RegExp(`Kết quả ${fixture.marker}_FLOW_KPI`))).toBeVisible();
@@ -124,10 +142,7 @@ test('luồng PLAN/EVALUATION thật giữ khóa trường, return/resubmit, ref
   await expect(employee.getByLabel(new RegExp(`Kết quả ${fixture.marker}_FLOW_KPI`))).toHaveCount(0);
   await expect(employee.getByLabel(new RegExp(`TM KQTH ${fixture.marker}_FLOW_KPI`))).toHaveCount(0);
 
-  await manager.goto('/management/bsc-reviews');
-  await manager.getByRole('tab', { name: 'Chờ duyệt kết quả' }).click();
-  await manager.getByLabel('Tìm kiếm').fill(bscCode);
-  await manager.getByRole('link', { name: bscCode }).click();
+  await openPendingEvaluation(manager, employeeName, bscTitle);
   await expect(manager.getByText('Kết quả lần một')).toBeVisible();
   await expect(manager.getByText('100.0000').first()).toBeVisible();
   await manager.getByRole('button', { name: 'Trả lại kết quả' }).click();
@@ -152,10 +167,7 @@ test('luồng PLAN/EVALUATION thật giữ khóa trường, return/resubmit, ref
   await expect(employee.getByText('Đang chờ duyệt kết quả.')).toBeVisible();
   expect(submitEvaluationPosts).toBe(2);
 
-  await manager.goto('/management/bsc-reviews');
-  await manager.getByRole('tab', { name: 'Chờ duyệt kết quả' }).click();
-  await manager.getByLabel('Tìm kiếm').fill(bscCode);
-  await manager.getByRole('link', { name: bscCode }).click();
+  await openPendingEvaluation(manager, employeeName, bscTitle);
   let approveEvaluationPosts = 0;
   manager.on('request', (request) => { if (request.method() === 'POST' && request.url().endsWith(`/employee-bsc/${bscId}/evaluation/approve`)) approveEvaluationPosts += 1; });
   await manager.getByRole('button', { name: 'Duyệt kết quả' }).dblclick();
@@ -175,11 +187,11 @@ test('luồng PLAN/EVALUATION thật giữ khóa trường, return/resubmit, ref
 
 test('không cho nộp PLAN khi tổng trọng số khác 100%', async ({ browser }) => {
   const employeeSession = await login(browser, fixture.employee);
-  const bscId = await createBsc(employeeSession.page, fixture.cycleIds.underweight);
+  const { bscId } = await createBsc(employeeSession.page, fixture.cycleIds.underweight);
   const managerSession = await login(browser, fixture.manager);
   await addKpi(managerSession.page, bscId, '80');
   await employeeSession.page.goto(`/employee-bsc/${bscId}`);
-  const submit = employeeSession.page.getByRole('button', { name: 'Gửi duyệt BSC' });
+  const submit = employeeSession.page.getByRole('button', { name: 'Gửi duyệt kế hoạch' });
   await expect(submit).toBeDisabled();
   await expect(submit).toHaveAttribute('title', /100%/);
   await expect(employeeSession.page.getByLabel('Trạng thái Nháp').first()).toBeVisible();
@@ -197,27 +209,31 @@ test('pending review tải summary-only và chỉ lazy-load detail/scoring của
     else if (/\/api\/employee-bsc\/[0-9a-f-]+$/.test(url.pathname)) calls.detail += 1;
   });
   await page.goto('/management/bsc-reviews');
-  await expect(page.getByText('Không có BSC chờ duyệt nội dung.')).toBeVisible();
+  await expect(page.getByText('Không có BSC chờ duyệt kế hoạch.')).toBeVisible();
   calls.pending = 0; calls.detail = 0; calls.scoring = 0;
-  await page.getByRole('tab', { name: 'Chờ duyệt kết quả' }).click();
-  await expect(page.getByRole('link', { name: new RegExp(`${fixture.marker}_PERF`) })).toHaveCount(10);
+  await page.getByRole('tab', { name: 'Chờ duyệt đánh giá' }).click();
+  await expect(pendingTableRows(page)).toHaveCount(10);
+  await expect(page.getByRole('link', { name: `BSC ${fixture.marker} Cycle 3` })).toBeVisible();
   expect(calls).toEqual({ pending: 1, detail: 0, scoring: 0 });
   await page.getByLabel('Tìm kiếm').fill(`${fixture.marker}_PERF9`);
-  await expect(page.getByRole('link', { name: new RegExp(`${fixture.marker}_PERF9`) })).toHaveCount(1);
+  await expect(pendingTableRows(page)).toHaveCount(1);
+  await expect(page.getByRole('link', { name: `BSC ${fixture.marker} Cycle 11` })).toBeVisible();
   expect({ detail: calls.detail, scoring: calls.scoring }).toEqual({ detail: 0, scoring: 0 });
   await page.getByLabel('Tìm kiếm').fill('');
-  await page.getByLabel('Kỳ BSC').selectOption({ label: `${fixture.marker} Cycle 3` });
-  await expect(page.getByRole('link', { name: new RegExp(`${fixture.marker}_PERF`) })).toHaveCount(1);
+  await selectOption(page, 'Kỳ BSC', `${fixture.marker} Cycle 3`);
+  await expect(pendingTableRows(page)).toHaveCount(1);
+  await expect(page.getByRole('link', { name: `BSC ${fixture.marker} Cycle 3` })).toBeVisible();
   expect({ detail: calls.detail, scoring: calls.scoring }).toEqual({ detail: 0, scoring: 0 });
-  await page.getByLabel('Kỳ BSC').selectOption('');
-  await page.getByLabel('Đơn vị').selectOption(fixture.mainDepartmentId);
+  await selectOption(page, 'Kỳ BSC', 'Tất cả kỳ');
+  await selectOption(page, 'Đơn vị', `${fixture.marker} Main`);
   await expect(page.getByText('Trang 1 / 3')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Trước' })).toBeDisabled();
   await page.getByRole('button', { name: 'Sau' }).click();
   await expect(page.getByText('Trang 2 / 3')).toBeVisible();
-  await expect(page.getByRole('link', { name: new RegExp(`${fixture.marker}_PERF`) })).toHaveCount(10);
+  await expect(pendingTableRows(page)).toHaveCount(10);
+  await expect(page.getByRole('link', { name: `BSC ${fixture.marker} Cycle 13` })).toBeVisible();
   expect({ detail: calls.detail, scoring: calls.scoring }).toEqual({ detail: 0, scoring: 0 });
-  await page.getByRole('link', { name: new RegExp(`${fixture.marker}_PERF`) }).first().click();
+  await pendingTableRows(page).first().getByRole('link').click();
   await expect(page).toHaveURL(/\/employee-bsc\/[0-9a-f-]+$/);
   await expect.poll(() => calls.detail).toBe(1);
   await expect.poll(() => calls.scoring).toBe(1);
@@ -227,7 +243,7 @@ test('pending review tải summary-only và chỉ lazy-load detail/scoring của
 test('quản lý ngoài phạm vi không thấy danh sách và không mở được detail', async ({ browser }) => {
   const session = await login(browser, fixture.outsideManager);
   await session.page.goto('/management/bsc-reviews');
-  await session.page.getByRole('tab', { name: 'Chờ duyệt kết quả' }).click();
+  await session.page.getByRole('tab', { name: 'Chờ duyệt đánh giá' }).click();
   await expect(session.page.getByText('Không có BSC chờ duyệt kết quả.')).toBeVisible();
   await session.page.goto(`/employee-bsc/${fixture.cycleIds.performance[0]}`);
   await expect(session.page.getByRole('alert')).toBeVisible();
@@ -238,10 +254,11 @@ test('quản lý ngoài phạm vi không thấy danh sách và không mở đư�
 test('DIRECTOR duyệt PLAN của MANAGER trực thuộc nhưng manager ngoài phạm vi không thể mở URL trực tiếp', async ({ browser }) => {
   const directorSession = await login(browser, fixture.director);
   await directorSession.page.goto('/management/bsc-reviews');
-  await expect(directorSession.page.getByRole('link', { name: new RegExp(`${fixture.marker}_MANAGER_PLAN`) })).toBeVisible();
+  await expect(directorSession.page.getByRole('row').filter({ hasText: `${fixture.marker} Manager` })).toBeVisible();
   await directorSession.page.goto(`/employee-bsc/${fixture.bscIds.managerApproval}`);
-  directorSession.page.on('dialog', (dialog) => void dialog.accept());
-  await directorSession.page.getByRole('button', { name: 'Duyệt BSC' }).click();
+  await directorSession.page.getByRole('button', { name: 'Duyệt kế hoạch' }).click();
+  await directorSession.page.getByRole('alertdialog', { name: 'Duyệt kế hoạch?' })
+    .getByRole('button', { name: 'Duyệt kế hoạch' }).click();
   await expect(directorSession.page.getByLabel('Trạng thái Đã duyệt').first()).toBeVisible();
   const apiLogin = await directorSession.page.request.post('/api/auth/login', {
     data: { username: fixture.director.username, password: fixture.password },
@@ -263,9 +280,9 @@ test('DIRECTOR duyệt PLAN của MANAGER trực thuộc nhưng manager ngoài p
 test('Manager A không thấy Employee B trong list hoặc pending và URL trực tiếp bị từ chối', async ({ browser }) => {
   const session = await login(browser, fixture.manager);
   await session.page.goto('/employee-bsc');
-  await expect(session.page.getByRole('link', { name: new RegExp(`${fixture.marker}_OUTSIDE_EMPLOYEE_PLAN`) })).toHaveCount(0);
+  await expect(session.page.locator(`a[href="/employee-bsc/${fixture.bscIds.outsideEmployee}"]`)).toHaveCount(0);
   await session.page.goto('/management/bsc-reviews');
-  await expect(session.page.getByRole('link', { name: new RegExp(`${fixture.marker}_OUTSIDE_EMPLOYEE_PLAN`) })).toHaveCount(0);
+  await expect(session.page.getByRole('row').filter({ hasText: `${fixture.marker} Outside Employee` })).toHaveCount(0);
   await session.page.goto(`/employee-bsc/${fixture.bscIds.outsideEmployee}`);
   await expect(session.page.getByRole('alert')).toBeVisible();
   await session.context.close();
@@ -279,11 +296,13 @@ test('chuyển tab nhanh không để response PLAN cũ ghi đè EVALUATION mớ
     await route.continue();
   });
   await session.page.goto('/management/bsc-reviews');
-  await session.page.getByRole('tab', { name: 'Chờ duyệt kết quả' }).click();
-  await expect(session.page.getByRole('link', { name: new RegExp(`${fixture.marker}_PERF`) })).toHaveCount(10);
+  await session.page.getByRole('tab', { name: 'Chờ duyệt đánh giá' }).click();
+  await expect(pendingTableRows(session.page)).toHaveCount(10);
+  await expect(session.page.getByRole('link', { name: `BSC ${fixture.marker} Cycle 3` })).toBeVisible();
   await session.page.waitForTimeout(700);
-  await expect(session.page.getByRole('tab', { name: 'Chờ duyệt kết quả' })).toHaveAttribute('aria-selected', 'true');
-  await expect(session.page.getByRole('link', { name: new RegExp(`${fixture.marker}_PERF`) })).toHaveCount(10);
+  await expect(session.page.getByRole('tab', { name: 'Chờ duyệt đánh giá' })).toHaveAttribute('aria-selected', 'true');
+  await expect(pendingTableRows(session.page)).toHaveCount(10);
+  await expect(session.page.getByRole('link', { name: `BSC ${fixture.marker} Cycle 3` })).toBeVisible();
   await session.context.close();
 });
 
@@ -381,10 +400,10 @@ test('mở lại PLAN reset evaluation, mở definition và yêu cầu duyệt k
   await employee.getByRole('button', { name: 'Lưu KPI' }).click();
   await expect(employee.getByLabel(new RegExp(`Kết quả ${fixture.marker}_REOPEN_PLAN_KPI`))).toHaveCount(0);
   employee.on('dialog', dialog => void dialog.accept());
-  await employee.getByRole('button', { name: 'Gửi duyệt BSC' }).click();
+  await employee.getByRole('button', { name: 'Gửi duyệt kế hoạch' }).click();
   await manager.goto(`/employee-bsc/${bscId}`);
   manager.once('dialog', dialog => void dialog.accept());
-  await manager.getByRole('button', { name: 'Duyệt BSC' }).click();
+  await manager.getByRole('button', { name: 'Duyệt kế hoạch' }).click();
   await employee.reload();
   await expect(employee.getByLabel('Trạng thái Nháp').first()).toBeVisible();
   await expect(employee.getByLabel(new RegExp(`Kết quả ${fixture.marker}_REOPEN_PLAN_KPI`))).toHaveValue('');

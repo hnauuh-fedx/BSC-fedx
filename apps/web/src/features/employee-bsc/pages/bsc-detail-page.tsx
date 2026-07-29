@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from '../../../components/ui/aler
 import { Button } from '../../../components/ui/button';
 import { Spinner } from '../../../components/ui/spinner';
 import { Textarea } from '../../../components/ui/textarea';
+import { personalBscTitle } from '../../../lib/bsc-display';
 import { bscStageLabel } from '../../../lib/bsc-stage';
 import { PermissionGate } from '../../auth/components/permission-gate';
 import { AccessibleDialog, EmptyState, ErrorState, FormField, LoadingState, PageHeader } from '../../organization/management-ui';
@@ -241,7 +242,7 @@ export const BscDetailPage: React.FC = () => {
 
   return <main aria-label="Chi tiết BSC">
     <PageHeader
-      title={bsc.bsc_code}
+      title={personalBscTitle(bsc.bsc_cycles.name)}
       description={`${bsc.users_employee_bsc_employee_idTousers.full_name} · ${bsc.bsc_cycles.name} · ${bsc.departments.name}`}
       action={<Button variant="outline" asChild><Link to="/employee-bsc">Quay lại danh sách</Link></Button>}
     >

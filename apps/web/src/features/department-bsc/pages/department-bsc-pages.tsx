@@ -11,6 +11,7 @@ import { Spinner } from '../../../components/ui/spinner';
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { Textarea } from '../../../components/ui/textarea';
 import { useSystemConfirm } from '../../../components/system-confirm-dialog';
+import { departmentBscTitle } from '../../../lib/bsc-display';
 import { bscStageLabel } from '../../../lib/bsc-stage';
 import { bscCyclesApi, BscCycle } from '../../bsc-cycles';
 import { useAuth } from '../../auth/hooks/use-auth';
@@ -172,7 +173,7 @@ export const DepartmentBscDetailPage: React.FC = () => {
   const reopenHistory = bsc.department_bsc_status_histories.filter((history) => history.action.includes('REOPEN'));
   const statusHistory = bsc.department_bsc_status_histories.filter((history) => !history.action.includes('REOPEN'));
   return <main aria-label="Chi tiết BSC phòng ban" className="flex flex-col gap-5">
-    <PageHeader title={bsc.bsc_code} description={`${bsc.departments.name} · ${bsc.bsc_cycles.name} · Trưởng phòng: ${bsc.responsible_manager.full_name}`} breadcrumb={<Link to="/department-bsc">BSC phòng ban</Link>}>
+    <PageHeader title={departmentBscTitle(bsc.departments.name, bsc.bsc_cycles.name)} description={`Trưởng phòng: ${bsc.responsible_manager.full_name}`} breadcrumb={<Link to="/department-bsc">BSC phòng ban</Link>}>
       <div className="mt-3 flex flex-wrap gap-3 text-sm"><span className="flex items-center gap-2"><span className="text-muted-foreground">Kế hoạch</span><Status value={bsc.plan_status}/></span><span className="flex items-center gap-2"><span className="text-muted-foreground">Đánh giá</span><Status value={bsc.evaluation_status}/></span></div>
     </PageHeader>
     {error && <ErrorState error={error}/>}<WorkflowActions bsc={bsc} permissions={permissions} busy={busy} isOwner={isOwner} returnReason={returnReason} setReturnReason={setReturnReason} run={run} navigate={navigate}/>

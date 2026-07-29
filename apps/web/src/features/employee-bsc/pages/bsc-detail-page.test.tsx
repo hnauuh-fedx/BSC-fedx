@@ -72,6 +72,21 @@ const deferred = <T,>() => {
 };
 
 describe('BscDetailPage background refresh', () => {
+  it('hiển thị tên hồ sơ tự nhiên thay cho mã BSC kỹ thuật', async () => {
+    render(
+      <MemoryRouter initialEntries={['/employee-bsc/bsc-1']}>
+        <Routes>
+          <Route path="/employee-bsc/:id" element={<BscDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'BSC Tháng 7/2026' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('BSC-TEST')).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useAuthContext).mockReturnValue({
@@ -157,7 +172,7 @@ describe('BscDetailPage background refresh', () => {
     );
 
     expect(await screen.findByRole('button', { name: 'Lưu KPI mô phỏng' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'BSC-TEST' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'BSC Tháng 7/2026' })).toBeVisible();
     expect(screen.queryByText('BSC / Chi tiết')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Quay lại danh sách' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Thông tin chung' })).not.toBeInTheDocument();

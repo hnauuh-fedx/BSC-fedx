@@ -10,6 +10,7 @@ import { Spinner } from '../../../components/ui/spinner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '../../../components/ui/tabs';
 import { Textarea } from '../../../components/ui/textarea';
+import { personalBscTitle } from '../../../lib/bsc-display';
 import { bscStageLabel } from '../../../lib/bsc-stage';
 import { PermissionGate } from '../../auth/components/permission-gate';
 import { AccessibleDialog, EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SearchInput } from '../../organization/management-ui';
@@ -193,7 +194,7 @@ export const BscPendingReviewPage: React.FC = () => {
           ? <EmptyState message={`Không có BSC chờ duyệt ${bscStageLabel(stage).toLowerCase()}.`}/>
           : !error && <>
           <div className="flex flex-col gap-3 md:hidden">{items.map(item => <Card key={item.id}>
-            <CardHeader><CardTitle><Link to={`/employee-bsc/${item.id}`}>{item.bsc_code}</Link></CardTitle><CardDescription>{item.users_employee_bsc_employee_idTousers.full_name} · {item.bsc_cycles.name}</CardDescription></CardHeader>
+            <CardHeader><CardTitle><Link to={`/employee-bsc/${item.id}`}>{personalBscTitle(item.bsc_cycles.name)}</Link></CardTitle><CardDescription>{item.users_employee_bsc_employee_idTousers.full_name}</CardDescription></CardHeader>
             <CardContent className="flex flex-col gap-3">
               <dl><dt>Đơn vị</dt><dd>{item.departments.name}</dd><dt>Ngày nộp</dt><dd>{formatDate(stage === 'PLAN' ? item.plan_submitted_at : item.evaluation_submitted_at)}</dd><dt>Trạng thái</dt><dd><BscStatusBadge status={stage === 'PLAN' ? item.plan_status : item.evaluation_status}/></dd></dl>
               <div className="flex flex-col gap-2">
@@ -210,14 +211,15 @@ export const BscPendingReviewPage: React.FC = () => {
             <CardContent>
               <Table>
                 <TableHeader><TableRow>
-                  <TableHead>Mã BSC</TableHead><TableHead>Nhân viên</TableHead><TableHead>Kỳ</TableHead>
+                  <TableHead>Hồ sơ BSC</TableHead>
                   <TableHead>Đơn vị</TableHead><TableHead>Ngày nộp</TableHead><TableHead>Trạng thái</TableHead>
                   <TableHead className="text-right">Thao tác</TableHead>
                 </TableRow></TableHeader>
                 <TableBody>{items.map(item => <TableRow key={item.id}>
-                  <TableCell><Link to={`/employee-bsc/${item.id}`}>{item.bsc_code}</Link></TableCell>
-                  <TableCell>{item.users_employee_bsc_employee_idTousers.full_name}</TableCell>
-                  <TableCell>{item.bsc_cycles.name}</TableCell>
+                  <TableCell>
+                    <Link to={`/employee-bsc/${item.id}`}>{personalBscTitle(item.bsc_cycles.name)}</Link>
+                    <div className="mt-1 text-muted-foreground">{item.users_employee_bsc_employee_idTousers.full_name}</div>
+                  </TableCell>
                   <TableCell>{item.departments.name}</TableCell>
                   <TableCell>{formatDate(stage === 'PLAN' ? item.plan_submitted_at : item.evaluation_submitted_at)}</TableCell>
                   <TableCell><BscStatusBadge status={stage === 'PLAN' ? item.plan_status : item.evaluation_status}/></TableCell>
@@ -241,7 +243,9 @@ export const BscPendingReviewPage: React.FC = () => {
       </>}
       <AccessibleDialog
         open={Boolean(approving)}
-        title={`Duyệt ${bscStageLabel(stage).toLowerCase()} ${approving?.bsc_code ?? ''}`}
+        title={approving
+          ? `Duyệt ${bscStageLabel(stage).toLowerCase()} ${personalBscTitle(approving.bsc_cycles.name)} của ${approving.users_employee_bsc_employee_idTousers.full_name}`
+          : `Duyệt ${bscStageLabel(stage).toLowerCase()}`}
         description={stage === 'PLAN' ? 'Sau khi duyệt, định nghĩa KPI sẽ bị khóa và chủ sở hữu có thể nhập kết quả.' : 'Sau khi duyệt, điểm và xếp loại trở thành chính thức; toàn bộ BSC sẽ bị khóa.'}
         onClose={() => setApproving(null)}
         busy={Boolean(actingId)}
@@ -255,7 +259,9 @@ export const BscPendingReviewPage: React.FC = () => {
       </AccessibleDialog>
       <AccessibleDialog
         open={Boolean(returning)}
-        title={`Trả lại ${bscStageLabel(stage).toLowerCase()} ${returning?.bsc_code ?? ''}`}
+        title={returning
+          ? `Trả lại ${bscStageLabel(stage).toLowerCase()} ${personalBscTitle(returning.bsc_cycles.name)} của ${returning.users_employee_bsc_employee_idTousers.full_name}`
+          : `Trả lại ${bscStageLabel(stage).toLowerCase()}`}
         description="BSC sẽ được mở đúng nhóm trường của giai đoạn này để chủ sở hữu chỉnh sửa và nộp lại."
         onClose={() => setReturning(null)}
         busy={Boolean(actingId)}
