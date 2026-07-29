@@ -1,5 +1,9 @@
 import ExcelJS from 'exceljs';
-import { BSC_GOAL_GROUPS } from '../employee-bsc/bsc-goal-groups';
+import {
+  BSC_COMMON_GOAL_GROUP_CODE,
+  BSC_GOAL_GROUPS,
+  BSC_PRIMARY_GOAL_GROUP_CODE,
+} from '../employee-bsc/bsc-goal-groups';
 
 export type BscWorkbookItem = {
   kpo: string | null; kpi: string; goalGroupCode: string; unit: string; target: string | number | null;
@@ -42,13 +46,17 @@ export async function buildBscDetailWorkbook(input: BscDetailWorkbookInput) {
   let rowNumber = 6;
   for (const group of BSC_GOAL_GROUPS) {
     const groupItems = input.items.filter(item => item.goalGroupCode === group.code).sort((a, b) => a.sortOrder - b.sortOrder);
-    const groupRow = sheet.getRow(rowNumber++); groupRow.values = [group.marker, group.name, '', '', '', groupItems.reduce((sum, item) => sum + item.weight, 0), '', '', '', '', '', ''];
+    const weightItems = group.code === BSC_PRIMARY_GOAL_GROUP_CODE
+      ? input.items.filter(item => item.goalGroupCode !== BSC_COMMON_GOAL_GROUP_CODE)
+      : groupItems;
+    const groupRow = sheet.getRow(rowNumber++); groupRow.values = [group.marker, group.name, '', '', '', weightItems.reduce((sum, item) => sum + item.weight, 0), '', '', '', '', '', ''];
     groupRow.height = 25; groupRow.eachCell(cell => { cell.font = { name: 'Arial', bold: true, size: 9 }; cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: group.marker === 'A' || group.marker === 'B' ? 'FFFFFF00' : 'FFF8CBAD' } }; cell.border = border; cell.alignment = { vertical: 'middle', wrapText: true }; });
     groupRow.getCell(6).numFmt = '0.##"%"'; groupRow.getCell(6).alignment = { horizontal: 'center', vertical: 'middle' };
     groupItems.forEach((item, index) => {
       const row = sheet.getRow(rowNumber++); row.values = [index + 1, item.kpo, item.kpi, item.unit, item.target, item.weight, item.frequency, item.actual, item.achievement, item.workScore, item.weightedScore, item.explanation];
       row.height = 45; row.eachCell((cell, column) => { cell.font = { name: 'Arial', size: 9 }; cell.border = border; cell.alignment = { horizontal: column === 2 || column === 3 || column === 12 ? 'left' : 'center', vertical: 'middle', wrapText: true }; });
-      for (const column of [6, 9, 10, 11]) row.getCell(column).numFmt = '0.##';
+      row.getCell(6).numFmt = '0.##"%"';
+      for (const column of [9, 10, 11]) row.getCell(column).numFmt = '0.##';
     });
   }
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import ExcelJS from 'exceljs';
+import { BSC_GOAL_GROUPS } from '../src/modules/employee-bsc/bsc-goal-groups';
 import { buildBscDetailWorkbook } from '../src/modules/reports/bsc-detail-workbook';
 
 test('single BSC workbook follows the approved layout and contains no logo', async () => {
@@ -36,4 +37,58 @@ test('incomplete BSC workbook leaves evaluation and evaluator unresolved', async
   assert.equal(sheet.getCell('A3').value, 'PHÒNG BAN: Marketing - KỲ: Tháng 7/2026');
   assert.equal(sheet.getCell('H11').value, 'Chưa đủ dữ liệu'); assert.equal(sheet.getCell('H12').value, 'Chưa áp dụng');
   assert.equal(sheet.getCell('A19').value, ''); assert.equal(sheet.getCell('G19').value, 'Trưởng phòng');
+});
+
+test('workbook aggregates section B weight and formats item weights as percentages', async () => {
+  const item = (goalGroupCode: string, weight: number, sortOrder: number) => ({
+    kpo: `KPO ${goalGroupCode} ${sortOrder}`, kpi: `KPI ${goalGroupCode} ${sortOrder}`, goalGroupCode, unit: '%', target: 100,
+    weight, frequency: 'Tháng', actual: 100, achievement: 100, workScore: 100, weightedScore: weight,
+    explanation: null, sortOrder,
+  });
+  const bytes = await buildBscDetailWorkbook({
+    sheetName: 'BSC cá nhân', subjectLabel: 'HỌ VÀ TÊN', subjectName: 'Nhân viên', departmentName: 'Marketing',
+    cycleName: 'Tháng 7/2026', cycleYear: 2026, evaluatorName: 'Giám đốc', implementerName: 'Nhân viên',
+    totalScore: 100, finalGrade: 'A', items: [
+      item('COMMON', 10, 1),
+      item('IMPORTANT_URGENT', 10, 2),
+      item('IMPORTANT_URGENT', 15, 3),
+      item('IMPORTANT_URGENT', 15, 4),
+      item('IMPORTANT_URGENT', 10, 5),
+      item('IMPORTANT_OR_URGENT', 5, 6),
+      item('IMPORTANT_OR_URGENT', 5, 7),
+      item('IMPORTANT_OR_URGENT', 10, 8),
+      item('ROUTINE', 5, 9),
+      item('ROUTINE', 5, 10),
+      item('ROUTINE', 5, 11),
+      item('ROUTINE', 5, 12),
+    ],
+  });
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(bytes);
+  const sheet = workbook.getWorksheet('BSC cá nhân');
+  assert.ok(sheet);
+
+  const expectedGroupWeights = new Map([
+    ['A', 10],
+    ['B', 90],
+    ['1', 50],
+    ['2', 20],
+    ['3', 20],
+  ]);
+  for (const group of BSC_GOAL_GROUPS) {
+    const groupRow = sheet.getRows(6, sheet.rowCount - 5)?.find(row => row.getCell(2).value === group.name);
+    assert.ok(groupRow);
+    assert.equal(groupRow.getCell(1).value, group.marker);
+    assert.equal(groupRow.getCell(6).value, expectedGroupWeights.get(group.marker));
+  }
+  sheet.eachRow(row => {
+    if (String(row.getCell(3).value ?? '').startsWith('KPI ')) {
+      assert.equal(row.getCell(6).numFmt, '0.##"%"');
+    }
+  });
+  assert.equal(
+    sheet.getColumn(3).values.filter(value => String(value ?? '').startsWith('KPI ')).length,
+    12,
+  );
 });
