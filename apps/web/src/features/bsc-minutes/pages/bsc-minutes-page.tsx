@@ -18,6 +18,10 @@ import { exportMinutesToPdf } from '../bsc-minutes-pdf';
 import { BscMinutesPrintDocument, type MinutesPrintCollectiveRow } from '../components/bsc-minutes-print-document';
 
 const MINUTES_PERMISSION = 'bsc.minutes.create';
+const DEFAULT_MEETING_LOCATION = 'B11.204';
+const DEFAULT_CHAIR_NAME = 'Hồ Minh Hải';
+const DEFAULT_SECRETARY_NAME = 'Lâm Sơn Điền';
+const DEFAULT_SECRETARY_OPTION_VALUE = '__default_minutes_secretary__';
 const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
 
 type MeetingForm = {
@@ -28,7 +32,7 @@ type MeetingForm = {
   endTime: string;
   location: string;
   chairName: string;
-  secretaryId: string;
+  secretaryValue: string;
   absentCount: string;
   subject: string;
   meetingContent: string;
@@ -44,9 +48,15 @@ type MinutesRow = ReportRow & {
 
 const initialForm = (): MeetingForm => ({
   number: '', issuePlace: 'Vĩnh Long', date: today(), startTime: '08:00', endTime: '10:00',
-  location: '', chairName: '', secretaryId: '', absentCount: '0', subject: '', meetingContent: '',
+  location: DEFAULT_MEETING_LOCATION, chairName: DEFAULT_CHAIR_NAME, secretaryValue: DEFAULT_SECRETARY_OPTION_VALUE,
+  absentCount: '0', subject: '', meetingContent: '',
   nextMonthAssignment: 'Kèm theo bảng BSC của cá nhân và đơn vị.', conclusion: '',
 });
+
+const normalizedName = (value: string) => value.trim().normalize('NFC').toLocaleLowerCase('vi-VN');
+const defaultSecretaryValue = (employees: ReportOptions['employees']) =>
+  employees.find((employee) => normalizedName(employee.full_name) === normalizedName(DEFAULT_SECRETARY_NAME))?.id
+  ?? DEFAULT_SECRETARY_OPTION_VALUE;
 
 const cycleDefaults = (cycle?: ReportOptions['cycles'][number]) => {
   if (!cycle) return { subject: '', meetingContent: '' };
@@ -112,8 +122,7 @@ export const BscMinutesPage: React.FC = () => {
       setForm((current) => ({
         ...current,
         ...cycleDefaults(selectedCycle),
-        chairName: user?.fullName ?? '',
-        secretaryId: result.employees[0]?.id ?? '',
+        secretaryValue: defaultSecretaryValue(result.employees),
       }));
     }).catch((cause) => {
       if (active) setError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu tạo biên bản.');
@@ -156,7 +165,11 @@ export const BscMinutesPage: React.FC = () => {
 
   const selectedCycle = options?.cycles.find((cycle) => cycle.id === cycleId);
   const eligibleSecretaries = options?.employees ?? [];
-  const secretaryName = eligibleSecretaries.find((employee) => employee.id === form.secretaryId)?.full_name ?? '';
+  const hasDefaultSecretary = eligibleSecretaries.some((employee) =>
+    normalizedName(employee.full_name) === normalizedName(DEFAULT_SECRETARY_NAME));
+  const secretaryName = form.secretaryValue === DEFAULT_SECRETARY_OPTION_VALUE
+    ? DEFAULT_SECRETARY_NAME
+    : eligibleSecretaries.find((employee) => employee.id === form.secretaryValue)?.full_name ?? '';
   const updateForm = (field: keyof MeetingForm) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setForm((current) => ({ ...current, [field]: event.target.value }));
   };
@@ -171,7 +184,7 @@ export const BscMinutesPage: React.FC = () => {
     setForm((current) => ({ ...current, ...cycleDefaults(cycle) }));
   };
   const reset = () => {
-    setForm({ ...initialForm(), ...cycleDefaults(selectedCycle), chairName: user?.fullName ?? '', secretaryId: eligibleSecretaries[0]?.id ?? '' });
+    setForm({ ...initialForm(), ...cycleDefaults(selectedCycle), secretaryValue: defaultSecretaryValue(eligibleSecretaries) });
     setRows((current) => toMinutesRows(current));
   };
   const savePdf = async () => {
@@ -227,7 +240,7 @@ export const BscMinutesPage: React.FC = () => {
                 <Field><FieldLabel htmlFor="minutes-end">Giờ kết thúc</FieldLabel><Input id="minutes-end" type="time" value={form.endTime} onChange={updateForm('endTime')} /></Field>
                 <Field className="lg:col-span-2"><FieldLabel htmlFor="minutes-location">Nơi họp</FieldLabel><Input id="minutes-location" value={form.location} onChange={updateForm('location')} placeholder="Nhập địa điểm họp" /></Field>
                 <Field><FieldLabel htmlFor="minutes-chair">Chủ trì</FieldLabel><Input id="minutes-chair" value={form.chairName} onChange={updateForm('chairName')} /></Field>
-                <Field><FieldLabel htmlFor="minutes-secretary">Thư ký</FieldLabel><Select value={form.secretaryId} onValueChange={(value) => setForm((current) => ({ ...current, secretaryId: value }))}><SelectTrigger id="minutes-secretary" className="w-full"><SelectValue placeholder="Chọn thư ký" /></SelectTrigger><SelectContent><SelectGroup>{eligibleSecretaries.map((employee) => <SelectItem key={employee.id} value={employee.id}>{employee.full_name}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
+                <Field><FieldLabel htmlFor="minutes-secretary">Thư ký</FieldLabel><Select value={form.secretaryValue} onValueChange={(value) => setForm((current) => ({ ...current, secretaryValue: value }))}><SelectTrigger id="minutes-secretary" className="w-full"><SelectValue placeholder="Chọn thư ký" /></SelectTrigger><SelectContent><SelectGroup>{!hasDefaultSecretary && <SelectItem value={DEFAULT_SECRETARY_OPTION_VALUE}>{DEFAULT_SECRETARY_NAME}</SelectItem>}{eligibleSecretaries.map((employee) => <SelectItem key={employee.id} value={employee.id}>{employee.full_name}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
                 <Field><FieldLabel htmlFor="minutes-absent-count">Số lượng vắng</FieldLabel><Input id="minutes-absent-count" type="number" min="0" value={form.absentCount} onChange={updateForm('absentCount')} /></Field>
                 <Field className="lg:col-span-3"><FieldLabel htmlFor="minutes-subject">Trích yếu biên bản</FieldLabel><Input id="minutes-subject" value={form.subject} onChange={updateForm('subject')} /></Field>
                 <Field className="lg:col-span-3"><FieldLabel htmlFor="minutes-content">Nội dung cuộc họp</FieldLabel><Textarea id="minutes-content" rows={3} value={form.meetingContent} onChange={updateForm('meetingContent')} /></Field>

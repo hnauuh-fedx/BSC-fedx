@@ -74,7 +74,9 @@ describe('BscMinutesPage', () => {
     render(<BscMinutesPage />);
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Biên bản họp đánh giá BSC' })).toBeVisible();
-    expect(screen.getByRole('textbox', { name: 'Chủ trì' })).toHaveValue('Giám đốc');
+    expect(screen.getByRole('textbox', { name: 'Nơi họp' })).toHaveValue('B11.204');
+    expect(screen.getByRole('textbox', { name: 'Chủ trì' })).toHaveValue('Hồ Minh Hải');
+    expect(screen.getByRole('combobox', { name: 'Thư ký' })).toHaveTextContent('Lâm Sơn Điền');
     expect((await screen.findAllByRole('cell', { name: 'Nguyễn Văn A' }))[0]).toBeVisible();
     expect((await screen.findAllByRole('cell', { name: 'Trần Thị B' }))[0]).toBeVisible();
     expect(screen.queryByRole('combobox', { name: 'Phòng ban' })).not.toBeInTheDocument();
@@ -95,6 +97,27 @@ describe('BscMinutesPage', () => {
     });
   });
 
+  it('restores the meeting defaults when resetting the form', async () => {
+    const user = userEvent.setup();
+    render(<BscMinutesPage />);
+
+    const location = await screen.findByRole('textbox', { name: 'Nơi họp' });
+    const chair = screen.getByRole('textbox', { name: 'Chủ trì' });
+    const secretary = screen.getByRole('combobox', { name: 'Thư ký' });
+    await user.clear(location);
+    await user.type(location, 'Phòng khác');
+    await user.clear(chair);
+    await user.type(chair, 'Chủ trì khác');
+    await user.click(secretary);
+    await user.click(screen.getByRole('option', { name: 'Nguyễn Văn A' }));
+
+    await user.click(screen.getByRole('button', { name: 'Làm lại' }));
+
+    expect(location).toHaveValue('B11.204');
+    expect(chair).toHaveValue('Hồ Minh Hải');
+    expect(secretary).toHaveTextContent('Lâm Sơn Điền');
+  });
+
   it('prints the completed minutes from the shared template', async () => {
     const user = userEvent.setup();
     const print = vi.spyOn(window, 'print').mockImplementation(() => undefined);
@@ -102,7 +125,6 @@ describe('BscMinutesPage', () => {
 
     await screen.findAllByRole('cell', { name: 'Nguyễn Văn A' });
     await user.type(screen.getByRole('spinbutton', { name: 'Số biên bản' }), '63');
-    await user.type(screen.getByRole('textbox', { name: 'Nơi họp' }), 'B11.204');
     await user.type(screen.getByRole('textbox', { name: 'Giao chỉ tiêu tháng tới' }), 'Kèm theo bảng BSC của cá nhân và đơn vị.');
     await user.type(screen.getByRole('textbox', { name: 'Kết luận' }), 'Nội dung Biên bản đã được thông qua.');
 
