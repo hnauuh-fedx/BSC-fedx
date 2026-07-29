@@ -31,7 +31,6 @@ import { workflowStatusLabel } from '../report-status';
 const ALL = 'ALL';
 const STATUSES = ['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REOPENED'];
 const EVALUATION_STATUSES = ['NOT_STARTED', ...STATUSES];
-const GRADES = ['C', 'B', 'A', 'A+', 'A++'];
 
 export const FilterSelect: React.FC<{
   id: string;
@@ -164,7 +163,7 @@ export const BscReportFilters: React.FC<{
             ]}/>
             <FilterSelect id="report-grade" label="Xếp loại" value={values.finalGrade} onChange={value => onChange('finalGrade', value)} options={[
               { value: ALL, label: 'Tất cả' },
-              ...GRADES.map(item => ({ value: item, label: item })),
+              ...(options?.grades ?? []).map(item => ({ value: item.value, label: item.label })),
             ]}/>
             <FilterSelect id="report-sort" label="Sắp xếp" value={values.sortBy} onChange={value => onChange('sortBy', value)} options={[
               { value: 'created_at', label: 'Ngày tạo' },

@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuth } from '../../auth/hooks/use-auth';
 import { reportsApi } from '../reports-api';
+import { REPORT_GRADE_OPTIONS } from '../report-test-fixtures';
 import { ReportOptions } from '../reports.types';
 import { BscReportPage } from './bsc-report-page';
 
@@ -48,7 +49,7 @@ const summary = {
   pendingPlanReviews: 0,
   pendingEvaluationReviews: 0,
   pendingReopenRequests: 0,
-  gradeDistribution: { C: 0, B: 0, A: 1, 'A+': 0, 'A++': 0 },
+  gradeDistribution: { D: 0, C: 0, B: 0, A: 1, 'A+': 0 },
   approvedAverageScore: '94',
   departmentProgress: [
     { departmentId: 'department-1', departmentName: 'Marketing', totalBsc: 1, approvedBsc: 1, completionPercentage: 100 },
@@ -66,6 +67,7 @@ const personalOptions: ReportOptions = {
     canExportManagement: false,
     defaultScope: 'PERSONAL',
   },
+  grades: REPORT_GRADE_OPTIONS,
   cycles: [{ id: 'cycle-1', code: 'T7', name: 'Tháng 7', year: 2026, month: 7, status: 'OPEN' }],
   departments: [{ id: 'department-1', name: 'Marketing' }],
   employees: [{ id: 'employee-1', employee_code: 'NV001', full_name: 'Nguyễn Văn A', department_id: 'department-1' }],
@@ -208,6 +210,9 @@ describe('BscReportPage desktop report', () => {
     expect(screen.queryByLabelText('Trạng thái kế hoạch')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Bộ lọc nâng cao' }));
     expect(screen.getByLabelText('Trạng thái kế hoạch')).toBeVisible();
+    await user.click(screen.getByLabelText('Xếp loại'));
+    expect(await screen.findByRole('option', { name: 'D' })).toBeVisible();
+    expect(screen.getByRole('option', { name: 'A++ (dữ liệu cũ)' })).toBeVisible();
   });
 
   it('retries scope-specific filter options after a request failure', async () => {

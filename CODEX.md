@@ -160,20 +160,20 @@ Không được tính điểm công việc từ tỷ lệ hoàn thành đã làm
 
 Xếp loại dựa trên tổng điểm trọng số:
 
-- C: dưới 80%
+- D: dưới 70%
+- C: từ 70% đến dưới 80%
 - B: từ 80% đến dưới 90%
 - A: từ 90% đến 100%
-- A+: trên 100% đến 110%
-- A++: từ 111% trở lên
+- A+: trên 100%
 
 Phải làm rõ tại code boundary:
 
+- 70% thuộc C.
 - 80% thuộc B.
 - 90% thuộc A.
 - 100% thuộc A.
 - Trên 100% mới thuộc A+.
-- 110% thuộc A+.
-- 111% trở lên thuộc A++.
+- 111% và mọi điểm cao hơn vẫn thuộc A+.
 
 Không được để frontend tự tính xếp loại làm nguồn dữ liệu chính.
 
@@ -188,14 +188,17 @@ Frontend chỉ hiển thị kết quả từ backend.
 
 Phải có test cho các mốc biên:
 
+- 69.99%
+- 70%
 - 79.99%
 - 80%
 - 89.99%
 - 90%
 - 100%
 - 100.01%
-- 110%
 - 111%
+
+Khi triển khai thang điểm mới, BSC đã duyệt và snapshot lịch sử giữ nguyên xếp loại đã lưu. `A++` cũ vẫn phải xem, lọc và xuất được nhưng không được dùng cho đánh giá mới. BSC được tính hoặc duyệt lại sau triển khai sử dụng thang điểm mới.
 
 ## 2.6. Tính toàn vẹn dữ liệu
 

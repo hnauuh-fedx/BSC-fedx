@@ -17,13 +17,15 @@ Status: **PENDING BUSINESS SIGN-OFF**. This document records current code; it do
 
 | Final score | Grade |
 |---:|:---|
-| `< 80` | C |
+| `< 70` | D |
+| `70 ≤ score < 80` | C |
 | `80 ≤ score < 90` | B |
 | `90 ≤ score ≤ 100` | A |
-| `100 < score < 111` | A+ |
-| `score ≥ 111` | A++ |
+| `score > 100` | A+ |
 
-Boundary evidence must include: `79.99, 80, 89.99, 90, 100, 100.01, 110.99, 111`; zero divisors; values over 100%; incomplete weight; all three calculation methods; adjustment limits if/when adjustment is enabled.
+Boundary evidence must include: `69.99, 70, 79.99, 80, 89.99, 90, 100, 100.01, 111`; zero divisors; values over 100%; incomplete weight; all three calculation methods; adjustment limits if/when adjustment is enabled.
+
+Transition policy: records approved before deployment keep their persisted grade and snapshots. Legacy `A++` remains reportable but cannot be assigned to a new evaluation. Any preview or approval calculated after deployment uses the new scale, including a reopened BSC.
 
 ## Mandatory business examples
 

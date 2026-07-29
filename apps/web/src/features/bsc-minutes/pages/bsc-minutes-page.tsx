@@ -18,7 +18,6 @@ import { exportMinutesToPdf } from '../bsc-minutes-pdf';
 import { BscMinutesPrintDocument, type MinutesPrintCollectiveRow } from '../components/bsc-minutes-print-document';
 
 const MINUTES_PERMISSION = 'bsc.minutes.create';
-const GRADES = ['C', 'B', 'A', 'A+', 'A++'] as const;
 const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
 
 type MeetingForm = {
@@ -251,7 +250,7 @@ export const BscMinutesPage: React.FC = () => {
                   <TableCell>{row.officialScore ?? '—'}</TableCell>
                   <TableCell>{row.officialGrade ?? '—'}</TableCell>
                   <TableCell><Input type="number" step="0.01" min="0" aria-label={`Điểm đơn vị đánh giá ${row.employeeName}`} value={row.unitScore} onChange={(event) => updateRow(row.id, { unitScore: event.target.value })} /></TableCell>
-                  <TableCell><Select value={row.unitGrade} onValueChange={(value) => updateRow(row.id, { unitGrade: value })}><SelectTrigger className="w-full" aria-label={`Xếp loại đơn vị đánh giá ${row.employeeName}`}><SelectValue placeholder="Chọn loại" /></SelectTrigger><SelectContent><SelectGroup>{GRADES.map((grade) => <SelectItem key={grade} value={grade}>{grade}</SelectItem>)}</SelectGroup></SelectContent></Select></TableCell>
+                  <TableCell><Select value={row.unitGrade} onValueChange={(value) => updateRow(row.id, { unitGrade: value })}><SelectTrigger className="w-full" aria-label={`Xếp loại đơn vị đánh giá ${row.employeeName}`}><SelectValue placeholder="Chọn loại" /></SelectTrigger><SelectContent><SelectGroup>{(options?.grades ?? []).filter((grade) => grade.assignable).map((grade) => <SelectItem key={grade.value} value={grade.value}>{grade.label}</SelectItem>)}</SelectGroup></SelectContent></Select></TableCell>
                   <TableCell><Textarea rows={2} aria-label={`Thuyết minh ${row.employeeName}`} value={row.explanation} onChange={(event) => updateRow(row.id, { explanation: event.target.value })} placeholder="Nhập thuyết minh" /></TableCell>
                 </TableRow>)}</TableBody>
                 <TableFooter>{collectiveRows.length > 0 ? collectiveRows.map((row) => <TableRow key={row.id}>

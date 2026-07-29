@@ -111,7 +111,7 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
       return bsc;
     };
     const approved = await makeBsc('APPROVED', employee, manager, { plan: 'APPROVED', evaluation: 'APPROVED', score: 100, grade: 'A' });
-    await makeBsc('DRAFT_PREVIEW', employee2, manager, { plan: 'APPROVED', evaluation: 'DRAFT', score: 130, grade: 'A++' });
+    await makeBsc('DRAFT_PREVIEW', employee2, manager, { plan: 'APPROVED', evaluation: 'DRAFT', score: 130, grade: 'A+' });
     await makeBsc('OUTSIDE', outsideEmployee, outsideManager, { plan: 'APPROVED', evaluation: 'APPROVED', score: 111, grade: 'A++' });
     await makeBsc('CROSS_DEPARTMENT', crossDepartmentEmployee, manager, { plan: 'APPROVED', evaluation: 'APPROVED', score: 90, grade: 'A', cycleId: otherCycle.id });
     await makeBsc('PERSONAL_TREND', employee, manager, { plan: 'APPROVED', evaluation: 'APPROVED', score: 90, grade: 'A', cycleId: otherCycle.id });
@@ -163,6 +163,14 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
       await request(server).get('/bsc-reports?viewScope=MANAGEMENT').set(auth(tokens.employee)).expect(403);
 
       const managerOptions = await request(server).get('/bsc-reports/options?viewScope=MANAGEMENT').set(auth(tokens.manager)).expect(200);
+      assert.deepEqual(managerOptions.body.grades, [
+        { value: 'D', label: 'D', assignable: true },
+        { value: 'C', label: 'C', assignable: true },
+        { value: 'B', label: 'B', assignable: true },
+        { value: 'A', label: 'A', assignable: true },
+        { value: 'A+', label: 'A+', assignable: true },
+        { value: 'A++', label: 'A++ (dữ liệu cũ)', assignable: false },
+      ]);
       assert.deepEqual(managerOptions.body.capabilities, {
         canViewPersonal: true,
         canViewManagement: true,
@@ -184,13 +192,17 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
       assert.equal(unrelated.body.code, 'AUTH_SCOPE_DENIED');
       const outsideView = await request(server).get('/bsc-reports').set(auth(tokens.outsideManager)).expect(200);
       assert.deepEqual(outsideView.body.items.map((row: { employeeId: string }) => row.employeeId).sort(), [outsideEmployee.id, crossDepartmentEmployee.id].sort());
+      const legacyView = await request(server).get(`/bsc-reports?cycleId=${cycle.id}&finalGrade=A%2B%2B`).set(auth(tokens.outsideManager)).expect(200);
+      assert.equal(legacyView.body.total, 1);
+      assert.equal(legacyView.body.items[0].officialGrade, 'A++');
+      assert.equal(legacyView.body.items[0].employeeId, outsideEmployee.id);
     });
 
     await t.test('summary uses only persisted approved final score and grade', async () => {
       const summary = await request(server).get(`/bsc-reports/summary?cycleId=${cycle.id}`).set(auth(tokens.manager)).expect(200);
       assert.equal(summary.body.totalBsc, 4);
       assert.equal(summary.body.approvedAverageScore, '100');
-      assert.deepEqual(summary.body.gradeDistribution, { C: 0, B: 0, A: 1, 'A+': 0, 'A++': 0 });
+      assert.deepEqual(summary.body.gradeDistribution, { D: 0, C: 0, B: 0, A: 1, 'A+': 0 });
       assert.equal(summary.body.evaluationStatusCounts.DRAFT, 1);
       assert.equal(summary.body.evaluationStatusCounts.APPROVED, 1);
       assert.equal(summary.body.pendingPlanReviews, 1);
@@ -201,6 +213,14 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
 
       const personalSummary = await request(server).get(`/bsc-reports/summary?viewScope=PERSONAL&cycleId=${cycle.id}`).set(auth(tokens.employee)).expect(200);
       assert.deepEqual(personalSummary.body.scoreTrend.map((point: { approvedAverageScore: string }) => point.approvedAverageScore), ['100', '90']);
+      const legacySummary = await request(server).get(`/bsc-reports/summary?cycleId=${cycle.id}`).set(auth(tokens.outsideManager)).expect(200);
+      assert.equal(legacySummary.body.gradeDistribution['A++'], 1);
+      const legacyDashboard = await request(server).get(`/bsc-reports/dashboard?cycleId=${cycle.id}`).set(auth(tokens.outsideManager)).expect(200);
+      assert.deepEqual(legacyDashboard.body.grades.at(-1), {
+        value: 'A++',
+        label: 'A++ (dữ liệu cũ)',
+        assignable: false,
+      });
     });
 
     await t.test('export applies the same scope/filter and writes a safe audit record', async () => {
@@ -224,6 +244,19 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
       assert.equal((audit.new_data as { rowCount: number }).rowCount, 1);
       assert.doesNotMatch(JSON.stringify(audit.new_data), /password|token|snapshot|ip|user.?agent/i);
       await request(server).get(`/bsc-reports/export?departmentId=${unrelatedDepartment.id}`).set(auth(tokens.manager)).expect(403);
+
+      const legacyResponse = await request(server).get(`/bsc-reports/export?cycleId=${cycle.id}&finalGrade=A%2B%2B`).set(auth(tokens.outsideManager)).buffer(true).parse((res, callback) => {
+        const chunks: Buffer[] = [];
+        res.on('data', chunk => chunks.push(Buffer.from(chunk)));
+        res.on('end', () => callback(null, Buffer.concat(chunks)));
+      }).expect(200);
+      const legacyWorkbook = new ExcelJS.Workbook();
+      await legacyWorkbook.xlsx.load(legacyResponse.body);
+      const legacySheet = legacyWorkbook.getWorksheet('BSC Report');
+      assert.ok(legacySheet);
+      assert.equal(legacySheet.rowCount, 6);
+      assert.equal(legacySheet.getRow(6).getCell(1).value, outsideEmployee.employee_code);
+      assert.equal(legacySheet.getRow(6).getCell(12).value, 'A++');
     });
 
     await t.test('single employee export uses the detailed BSC layout without a logo', async () => {

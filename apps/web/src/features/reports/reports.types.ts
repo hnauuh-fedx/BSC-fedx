@@ -14,6 +14,7 @@ export type ReportOptions = {
     canExportManagement: boolean;
     defaultScope: 'PERSONAL' | 'MANAGEMENT';
   };
+  grades: Array<{ value: string; label: string; assignable: boolean }>;
   cycles: Array<{ id: string; code: string; name: string; year: number; month: number | null; status: string }>;
   departments: Array<{ id: string; name: string }>;
   employees: Array<{ id: string; employee_code: string; full_name: string; department_id: string }>;
@@ -26,5 +27,10 @@ export type ReportSummary = {
   scoreTrend: Array<{ cycleId: string; cycleName: string; year: number; month: number | null; approvedAverageScore: string | null; approvedCount: number }>;
 };
 export type EmployeeDashboard = { kind: 'EMPLOYEE'; currentCycle: ReportOptions['cycles'][number] | null; currentBsc: ReportRow | null; actions: Array<{ code: string; label: string; href: string }>; recentBsc: ReportRow[] };
-export type ManagementDashboard = ReportSummary & { kind: 'MANAGEMENT'; currentCycle: ReportOptions['cycles'][number] | null; notCreated: number };
+export type ManagementDashboard = ReportSummary & {
+  kind: 'MANAGEMENT';
+  currentCycle: ReportOptions['cycles'][number] | null;
+  notCreated: number;
+  grades: ReportOptions['grades'];
+};
 export type DashboardData = EmployeeDashboard | ManagementDashboard;

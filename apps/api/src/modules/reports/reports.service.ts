@@ -4,12 +4,18 @@ import ExcelJS from 'exceljs';
 import { AuthUser } from '../../common/types/auth-user.type';
 import { PrismaService } from '../../database/prisma.service';
 import { AuditRequestMetadata } from '../employee-bsc/employee-bsc.types';
+import { BSC_CLASSIFICATIONS } from '../employee-bsc/services/bsc-classification.service';
 import { BscScoringService } from '../employee-bsc/services/bsc-scoring.service';
-import { BSC_REPORT_EXPORT_LIMIT, BSC_REPORT_PERMISSIONS, BSC_REPORT_VIEW_PERMISSIONS } from './reports.constants';
+import {
+  BSC_REPORT_EXPORT_LIMIT,
+  BSC_REPORT_GRADE_OPTIONS,
+  BSC_REPORT_PERMISSIONS,
+  BSC_REPORT_VIEW_PERMISSIONS,
+  LEGACY_BSC_REPORT_GRADE,
+} from './reports.constants';
 import { BscDashboardQueryDto, BscReportFilterDto, BscReportQueryDto } from './reports.dto';
 import { buildBscDetailWorkbook } from './bsc-detail-workbook';
 
-const GRADES = ['C', 'B', 'A', 'A+', 'A++'] as const;
 const PLAN_STATUSES = ['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REOPENED'] as const;
 const EVALUATION_STATUSES = ['NOT_STARTED', 'DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REOPENED'] as const;
 const WORKFLOW_STATUS_LABELS: Record<string, string> = {
@@ -68,6 +74,9 @@ export class BscReportsService {
       this.departmentProgress(where),
       this.scoreTrend(trendWhere),
     ]);
+    const gradeDistribution = this.countMap(BSC_CLASSIFICATIONS, gradeGroups.map(row => [row.final_grade ?? '', row._count._all]));
+    const legacyGradeCount = gradeGroups.find(row => row.final_grade === LEGACY_BSC_REPORT_GRADE)?._count._all ?? 0;
+    if (legacyGradeCount > 0) gradeDistribution[LEGACY_BSC_REPORT_GRADE] = legacyGradeCount;
     return {
       totalBsc,
       planStatusCounts: this.countMap(PLAN_STATUSES, planGroups.map(row => [row.plan_status, row._count._all])),
@@ -75,7 +84,7 @@ export class BscReportsService {
       pendingPlanReviews,
       pendingEvaluationReviews,
       pendingReopenRequests,
-      gradeDistribution: this.countMap(GRADES, gradeGroups.map(row => [row.final_grade ?? '', row._count._all])),
+      gradeDistribution,
       approvedAverageScore: average._avg.final_score?.toString() ?? null,
       departmentProgress,
       scoreTrend,
@@ -107,7 +116,13 @@ export class BscReportsService {
     if (!access.management) throw new ForbiddenException({ code: 'AUTH_PERMISSION_DENIED', message: 'Bạn không có quyền xem dashboard BSC.' });
     const filter = Object.assign(new BscReportFilterDto(), cycle ? { cycleId: cycle.id } : {});
     const summary = await this.summaryWithAccess(actor, filter, access);
-    return { kind: 'MANAGEMENT', currentCycle: cycle, notCreated: cycle ? await this.notCreated(actor, cycle.id, access) : 0, ...summary };
+    return {
+      kind: 'MANAGEMENT',
+      currentCycle: cycle,
+      notCreated: cycle ? await this.notCreated(actor, cycle.id, access) : 0,
+      grades: BSC_REPORT_GRADE_OPTIONS,
+      ...summary,
+    };
   }
 
   async options(actor: AuthUser, query: BscReportFilterDto = new BscReportFilterDto()) {
@@ -139,6 +154,7 @@ export class BscReportsService {
         canExportManagement,
         defaultScope: access.management ? 'MANAGEMENT' : 'PERSONAL',
       },
+      grades: BSC_REPORT_GRADE_OPTIONS,
       cycles,
       departments,
       employees,

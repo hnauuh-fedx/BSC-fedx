@@ -31,6 +31,7 @@
     "test:integration:bsc-cycles": "node ./test/run-bsc-cycles-integration.js",
     "test:integration:department-bsc": "node ./test/run-department-bsc-integration.js",
     "report:bsc-scoring-alignment": "dotenv -e ../../.env -- ts-node scripts/report-bsc-scoring-alignment.ts",
+    "report:bsc-grade-scale-impact": "dotenv -e ../../.env -- ts-node scripts/report-bsc-grade-scale-impact.ts",
     "report:bsc-version-backfill": "dotenv -e ../../.env.test.local -e ../../.env -- ts-node scripts/report-bsc-version-backfill.ts"
     ,"report:bsc-workflow-backfill-issues": "dotenv -e ../../.env.test.local -e ../../.env -- ts-node scripts/report-bsc-workflow-backfill-issues.ts"
     ,"cleanup:legacy-admin-position": "dotenv -e ../../.env -- ts-node scripts/cleanup-legacy-admin-position.ts"

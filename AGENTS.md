@@ -820,15 +820,18 @@ Thang xếp loại chính thức:
 | Điểm cuối cùng | Xếp loại |
 
 |---:|---|
-| Dưới 80% | C |
+| Dưới 70% | D |
+| Từ 70% đến dưới 80% | C |
 | Từ 80% đến dưới 90% | B |
 | Từ 90% đến 100% | A |
-| Trên 100% đến dưới 111% | A+ |
-| Từ 111% trở lên | A++ |
+| Trên 100% | A+ |
 
 Quy tắc code:
 
-score < 80
+score < 70
+→ D
+
+70 <= score < 80
 → C
 
 80 <= score < 90
@@ -837,17 +840,21 @@ score < 80
 90 <= score <= 100
 → A
 
-100 < score < 111
+score > 100
 → A+
 
-score >= 111
-→ A++
+Mọi điểm lớn hơn 100 được xếp loại A+, không có giới hạn trên riêng cho xếp loại này.
 
-Dùng khoảng `100 < score < 111` cho A+ để không bị bỏ trống các điểm như:
+- 100.01%
+- 111%
+- 150%
 
-- 110.1%
-- 110.5%
-- 110.99%
+Chính sách chuyển tiếp khi đổi sang thang điểm này:
+
+- Mọi lần xem trước, nộp hoặc duyệt đánh giá được tính sau khi phiên bản mới được triển khai sử dụng thang điểm mới.
+- `final_grade` và snapshot của BSC đã duyệt trước đó không bị tự động ghi lại.
+- Xếp loại `A++` cũ chỉ được phép xuất hiện khi xem, lọc hoặc xuất dữ liệu lịch sử; không được dùng cho đánh giá mới.
+- BSC được mở lại và duyệt lại sau khi triển khai sẽ nhận xếp loại theo thang điểm mới.
 
 ---
 
@@ -1262,8 +1269,8 @@ Việc ẩn nút ở frontend không thay thế kiểm tra quyền ở backend.
 - Xử lý điểm vượt 100%.
 - Xử lý điểm phát sinh từ -10% đến +10%.
 - Từ chối điểm phát sinh ngoài giới hạn.
-- Xếp loại C, B, A, A+, A++ đúng ranh giới.
-- Kiểm tra các điểm 79.99, 80, 89.99, 90, 100, 100.01, 110.99 và 111.
+- Xếp loại D, C, B, A, A+ đúng ranh giới.
+- Kiểm tra các điểm 69.99, 70, 79.99, 80, 89.99, 90, 100, 100.01 và 111.
 
 ## Bảo mật
 

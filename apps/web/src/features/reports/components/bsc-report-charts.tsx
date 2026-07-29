@@ -31,7 +31,6 @@ import { formatReportScore, reportScoreNumber } from '../report-format';
 import { ReportSummary } from '../reports.types';
 import { workflowStatusLabel } from '../report-status';
 
-const GRADES = ['C', 'B', 'A', 'A+', 'A++'] as const;
 const WORKFLOW_STATUSES = ['NOT_STARTED', 'DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REOPENED'] as const;
 
 const scoreConfig = {
@@ -97,7 +96,7 @@ const ScoreTrendChart: React.FC<{ summary: ReportSummary }> = ({ summary }) => {
 };
 
 const GradeDistributionChart: React.FC<{ summary: ReportSummary }> = ({ summary }) => {
-  const data = GRADES.map(grade => ({ grade, count: summary.gradeDistribution[grade] ?? 0 }));
+  const data = Object.entries(summary.gradeDistribution).map(([grade, count]) => ({ grade, count }));
   const hasData = data.some(item => item.count > 0);
 
   return (

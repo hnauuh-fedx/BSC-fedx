@@ -217,9 +217,10 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       await expectHttp(request(server).delete(`/employee-bsc/${record.id}/versions/${list.body[0].id}`).set(auth(tokens.employee)), 404);
     });
 
-    await t.test('EVALUATION reopen preserves approved snapshot, opens only results and re-approves', async () => {
+    await t.test('EVALUATION reopen preserves approved snapshot and re-approves a legacy grade with the current scale', async () => {
       const record = await createBsc('EVAL_REOPEN', employee, await cycle(2));
       await approvePlan(record); await approveEvaluation(record);
+      await prisma.employee_bsc.update({ where: { id: record.id }, data: { final_grade: 'A++' } });
       const createdRequest = await expectHttp(request(server).post(`/employee-bsc/${record.id}/reopen-requests`).set(auth(tokens.employee))
         .send({ stage: 'EVALUATION', reason: ' <b>Sửa kết quả</b> ' }), 201);
       assert.equal(createdRequest.body.request_reason, 'Sửa kết quả');
@@ -231,12 +232,12 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       assert.equal(active.plan_status, 'APPROVED'); assert.equal(active.evaluation_status, 'REOPENED');
       assert.equal(active.final_score, null); assert.equal(Number(active.employee_bsc_items[0].actual_value), 90);
       await expectHttp(request(server).patch(`/employee-bsc/${record.id}/items/${record.item.id}`).set(auth(tokens.employee)).send({ targetValue: 120 }), 403);
-      await expectHttp(request(server).patch(`/employee-bsc/${record.id}/items/${record.item.id}/actual`).set(auth(tokens.employee)).send({ actualValue: 100, employeeNote: 'Số mới' }), 200);
+      await expectHttp(request(server).patch(`/employee-bsc/${record.id}/items/${record.item.id}/actual`).set(auth(tokens.employee)).send({ actualValue: 111, employeeNote: 'Số mới' }), 200);
       await approveEvaluation(record);
       const versions = await prisma.bsc_versions.findMany({ where: { employee_bsc_id: record.id }, orderBy: { version_number: 'asc' } });
       assert.deepEqual(versions.map(row => row.version_type), ['PLAN_APPROVED', 'EVALUATION_APPROVED', 'BEFORE_EVALUATION_REOPEN', 'EVALUATION_APPROVED']);
       const current = await prisma.employee_bsc.findUniqueOrThrow({ where: { id: record.id } });
-      assert.equal(Number(current.final_score), 100); assert.equal(current.final_grade, 'A');
+      assert.equal(Number(current.final_score), 110); assert.equal(current.final_grade, 'A+');
     });
 
     await t.test('PLAN reopen resets active evaluation, owner edits definition and plan is approved again', async () => {

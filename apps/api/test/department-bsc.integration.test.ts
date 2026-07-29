@@ -257,6 +257,32 @@ test('department BSC is owned by the assigned department manager and reviewed by
       assert.equal(detail.body.department_bsc_items[0].achievement_percent, 0);
       assert.equal(detail.body.department_bsc_items[0].weighted_score, 0);
     });
+
+    await t.test('department BSC approval persists the new D and A+ boundaries', async () => {
+      const approveWithActual = async (month: number, actualValue: number, expectedGrade: 'D' | 'A+') => {
+        const gradeCycle = await prisma.bsc_cycles.create({ data: {
+          code: `${marker}_GRADE_${month}`, name: `Tháng xếp loại ${month}`, cycle_type: 'MONTH',
+          year: 2099, month, start_date: new Date('2020-01-01'), end_date: new Date('2199-12-31'),
+          status: 'OPEN', created_by: director.id,
+        } });
+        const gradeBsc = await request(server).post('/department-bsc').set(auth(tokens.replacementManager))
+          .send({ cycleId: gradeCycle.id }).expect(201);
+        const gradeItem = await request(server).post(`/department-bsc/${gradeBsc.body.id}/items`).set(auth(tokens.replacementManager))
+          .send({ kpiCode: `GRADE_${month}`, kpiName: `KPI xếp loại ${month}`, targetValue: 100, weight: 100 }).expect(201);
+        await request(server).post(`/department-bsc/${gradeBsc.body.id}/plan/submit`).set(auth(tokens.replacementManager)).send({}).expect(200);
+        await request(server).post(`/department-bsc/${gradeBsc.body.id}/plan/approve`).set(auth(tokens.director)).send({}).expect(200);
+        await request(server).patch(`/department-bsc/${gradeBsc.body.id}/items/${gradeItem.body.id}/actual`).set(auth(tokens.replacementManager))
+          .send({ actualValue }).expect(200);
+        await request(server).post(`/department-bsc/${gradeBsc.body.id}/evaluation/submit`).set(auth(tokens.replacementManager)).send({}).expect(200);
+        const approvedGrade = await request(server).post(`/department-bsc/${gradeBsc.body.id}/evaluation/approve`).set(auth(tokens.director)).send({}).expect(200);
+        assert.equal(approvedGrade.body.final_grade, expectedGrade);
+        const persisted = await prisma.department_bsc.findUniqueOrThrow({ where: { id: gradeBsc.body.id }, select: { final_grade: true } });
+        assert.equal(persisted.final_grade, expectedGrade);
+      };
+
+      await approveWithActual(3, 60, 'D');
+      await approveWithActual(4, 111, 'A+');
+    });
   } finally {
     if (app) await app.close();
     await cleanup();

@@ -144,7 +144,19 @@ test('worked BSC example totals rounded work scores to 92 points', () => {
 
 test('classification owns every required Decimal boundary', () => {
   const classification = new BscClassificationService();
-  for (const [score, grade] of [['79.99', 'C'], ['80', 'B'], ['89.99', 'B'], ['90', 'A'], ['100', 'A'], ['100.01', 'A+'], ['110.99', 'A+'], ['111', 'A++']] as const) {
+  for (const [score, grade] of [
+    ['0', 'D'],
+    ['69.99', 'D'],
+    ['70', 'C'],
+    ['79.99', 'C'],
+    ['80', 'B'],
+    ['89.99', 'B'],
+    ['90', 'A'],
+    ['100', 'A'],
+    ['100.01', 'A+'],
+    ['111', 'A+'],
+    ['150', 'A+'],
+  ] as const) {
     assert.equal(classification.classify(score), grade);
   }
 });

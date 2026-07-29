@@ -48,7 +48,7 @@ export type BscScoringItem = {
 
 export type BscScoringPreview = {
   bscId: string; planStatus: string; evaluationStatus: string; totalWeight: number; scoredWeight: number; totalWeightedScore: number;
-  isComplete: boolean; classification: 'C' | 'B' | 'A' | 'A+' | 'A++' | null; items: BscScoringItem[];
+  isComplete: boolean; classification: string | null; items: BscScoringItem[];
 };
 
 export type BscVersionSummary = {

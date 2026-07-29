@@ -222,7 +222,7 @@ test('Phase 3B.2 BSC scoring integration', { skip: safeDatabase() ? false : 'TES
       await request(server).patch(`/employee-bsc/${edgeBscId}/items/${zeroActual.body.id}/actual`).set(auth(tokens.employee2)).send({ actualValue: 0 }).expect(200);
       const preview = await request(server).get(`/employee-bsc/${edgeBscId}/scoring-preview`).set(auth(tokens.employee2)).expect(200);
       assert.equal(preview.body.items[0].reason, null);
-      assert.equal(preview.body.totalWeightedScore, 0); assert.equal(preview.body.isComplete, true); assert.equal(preview.body.classification, 'C'); assert.doesNotMatch(JSON.stringify(preview.body), /NaN|Infinity/);
+      assert.equal(preview.body.totalWeightedScore, 0); assert.equal(preview.body.isComplete, true); assert.equal(preview.body.classification, 'D'); assert.doesNotMatch(JSON.stringify(preview.body), /NaN|Infinity/);
 
       await prisma.employee_bsc.update({ where: { id: edgeBscId }, data: { plan_status: 'DRAFT', evaluation_status: 'NOT_STARTED' } });
       await request(server).delete(`/employee-bsc/${edgeBscId}/items/${zeroActual.body.id}`).set(auth(tokens.manager)).expect(200);

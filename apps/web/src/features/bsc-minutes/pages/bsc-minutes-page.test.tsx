@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuth } from '../../auth/hooks/use-auth';
 import { departmentBscApi } from '../../department-bsc/department-bsc.service';
 import { reportsApi } from '../../reports/reports-api';
+import { REPORT_GRADE_OPTIONS } from '../../reports/report-test-fixtures';
 import { exportMinutesToPdf } from '../bsc-minutes-pdf';
 import { BscMinutesPage } from './bsc-minutes-page';
 
@@ -29,6 +30,7 @@ describe('BscMinutesPage', () => {
     });
     vi.mocked(reportsApi.options).mockResolvedValue({
       capabilities: { canViewPersonal: false, canViewManagement: true, canExportPersonal: false, canExportManagement: true, defaultScope: 'MANAGEMENT' },
+      grades: REPORT_GRADE_OPTIONS,
       cycles: [{ id: 'cycle-1', code: 'T7', name: 'Tháng 7/2026', year: 2026, month: 7, status: 'OPEN' }],
       departments: [{ id: 'department-1', name: 'Marketing' }, { id: 'department-2', name: 'Kinh doanh' }],
       employees: [
@@ -145,6 +147,7 @@ describe('BscMinutesPage', () => {
     const user = userEvent.setup();
     vi.mocked(reportsApi.options).mockResolvedValue({
       capabilities: { canViewPersonal: false, canViewManagement: true, canExportPersonal: false, canExportManagement: true, defaultScope: 'MANAGEMENT' },
+      grades: REPORT_GRADE_OPTIONS,
       cycles: [
         { id: 'cycle-1', code: 'T7', name: 'Tháng 7/2026', year: 2026, month: 7, status: 'OPEN' },
         { id: 'cycle-2', code: 'T8', name: 'Tháng 8/2026', year: 2026, month: 8, status: 'LOCKED' },

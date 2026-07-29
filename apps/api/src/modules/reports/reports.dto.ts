@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import { IsIn, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { BSC_REPORT_GRADES } from './reports.constants';
 
 export class BscReportFilterDto {
   @IsOptional() @IsIn(['PERSONAL', 'MANAGEMENT']) viewScope?: 'PERSONAL' | 'MANAGEMENT';
@@ -8,7 +9,7 @@ export class BscReportFilterDto {
   @IsOptional() @IsUUID() employeeId?: string;
   @IsOptional() @IsIn(['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REOPENED']) planStatus?: string;
   @IsOptional() @IsIn(['NOT_STARTED', 'DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REOPENED']) evaluationStatus?: string;
-  @IsOptional() @IsIn(['C', 'B', 'A', 'A+', 'A++']) finalGrade?: string;
+  @IsOptional() @IsIn(BSC_REPORT_GRADES) finalGrade?: string;
   @IsOptional() @IsString() search?: string;
 }
 
