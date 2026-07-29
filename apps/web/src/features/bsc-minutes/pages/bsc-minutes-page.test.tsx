@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuth } from '../../auth/hooks/use-auth';
@@ -76,7 +76,7 @@ describe('BscMinutesPage', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Biên bản họp đánh giá BSC' })).toBeVisible();
     expect(screen.getByRole('textbox', { name: 'Nơi họp' })).toHaveValue('B11.204');
     expect(screen.getByRole('textbox', { name: 'Chủ trì' })).toHaveValue('Hồ Minh Hải');
-    expect(screen.getByRole('combobox', { name: 'Thư ký' })).toHaveTextContent('Lâm Sơn Điền');
+    expect(screen.getByRole('textbox', { name: 'Thư ký' })).toHaveValue('Lâm Sơn Điền');
     expect((await screen.findAllByRole('cell', { name: 'Nguyễn Văn A' }))[0]).toBeVisible();
     expect((await screen.findAllByRole('cell', { name: 'Trần Thị B' }))[0]).toBeVisible();
     expect(screen.queryByRole('combobox', { name: 'Phòng ban' })).not.toBeInTheDocument();
@@ -103,19 +103,19 @@ describe('BscMinutesPage', () => {
 
     const location = await screen.findByRole('textbox', { name: 'Nơi họp' });
     const chair = screen.getByRole('textbox', { name: 'Chủ trì' });
-    const secretary = screen.getByRole('combobox', { name: 'Thư ký' });
+    const secretary = screen.getByRole('textbox', { name: 'Thư ký' });
     await user.clear(location);
     await user.type(location, 'Phòng khác');
     await user.clear(chair);
     await user.type(chair, 'Chủ trì khác');
-    await user.click(secretary);
-    await user.click(screen.getByRole('option', { name: 'Nguyễn Văn A' }));
+    await user.clear(secretary);
+    await user.type(secretary, 'Thư ký khác');
 
     await user.click(screen.getByRole('button', { name: 'Làm lại' }));
 
     expect(location).toHaveValue('B11.204');
     expect(chair).toHaveValue('Hồ Minh Hải');
-    expect(secretary).toHaveTextContent('Lâm Sơn Điền');
+    expect(secretary).toHaveValue('Lâm Sơn Điền');
   });
 
   it('prints the completed minutes from the shared template', async () => {
@@ -125,6 +125,7 @@ describe('BscMinutesPage', () => {
 
     await screen.findAllByRole('cell', { name: 'Nguyễn Văn A' });
     await user.type(screen.getByRole('spinbutton', { name: 'Số biên bản' }), '63');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Thư ký' }), { target: { value: 'Nguyễn Thị C' } });
     await user.type(screen.getByRole('textbox', { name: 'Giao chỉ tiêu tháng tới' }), 'Kèm theo bảng BSC của cá nhân và đơn vị.');
     await user.type(screen.getByRole('textbox', { name: 'Kết luận' }), 'Nội dung Biên bản đã được thông qua.');
 
@@ -134,6 +135,7 @@ describe('BscMinutesPage', () => {
     expect(printedMinutes.querySelectorAll('.minutes-print-heading-line')).toHaveLength(3);
     expect(printedMinutes).toHaveTextContent('Số: 63 / BB-FEDX');
     expect(printedMinutes).toHaveTextContent('Tại B11.204');
+    expect(printedMinutes).toHaveTextContent('Nguyễn Thị C');
     expect(printedMinutes).toHaveTextContent('Kèm theo bảng BSC của cá nhân và đơn vị.');
     expect(printedMinutes).toHaveTextContent('Nội dung Biên bản đã được thông qua.');
     await user.click(screen.getByRole('button', { name: 'In biên bản' }));

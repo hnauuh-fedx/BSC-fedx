@@ -144,17 +144,17 @@ export const BscItemTable: React.FC<Props> = ({ bscId, goalGroups, items, scorin
                 return <React.Fragment key={item.id}>
                   <TableRow>
                     <TableCell className="text-center text-muted-foreground">{itemNumber}</TableCell>
-                    <TableCell className="max-w-64 whitespace-normal">{item.description?.trim() || '—'}</TableCell>
-                    <TableCell className="max-w-72 whitespace-normal"><strong>{item.kpi_name}</strong></TableCell>
+                    <TableCell className="max-w-64 whitespace-pre-wrap">{item.description?.trim() || '—'}</TableCell>
+                    <TableCell className="max-w-72 whitespace-pre-wrap"><strong>{item.kpi_name}</strong></TableCell>
                     <TableCell>{item.measurement_unit || '—'}</TableCell>
-                    <TableCell>{item.target_value ?? item.target_text ?? '—'}</TableCell>
+                    <TableCell className="whitespace-pre-wrap">{item.target_value ?? item.target_text ?? '—'}</TableCell>
                     <TableCell>{item.weight}%</TableCell>
                     <TableCell>{item.measurement_frequency || '—'}</TableCell>
-                    <TableCell>{item.actual_value ?? item.actual_text ?? '—'}</TableCell>
+                    <TableCell className="whitespace-pre-wrap">{item.actual_value ?? item.actual_text ?? '—'}</TableCell>
                     <TableCell>{score?.roundedAchievementPercentage == null ? '—' : `${score.roundedAchievementPercentage}%`}</TableCell>
                     <TableCell>{score?.roundedWorkScore == null ? '—' : String(score.roundedWorkScore)}</TableCell>
                     <TableCell>{score?.weightedScore == null ? '—' : String(score.weightedScore)}{score?.reason && <span className="block text-xs text-muted-foreground">{reasonMessage[score.reason] ?? 'Chưa thể tính điểm'}</span>}</TableCell>
-                    <TableCell className="max-w-56 whitespace-normal">{item.employee_note?.trim() || '—'}</TableCell>
+                    <TableCell className="max-w-56 whitespace-pre-wrap">{item.employee_note?.trim() || '—'}</TableCell>
                     <TableCell className="sticky right-0 z-10 bg-background"><div className="flex justify-end gap-1">
                       {canManage && <><Button type="button" variant="ghost" size="icon-sm" aria-label={`Sửa KPI ${item.kpi_name}`} onClick={() => setEditor({ mode: 'edit', groupCode: group.code, item })}><PencilIcon data-icon="inline-start"/></Button><Button type="button" variant="ghost" size="icon-sm" aria-label={`Xóa KPI ${item.kpi_name}`} disabled={savingId === item.id} onClick={async () => {
                         const accepted = await confirm({
@@ -245,5 +245,5 @@ function KpiEditorRow({ group, item, busy, onCancel, onSubmit }: { group: BscGoa
 }
 
 function ActualEditorRow({ item, busy, onCancel, onSubmit }: { item: BscItem; busy: boolean; onCancel: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <TableRow><TableCell colSpan={13} className="bg-muted/20 whitespace-normal"><form aria-label={`Cập nhật kết quả ${item.kpi_code}`} onSubmit={onSubmit} className="flex flex-col gap-4 py-2"><FieldGroup className="grid gap-3 md:grid-cols-2"><Field><FieldLabel htmlFor={`${item.id}-actual`}>Kết quả thực hiện</FieldLabel><Input id={`${item.id}-actual`} name="actualValue" type="number" step="any" defaultValue={item.actual_value ?? ''} required/></Field><Field><FieldLabel htmlFor={`${item.id}-note`}>TM KQTH</FieldLabel><Input id={`${item.id}-note`} name="employeeNote" defaultValue={item.employee_note ?? ''}/></Field></FieldGroup><div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onCancel}>Hủy</Button><Button type="submit" disabled={busy}>{busy ? 'Đang lưu…' : 'Lưu kết quả'}</Button></div></form></TableCell></TableRow>;
+  return <TableRow><TableCell colSpan={13} className="bg-muted/20 whitespace-normal"><form aria-label={`Cập nhật kết quả ${item.kpi_code}`} onSubmit={onSubmit} className="flex flex-col gap-4 py-2"><FieldGroup className="grid gap-3 md:grid-cols-2"><Field><FieldLabel htmlFor={`${item.id}-actual`}>Kết quả thực hiện</FieldLabel><Input id={`${item.id}-actual`} name="actualValue" type="number" step="any" defaultValue={item.actual_value ?? ''} required/></Field><Field><FieldLabel htmlFor={`${item.id}-note`}>TM KQTH</FieldLabel><Textarea id={`${item.id}-note`} name="employeeNote" rows={3} defaultValue={item.employee_note ?? ''}/></Field></FieldGroup><div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onCancel}>Hủy</Button><Button type="submit" disabled={busy}>{busy ? 'Đang lưu…' : 'Lưu kết quả'}</Button></div></form></TableCell></TableRow>;
 }

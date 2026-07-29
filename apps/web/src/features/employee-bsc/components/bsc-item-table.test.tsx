@@ -51,8 +51,8 @@ describe('BscItemTable', () => {
 
     await user.click(screen.getByRole('button', { name: 'Thêm KPI vào Nhóm mục tiêu quan trọng và cấp bách' }));
     const form = screen.getByRole('form', { name: 'Thêm KPI vào Nhóm mục tiêu quan trọng và cấp bách' });
-    await user.type(within(form).getByRole('textbox', { name: 'Mục tiêu chiến lược (KPO)' }), 'Nâng cao chất lượng phục vụ');
-    await user.type(within(form).getByRole('textbox', { name: 'Đo lường hiệu suất (KPI)' }), 'Tỷ lệ hồ sơ đúng hạn');
+    await user.type(within(form).getByRole('textbox', { name: 'Mục tiêu chiến lược (KPO)' }), 'Nâng cao chất lượng{Enter}phục vụ');
+    await user.type(within(form).getByRole('textbox', { name: 'Đo lường hiệu suất (KPI)' }), 'Tỷ lệ hồ sơ đúng hạn{Enter}Không có hồ sơ trễ');
     expect(within(form).getByRole('textbox', { name: 'Đơn vị tính' })).toBeDisabled();
     expect(within(form).getByRole('textbox', { name: 'Đơn vị tính' })).toHaveValue('%');
     expect(within(form).getByRole('spinbutton', { name: 'Chỉ tiêu' })).toHaveValue(100);
@@ -65,8 +65,8 @@ describe('BscItemTable', () => {
     await waitFor(() => expect(employeeBscApi.createItem).toHaveBeenCalledWith('bsc-1', expect.objectContaining({
       kpiCode: expect.stringMatching(/^KPI-/),
       goalGroupCode: 'IMPORTANT_URGENT',
-      description: 'Nâng cao chất lượng phục vụ',
-      kpiName: 'Tỷ lệ hồ sơ đúng hạn',
+      description: 'Nâng cao chất lượng\nphục vụ',
+      kpiName: 'Tỷ lệ hồ sơ đúng hạn\nKhông có hồ sơ trễ',
       measurementUnit: '%',
       targetValue: 100,
       weight: 20,
@@ -238,6 +238,29 @@ describe('BscItemTable', () => {
     expect(screen.getByRole('row', { name: /LOẠI THÀNH TÍCH DỰ KIẾN A/ })).toBeVisible();
   });
 
+  it('preserves line breaks in multiline BSC content after loading saved data', () => {
+    const item: BscItem = {
+      id: 'KPI-MULTILINE', employee_bsc_id: 'bsc-1', goal_group_code: 'COMMON', kpi_code: 'KPI-MULTILINE',
+      kpi_name: 'Điều kiện 1\nĐiều kiện 2', description: 'Mục tiêu 1\nMục tiêu 2',
+      measurement_unit: '%', measurement_frequency: 'Tháng',
+      target_value: '100', target_text: null, actual_value: null, actual_text: null,
+      employee_note: 'Kết quả 1\nKết quả 2', weight: '100',
+      calculation_method: 'ACTUAL_DIV_TARGET', sort_order: 0,
+    };
+
+    render(<BscItemTable bscId="bsc-1" goalGroups={goalGroups} items={[item]} scoring={null} canManage={false} canUpdateActual={false} onChange={vi.fn()}/>);
+
+    const kpoCell = screen.getByRole('cell', { name: /^Mục tiêu 1\s+Mục tiêu 2$/ });
+    const kpiCell = screen.getByRole('cell', { name: /^Điều kiện 1\s+Điều kiện 2$/ });
+    const noteCell = screen.getByRole('cell', { name: /^Kết quả 1\s+Kết quả 2$/ });
+    expect(kpoCell.textContent).toBe('Mục tiêu 1\nMục tiêu 2');
+    expect(kpoCell).toHaveClass('whitespace-pre-wrap');
+    expect(kpiCell.textContent).toBe('Điều kiện 1\nĐiều kiện 2');
+    expect(kpiCell).toHaveClass('whitespace-pre-wrap');
+    expect(noteCell.textContent).toBe('Kết quả 1\nKết quả 2');
+    expect(noteCell).toHaveClass('whitespace-pre-wrap');
+  });
+
   it('refreshes the evaluation score and grade after saving a KPI result', async () => {
     const user = userEvent.setup();
     const item: BscItem = {
@@ -270,10 +293,10 @@ describe('BscItemTable', () => {
     expect(screen.getByRole('row', { name: /LOẠI THÀNH TÍCH DỰ KIẾN Chưa đủ dữ liệu/ })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Nhập kết quả' }));
     await user.type(screen.getByRole('spinbutton', { name: 'Kết quả thực hiện' }), '92');
-    await user.type(screen.getByRole('textbox', { name: 'TM KQTH' }), 'Hoàn thành');
+    await user.type(screen.getByRole('textbox', { name: 'TM KQTH' }), 'Hoàn thành{Enter}Đúng tiến độ');
     await user.click(screen.getByRole('button', { name: 'Lưu kết quả' }));
 
-    await waitFor(() => expect(employeeBscApi.updateActual).toHaveBeenCalledWith('bsc-1', 'KPI-1', { actualValue: 92, employeeNote: 'Hoàn thành' }));
+    await waitFor(() => expect(employeeBscApi.updateActual).toHaveBeenCalledWith('bsc-1', 'KPI-1', { actualValue: 92, employeeNote: 'Hoàn thành\nĐúng tiến độ' }));
     expect(screen.getByRole('row', { name: /ĐIỂM ĐÁNH GIÁ DỰ KIẾN 90/ })).toBeVisible();
     expect(screen.getByRole('row', { name: /LOẠI THÀNH TÍCH DỰ KIẾN A/ })).toBeVisible();
   });
