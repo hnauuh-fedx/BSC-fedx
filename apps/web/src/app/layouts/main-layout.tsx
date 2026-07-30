@@ -1,5 +1,6 @@
 import React, { PropsWithChildren } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import brandLogo from '../../assets/image.png';
 import {
   BarChart3Icon,
   Building2Icon,
@@ -149,7 +150,10 @@ export const MainLayout: React.FC<PropsWithChildren> = ({ children }) => {
   return <NotificationCenterProvider><div className="app-shell">
     <a className="skip-link" href="#main-content">Bỏ qua điều hướng</a>
     <aside className="app-sidebar">
-      <NavLink to="/" className="brand"><span className="brand-mark">B</span><span>BSC Management</span></NavLink>
+      <NavLink to="/" className="brand">
+        <img className="brand-logo" src={brandLogo} alt="" width={44} height={44}/>
+        <span>BSC Management</span>
+      </NavLink>
       <ShellNavigation workspace={workspace} management={management} administration={administration}/>
       <p className="sidebar-caption">Quản trị hiệu suất rõ ràng, nhất quán.</p>
     </aside>
@@ -159,7 +163,13 @@ export const MainLayout: React.FC<PropsWithChildren> = ({ children }) => {
           <Sheet open={mobileNavigationOpen} onOpenChange={setMobileNavigationOpen}>
             <SheetTrigger asChild><Button variant="ghost" size="icon" aria-label="Mở điều hướng"><MenuIcon data-icon="inline-start" /></Button></SheetTrigger>
             <SheetContent side="left" className="w-[min(22rem,88vw)] p-0">
-              <div className="mobile-navigation-header"><SheetTitle>BSC Management</SheetTitle><SheetDescription>Điều hướng theo quyền tài khoản</SheetDescription></div>
+              <div className="mobile-navigation-header">
+                <img className="mobile-brand-logo" src={brandLogo} alt="" width={40} height={40}/>
+                <div>
+                  <SheetTitle>BSC Management</SheetTitle>
+                  <SheetDescription>Điều hướng theo quyền tài khoản</SheetDescription>
+                </div>
+              </div>
               <ShellNavigation workspace={workspace} management={management} administration={administration} onNavigate={() => setMobileNavigationOpen(false)}/>
             </SheetContent>
           </Sheet>

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AlertCircleIcon, ArrowRightIcon } from 'lucide-react';
+import brandLogo from '../../../assets/image.png';
 import { Alert, AlertDescription, AlertTitle } from '../../../components/ui/alert';
 import { Button } from '../../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card';
@@ -64,7 +65,7 @@ export const LoginPage: React.FC = () => {
     <div className="login-page">
       <Card className="login-card">
         <CardHeader className="login-brand">
-          <div className="login-brand-icon">BSC</div>
+          <img className="login-brand-logo" src={brandLogo} alt="" width={96} height={96}/>
           <CardTitle><h1>Hệ thống Quản lý BSC</h1></CardTitle>
           <CardDescription>Đăng nhập để tiếp tục công việc của bạn</CardDescription>
         </CardHeader>
