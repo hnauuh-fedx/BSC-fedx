@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import type { AppearanceTheme } from '../types/appearance-theme.type';
 
 export interface SaveRefreshTokenData {
   userId: string;
@@ -48,6 +49,7 @@ export class AuthRepository {
         employee_code: true,
         full_name: true,
         email: true,
+        appearance_theme: true,
         status: true,
         department_id: true,
         deleted_at: true,
@@ -100,6 +102,38 @@ export class AuthRepository {
           action: 'SELF_PROFILE_UPDATED',
           old_data: { fullName: current.full_name },
           new_data: { fullName: data.fullName },
+          ip_address: data.ipAddress,
+          user_agent: data.userAgent,
+        },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  async updateAppearancePreferences(data: {
+    userId: string;
+    appearanceTheme: AppearanceTheme;
+    ipAddress: string;
+    userAgent: string;
+  }) {
+    return this.prisma.$transaction(async (db) => {
+      const current = await db.users.findUnique({
+        where: { id: data.userId },
+        select: { appearance_theme: true },
+      });
+      if (!current) throw new Error('User disappeared during appearance update.');
+      await db.users.update({
+        where: { id: data.userId },
+        data: { appearance_theme: data.appearanceTheme, updated_at: new Date() },
+      });
+      await db.audit_logs.create({
+        data: {
+          user_id: data.userId,
+          module: 'auth',
+          entity_type: 'users',
+          entity_id: data.userId,
+          action: 'SELF_APPEARANCE_UPDATED',
+          old_data: { appearanceTheme: current.appearance_theme },
+          new_data: { appearanceTheme: data.appearanceTheme },
           ip_address: data.ipAddress,
           user_agent: data.userAgent,
         },

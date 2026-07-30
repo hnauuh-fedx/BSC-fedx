@@ -1,9 +1,12 @@
+import type { AppearanceTheme } from './appearance-theme.types';
+
 export interface AuthUser {
   id: string;
   employeeCode: string;
   fullName: string;
   email: string;
   status: string;
+  appearanceTheme?: AppearanceTheme;
   departmentId?: string;
   positionId?: string;
   roles: Array<{ code: string; scopeType: 'GLOBAL' | 'DEPARTMENT' | 'SELF'; scopeId: string | null; permissions?: string[] }>;

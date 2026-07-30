@@ -17,7 +17,11 @@ import { LoginDto } from '../dto/login.dto';
 import { AccessTokenPayload, RefreshTokenPayload } from '../types/auth-token-payload.type';
 import { AUTH_ERRORS, RATE_LIMIT_DEFAULTS } from '../auth.constants';
 import { normalizeUsername } from '../../../common/username';
-import { ChangeOwnPasswordDto, UpdateOwnProfileDto } from '../dto/account.dto';
+import {
+  ChangeOwnPasswordDto,
+  UpdateAppearancePreferencesDto,
+  UpdateOwnProfileDto,
+} from '../dto/account.dto';
 
 /** Thông báo lỗi chung — không phân biệt username sai hay password sai */
 const INVALID_CREDENTIALS_MSG = 'Tên đăng nhập hoặc mật khẩu không chính xác.';
@@ -317,6 +321,7 @@ export class AuthService implements OnModuleDestroy {
       employeeCode: user.employee_code,
       fullName: user.full_name,
       email: user.email,
+      appearanceTheme: user.appearance_theme,
       status: user.status,
       departmentId: user.department_id,
       roles: user.user_roles_user_roles_user_idTousers.map((assignment) => ({
@@ -346,6 +351,29 @@ export class AuthService implements OnModuleDestroy {
     await this.authRepository.updateOwnProfile({
       userId,
       fullName: dto.fullName,
+      ipAddress,
+      userAgent,
+    });
+    return this.getCurrentUser(userId);
+  }
+
+  async updateAppearancePreferences(
+    userId: string,
+    dto: UpdateAppearancePreferencesDto,
+    ipAddress: string,
+    userAgent: string,
+  ) {
+    const user = await this.authRepository.findAuthUserById(userId);
+    if (!user || user.deleted_at !== null || user.status !== 'ACTIVE') {
+      throw new UnauthorizedException({
+        code: AUTH_ERRORS.TOKEN_INVALID,
+        message: 'Không tìm thấy người dùng.',
+      });
+    }
+
+    await this.authRepository.updateAppearancePreferences({
+      userId,
+      appearanceTheme: dto.appearanceTheme,
       ipAddress,
       userAgent,
     });

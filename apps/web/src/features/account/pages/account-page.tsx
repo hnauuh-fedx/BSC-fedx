@@ -1,8 +1,9 @@
 import React, { FormEvent, useEffect, useState } from 'react';
-import { EyeIcon, EyeOffIcon } from 'lucide-react';
+import { CheckIcon, EyeIcon, EyeOffIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback } from '../../../components/ui/avatar';
+import { Badge } from '../../../components/ui/badge';
 import { Button } from '../../../components/ui/button';
 import {
   Card,
@@ -29,8 +30,14 @@ import {
 } from '../../../components/ui/input-group';
 import { ApiError } from '../../../lib/http-client';
 import { Spinner } from '../../../components/ui/spinner';
+import { ToggleGroup, ToggleGroupItem } from '../../../components/ui/toggle-group';
 import { useAuth } from '../../auth/hooks/use-auth';
 import { accountApi } from '../account-api';
+import {
+  APPEARANCE_THEME_OPTIONS,
+  normalizeAppearanceTheme,
+  type AppearanceTheme,
+} from '../appearance-theme';
 
 type PasswordFieldProps = {
   id: string;
@@ -109,6 +116,11 @@ export const AccountPage: React.FC = () => {
   const [fullName, setFullName] = useState(user?.fullName ?? '');
   const [profileError, setProfileError] = useState('');
   const [profileSubmitting, setProfileSubmitting] = useState(false);
+  const [appearanceTheme, setAppearanceTheme] = useState<AppearanceTheme>(
+    normalizeAppearanceTheme(user?.appearanceTheme),
+  );
+  const [appearanceError, setAppearanceError] = useState('');
+  const [appearanceSubmitting, setAppearanceSubmitting] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -119,8 +131,14 @@ export const AccountPage: React.FC = () => {
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
 
   useEffect(() => setFullName(user?.fullName ?? ''), [user?.fullName]);
+  useEffect(
+    () => setAppearanceTheme(normalizeAppearanceTheme(user?.appearanceTheme)),
+    [user?.appearanceTheme],
+  );
   if (!user) return null;
 
+  const currentAppearanceTheme = normalizeAppearanceTheme(user.appearanceTheme);
+  const appearanceChanged = appearanceTheme !== currentAppearanceTheme;
   const normalizedFullName = fullName.trim();
   const profileChanged = normalizedFullName !== user.fullName;
   const profileValid = normalizedFullName.length >= 1 && normalizedFullName.length <= 255;
@@ -168,6 +186,22 @@ export const AccountPage: React.FC = () => {
       setProfileError(error instanceof Error ? error.message : 'Không thể cập nhật thông tin cá nhân.');
     } finally {
       setProfileSubmitting(false);
+    }
+  };
+
+  const submitAppearance = async (event: FormEvent) => {
+    event.preventDefault();
+    setAppearanceError('');
+    setAppearanceSubmitting(true);
+    try {
+      const updated = await accountApi.updatePreferences({ appearanceTheme });
+      updateCurrentUser?.(updated);
+      setAppearanceTheme(normalizeAppearanceTheme(updated.appearanceTheme));
+      toast.success('Đã cập nhật màu giao diện.');
+    } catch (error) {
+      setAppearanceError(error instanceof Error ? error.message : 'Không thể cập nhật màu giao diện.');
+    } finally {
+      setAppearanceSubmitting(false);
     }
   };
 
@@ -269,6 +303,58 @@ export const AccountPage: React.FC = () => {
             <Button type="submit" disabled={!profileChanged || !profileValid || profileSubmitting}>
               {profileSubmitting && <Spinner data-icon="inline-start" />}
               {profileSubmitting ? 'Đang lưu…' : 'Lưu thay đổi'}
+            </Button>
+          </CardFooter>
+        </Card>
+      </form>
+
+      <form onSubmit={submitAppearance}>
+        <Card>
+          <CardHeader>
+            <CardTitle>Giao diện</CardTitle>
+            <CardDescription>Chọn mẫu màu được sử dụng cho tài khoản này trên mọi thiết bị.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              value={appearanceTheme}
+              onValueChange={(value) => {
+                if (value) setAppearanceTheme(value as AppearanceTheme);
+              }}
+              disabled={appearanceSubmitting}
+              aria-label="Mẫu màu giao diện"
+              className="w-full flex-col items-stretch sm:flex-row"
+            >
+              {APPEARANCE_THEME_OPTIONS.map((option) => (
+                <ToggleGroupItem
+                  key={option.value}
+                  value={option.value}
+                  className="h-auto min-w-0 flex-1 items-start justify-start gap-3 whitespace-normal px-4 py-3 text-left"
+                >
+                  <span
+                    className="appearance-theme-swatch"
+                    data-theme-preview={option.value.toLowerCase()}
+                    aria-hidden="true"
+                  />
+                  <span className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="flex items-center gap-2 font-medium">
+                      {option.label}
+                      {currentAppearanceTheme === option.value && <Badge variant="secondary">Đang dùng</Badge>}
+                    </span>
+                    <span className="font-mono text-xs text-muted-foreground">{option.colorCode}</span>
+                    <span className="text-xs text-muted-foreground">{option.description}</span>
+                  </span>
+                  {appearanceTheme === option.value && <CheckIcon aria-hidden="true" />}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+            <FieldError>{appearanceError}</FieldError>
+          </CardContent>
+          <CardFooter className="justify-end">
+            <Button type="submit" disabled={!appearanceChanged || appearanceSubmitting}>
+              {appearanceSubmitting && <Spinner data-icon="inline-start" />}
+              {appearanceSubmitting ? 'Đang lưu…' : 'Lưu giao diện'}
             </Button>
           </CardFooter>
         </Card>

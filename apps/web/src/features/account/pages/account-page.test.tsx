@@ -11,6 +11,7 @@ vi.mock('../../auth/hooks/use-auth', () => ({ useAuth: vi.fn() }));
 vi.mock('../account-api', () => ({
   accountApi: {
     updateProfile: vi.fn(),
+    updatePreferences: vi.fn(),
     changePassword: vi.fn(),
   },
 }));
@@ -22,6 +23,7 @@ const currentUser = {
   fullName: 'Nguyễn Văn A',
   email: 'nguyenvana@example.test',
   status: 'ACTIVE',
+  appearanceTheme: 'DEFAULT' as const,
   departmentId: 'department-1',
   roles: [{ code: 'EMPLOYEE', scopeType: 'SELF' as const, scopeId: null }],
   permissions: [],
@@ -73,6 +75,19 @@ describe('AccountPage', () => {
 
     expect(screen.getByRole('button', { name: 'Lưu thay đổi' })).toBeDisabled();
     expect(screen.getByText('Vui lòng nhập họ và tên.')).toBeInTheDocument();
+  });
+
+  it('saves the Remy appearance template and refreshes auth state', async () => {
+    const user = userEvent.setup();
+    const updatedUser = { ...currentUser, appearanceTheme: 'REMY' as const };
+    vi.mocked(accountApi.updatePreferences).mockResolvedValue(updatedUser);
+    render(<MemoryRouter><AccountPage /></MemoryRouter>);
+
+    await user.click(screen.getByRole('radio', { name: /Remy/i }));
+    await user.click(screen.getByRole('button', { name: 'Lưu giao diện' }));
+
+    expect(accountApi.updatePreferences).toHaveBeenCalledWith({ appearanceTheme: 'REMY' });
+    expect(updateCurrentUser).toHaveBeenCalledWith(updatedUser);
   });
 
   it('uses one fixed label column and one full-width control column for every field', () => {

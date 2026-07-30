@@ -30,7 +30,7 @@ const password = 'Correct!Horse#1';
 
 async function createApp() {
   const passwordHash = await argon2.hash(password);
-  const user = { id: 'user-uuid-1', employee_code: 'EMP001', username: 'test.user', full_name: 'Test User', email: 'user@example.test', password_hash: passwordHash, status: 'ACTIVE', deleted_at: null, department_id: 'd1', position_id: 'p1', user_roles_user_roles_user_idTousers: [] as Array<never> };
+  const user = { id: 'user-uuid-1', employee_code: 'EMP001', username: 'test.user', full_name: 'Test User', email: 'user@example.test', password_hash: passwordHash, appearance_theme: 'DEFAULT', status: 'ACTIVE', deleted_at: null, department_id: 'd1', position_id: 'p1', user_roles_user_roles_user_idTousers: [] as Array<never> };
   let storedHash = '';
   let storedJti = '';
   let revoked = false;
@@ -42,9 +42,10 @@ async function createApp() {
         if (where.username !== undefined) return where.username === user.username ? { ...user } : null;
         return where.id === undefined || where.id === user.id ? { ...user } : null;
       },
-      update: async ({ data }: { data: { full_name?: string; password_hash?: string } }) => {
+      update: async ({ data }: { data: { full_name?: string; password_hash?: string; appearance_theme?: string } }) => {
         if (data.full_name !== undefined) user.full_name = data.full_name;
         if (data.password_hash !== undefined) user.password_hash = data.password_hash;
+        if (data.appearance_theme !== undefined) user.appearance_theme = data.appearance_theme;
         return user;
       },
     },
@@ -206,6 +207,30 @@ test('authenticated user updates only their own full name and the response is ca
       .patch('/auth/me/profile')
       .set('Authorization', `Bearer ${login.body.accessToken}`)
       .send({ fullName: 'Tên hợp lệ', email: 'attacker@example.test' })
+      .expect(400);
+  } finally { await app.close(); }
+});
+
+test('authenticated user selects an allowlisted appearance theme and the change is audited', async () => {
+  const { app, agent, user, auditPayloads } = await createApp();
+  try {
+    const login = await agent.post('/auth/login').send({ username: user.username, password }).expect(200);
+    const authorization = `Bearer ${login.body.accessToken}`;
+    const response = await agent
+      .patch('/auth/me/preferences')
+      .set('Authorization', authorization)
+      .send({ appearanceTheme: 'REMY' })
+      .expect(200);
+
+    assert.equal(response.body.appearanceTheme, 'REMY');
+    assert.equal(user.appearance_theme, 'REMY');
+    assert.match(JSON.stringify(auditPayloads), /SELF_APPEARANCE_UPDATED/);
+    assert.match(JSON.stringify(auditPayloads), /DEFAULT/);
+
+    await agent
+      .patch('/auth/me/preferences')
+      .set('Authorization', authorization)
+      .send({ appearanceTheme: 'CUSTOM_CSS' })
       .expect(400);
   } finally { await app.close(); }
 });

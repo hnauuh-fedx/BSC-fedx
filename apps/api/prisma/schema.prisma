@@ -462,6 +462,7 @@ model users {
   full_name                                                      String                  @db.VarChar(255)
   email                                                          String                  @unique @db.VarChar(255)
   password_hash                                                  String
+  appearance_theme                                               String                  @default("DEFAULT") @db.VarChar(30)
   department_id                                                  String                  @db.Uuid
   position_id                                                    String                  @db.Uuid
   direct_manager_id                                              String?                 @db.Uuid

@@ -91,6 +91,41 @@
     --overlay: rgb(0 0 0 / 10%);
 }
 
+:root[data-color-theme="remy"] {
+    --background: #ffecf2;
+    --foreground: #2a1720;
+    --card: #fff9fb;
+    --card-foreground: #2a1720;
+    --popover: #fff9fb;
+    --popover-foreground: #2a1720;
+    --primary: #b8325d;
+    --primary-foreground: #ffffff;
+    --secondary: #7b3450;
+    --secondary-foreground: #ffffff;
+    --muted: #f8dce6;
+    --muted-foreground: #6f4b59;
+    --accent: #f5d1dd;
+    --accent-foreground: #3a202a;
+    --border: #e9bac9;
+    --input: #ddaabc;
+    --ring: #b8325d;
+    --chart-1: #b8325d;
+    --chart-2: #d75c83;
+    --chart-3: #7b3450;
+    --chart-4: #a9667e;
+    --chart-5: #e9bac9;
+    --sidebar: #fff7fa;
+    --sidebar-foreground: #2a1720;
+    --sidebar-primary: #b8325d;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #f8dce6;
+    --sidebar-accent-foreground: #2a1720;
+    --sidebar-border: #e9bac9;
+    --sidebar-ring: #b8325d;
+    --system-confirm-primary: #b8325d;
+    --system-confirm-primary-hover: #942244;
+}
+
 .system-confirm-primary {
   background: var(--system-confirm-primary);
   color: white;
@@ -261,6 +296,9 @@ main > table { display: block; max-width: 100%; overflow-x: auto; border: 1px so
 .login-brand-logo { display: block; width: 6rem; height: 6rem; margin: 0 auto .8rem; border: 1px solid var(--border); border-radius: 1.25rem; object-fit: cover; }
 .login-form { display: flex; flex-direction: column; gap: 1rem; }
 .login-form [data-slot="button"] { min-height: 2.75rem; width: 100%; }
+.appearance-theme-swatch { display: block; width: 3rem; height: 3rem; flex: 0 0 auto; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.appearance-theme-swatch[data-theme-preview="default"] { background: linear-gradient(135deg, #f6f5f4 0 50%, #0075de 50%); }
+.appearance-theme-swatch[data-theme-preview="remy"] { background: linear-gradient(135deg, #ffecf2 0 50%, #b8325d 50%); }
 
 @media (max-width: 64rem) {
   .app-sidebar { display: none; }

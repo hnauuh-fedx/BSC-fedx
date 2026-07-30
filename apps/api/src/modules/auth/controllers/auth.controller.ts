@@ -23,7 +23,11 @@ import { validateEnvironment } from '../../../config/env.validation';
 import { getAuthConfig } from '../../../config/auth.config';
 import { JwtService } from '@nestjs/jwt';
 import { RefreshTokenPayload } from '../types/auth-token-payload.type';
-import { ChangeOwnPasswordDto, UpdateOwnProfileDto } from '../dto/account.dto';
+import {
+  ChangeOwnPasswordDto,
+  UpdateAppearancePreferencesDto,
+  UpdateOwnProfileDto,
+} from '../dto/account.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -141,6 +145,22 @@ export class AuthController {
     @Req() req: Request,
   ) {
     return this.authService.updateOwnProfile(
+      currentUser.id,
+      dto,
+      this.extractIp(req),
+      req.headers['user-agent'] ?? '',
+    );
+  }
+
+  /** PATCH /auth/me/preferences */
+  @Patch('me/preferences')
+  @UseGuards(JwtAccessGuard)
+  async updateAppearancePreferences(
+    @CurrentUser() currentUser: AuthUser,
+    @Body() dto: UpdateAppearancePreferencesDto,
+    @Req() req: Request,
+  ) {
+    return this.authService.updateAppearancePreferences(
       currentUser.id,
       dto,
       this.extractIp(req),
