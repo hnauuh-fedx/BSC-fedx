@@ -201,14 +201,14 @@ export class EmployeeBscService {
     if (!request) throw new NotFoundException({ code: 'BSC_REOPEN_REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu mở lại.' });
     await this.policy.assertActiveResource(request.employee_bsc);
     if (actor.id === request.requested_by) this.policy.assertCanRequestReopen(actor, request.employee_bsc);
-    else await this.policy.assertCanReviewReopen(actor, request.employee_bsc, request.reviewer_id);
+    else await this.policy.assertCanReviewReopen(actor, request.employee_bsc);
     return request;
   }
 
   async approveReopenRequest(actor: AuthUser, requestId: string, metadata: AuditRequestMetadata) {
     const request = await this.repository.findReopenRequest(requestId);
     if (!request) throw new NotFoundException({ code: 'BSC_REOPEN_REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu mở lại.' });
-    await this.policy.assertCanReviewReopen(actor, request.employee_bsc, request.reviewer_id, true);
+    await this.policy.assertCanReviewReopen(actor, request.employee_bsc);
     return this.repository.approveReopenRequest(actor, requestId, metadata, (snapshot) => this.assertReopenDecision(actor, snapshot));
   }
 
@@ -216,7 +216,7 @@ export class EmployeeBscService {
     const reason = this.normalizeReason(rawReason, 'BSC_REOPEN_REJECT_REASON_REQUIRED');
     const request = await this.repository.findReopenRequest(requestId);
     if (!request) throw new NotFoundException({ code: 'BSC_REOPEN_REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu mở lại.' });
-    await this.policy.assertCanReviewReopen(actor, request.employee_bsc, request.reviewer_id, true);
+    await this.policy.assertCanReviewReopen(actor, request.employee_bsc);
     return this.repository.rejectReopenRequest(actor, requestId, reason, metadata, (snapshot) => this.assertReopenDecision(actor, snapshot));
   }
 

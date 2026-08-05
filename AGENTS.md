@@ -238,6 +238,8 @@ DIRECTOR có hai lựa chọn:
 
 MANAGER trực tiếp chỉ xem và theo dõi BSC của EMPLOYEE; quan hệ quản lý không được dùng để xác định người duyệt.
 
+Nếu có nhiều DIRECTOR đang hoạt động, có phạm vi GLOBAL và đủ permission của stage thì tất cả cùng thấy một hàng đợi chờ duyệt. BSC đang chờ không gắn cứng cho một DIRECTOR; người duyệt hoặc trả lại thành công đầu tiên trong transaction được ghi nhận làm người xử lý trong approval step, review, status history và audit log. Các thao tác đồng thời còn lại phải nhận conflict và không tạo side effect trùng.
+
 Nếu trả lại:
 
 DIRECTOR trả lại đúng stage
@@ -246,7 +248,7 @@ DIRECTOR trả lại đúng stage
 → EMPLOYEE nộp lại đúng stage
 → DIRECTOR duyệt lại
 
-EMPLOYEE có hoặc không có MANAGER trực tiếp đều nộp từng stage cho cùng DIRECTOR toàn hệ thống.
+EMPLOYEE có hoặc không có MANAGER trực tiếp đều nộp từng stage vào hàng đợi chung của các DIRECTOR đủ quyền toàn hệ thống.
 
 Không được để BSC ở trạng thái chờ duyệt mà không có người duyệt.
 

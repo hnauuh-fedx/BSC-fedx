@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { NotificationEvent, NotificationEventType, NotificationStage } from './notifications.types';
-import { BscReviewerResolver } from '../bsc-reviewers/bsc-reviewer-resolver';
+import { BscReviewerResolver, DIRECTOR_REVIEW_PERMISSIONS } from '../bsc-reviewers/bsc-reviewer-resolver';
 
 interface NotificationDraft {
   recipientId: string;
@@ -81,7 +81,7 @@ export class NotificationPublisher {
     const owner = await db.users.findUnique({ where: { id: bsc.employee_id }, select: { full_name: true } });
     const { stage, action } = this.stageAction(event.type);
     const recipientIds = submitted
-      ? await this.directorRecipientIds(db, bsc.department_id, bsc.employee_id, this.approvalPermission(stage))
+      ? await this.directorRecipientIds(db, bsc.department_id, bsc.employee_id, this.stagePermissions(stage))
       : [bsc.employee_id];
     return recipientIds.map((recipientId) => ({
       recipientId,
@@ -93,18 +93,18 @@ export class NotificationPublisher {
     }));
   }
 
-  private approvalPermission(stage: NotificationStage): string {
-    return stage === 'PLAN' ? 'bsc.plan.approve.subordinate' : 'bsc.evaluation.approve.subordinate';
+  private stagePermissions(stage: NotificationStage): readonly string[] {
+    return DIRECTOR_REVIEW_PERMISSIONS[stage];
   }
 
   private async directorRecipientIds(
     db: Prisma.TransactionClient,
     _departmentId: string,
     ownerId: string,
-    permission: string,
+    permission: string | readonly string[],
   ): Promise<string[]> {
-    const reviewer = await this.reviewerResolver.resolveRequiredDirector(db, { ownerId, permission });
-    return [reviewer.id];
+    const reviewers = await this.reviewerResolver.resolveRequiredDirectors(db, { ownerId, permission });
+    return reviewers.map(({ id }) => id);
   }
 
   private async employeeReopenDrafts(db: Prisma.TransactionClient, event: NotificationEvent): Promise<NotificationDraft[]> {

@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuthUser } from '../../../common/types/auth-user.type';
 import { PrismaService } from '../../../database/prisma.service';
+import { hasGlobalDirectorPermission } from '../../bsc-reviewers/bsc-reviewer-resolver';
 
 export const BSC_PERMISSIONS = {
   CREATE_OWN: 'bsc.create.own',
@@ -58,7 +59,7 @@ export class BscAccessPolicy {
       : [BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE];
     if (!permissions.some((permission) => this.canReviewAsDirector(actor, permission))) this.deny();
     return { AND: [
-      { bsc_approval_steps: { some: { stage, status: 'PENDING', approver_id: actor.id } } },
+      { bsc_approval_steps: { some: { stage, status: 'PENDING' } } },
       { employee_id: { not: actor.id } }, this.activeOwnerOrganizationWhere(), stage === 'PLAN'
       ? { plan_status: 'SUBMITTED' }
       : { plan_status: 'APPROVED', evaluation_status: 'SUBMITTED' }] };
@@ -66,7 +67,7 @@ export class BscAccessPolicy {
 
   pendingReopenWhere(actor: AuthUser): Prisma.bsc_unlock_requestsWhereInput {
     if (!this.canReviewAsDirector(actor, BSC_PERMISSIONS.REVIEW_REOPEN)) this.deny();
-    return { AND: [{ reviewer_id: actor.id }, { requested_by: { not: actor.id } },
+    return { AND: [{ requested_by: { not: actor.id } },
       { employee_bsc: { is: this.activeOwnerOrganizationWhere() } }] };
   }
 
@@ -127,14 +128,11 @@ export class BscAccessPolicy {
   async assertCanReviewReopen(
     actor: AuthUser,
     bsc: BscAccessResource,
-    reviewerId: string | null,
-    allowStaleConflict = false,
   ): Promise<void> {
     await this.assertActiveResource(bsc);
     if (actor.id === bsc.employee_id
       || !this.canReviewAsDirector(actor, BSC_PERMISSIONS.REVIEW_REOPEN)) this.deny();
-    if (actor.id === reviewerId || allowStaleConflict) return;
-    this.deny();
+    return;
   }
 
   async assertCanReview(actor: AuthUser, bsc: BscAccessResource, permission: string): Promise<void> {
@@ -238,8 +236,7 @@ export class BscAccessPolicy {
   }
 
   canReviewAsDirector(actor: AuthUser, permission: string, _departmentId?: string): boolean {
-    return actor.roles.some((role) => role.code === 'DIRECTOR' && this.roleGrants(role, permission)
-      && role.scopeType === 'GLOBAL');
+    return hasGlobalDirectorPermission(actor, [permission]);
   }
 
   private hasScopedPermission(actor: AuthUser, permission: string, ownerId: string, departmentId: string): boolean {

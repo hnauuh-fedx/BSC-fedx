@@ -202,7 +202,7 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
         .send({ stage: 'PLAN', reason: '   ' }), 400);
       const requestCreated = await expectHttp(request(server).post(`/employee-bsc/${wrongOwner.id}/reopen-requests`).set(auth(tokens.employee))
         .send({ stage: 'PLAN', reason: 'Manager status must not select reviewer' }), 201);
-      assert.equal(requestCreated.body.reviewer_id, director.id);
+      assert.equal(requestCreated.body.reviewer_id, null);
       await prisma.users.update({ where: { id: manager.id }, data: { status: 'ACTIVE' } });
     });
 
@@ -250,6 +250,8 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       await expectHttp(request(server).post(`/employee-bsc/${record.id}/reopen-requests`).set(auth(tokens.employee)).send({ stage: 'EVALUATION', reason: 'Trùng' }), 409);
       const approved = await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${createdRequest.body.id}/approve`).set(auth(tokens.director)).send({}), 200);
       assert.equal(approved.body.status, 'APPROVED');
+      assert.equal(approved.body.reviewer_id, director.id);
+      assert.equal(approved.body.reviewed_by, director.id);
       const active = await prisma.employee_bsc.findUniqueOrThrow({ where: { id: record.id }, include: { employee_bsc_items: true } });
       assert.equal(active.plan_status, 'APPROVED'); assert.equal(active.evaluation_status, 'REOPENED');
       assert.equal(active.final_score, null); assert.equal(Number(active.employee_bsc_items[0].actual_value), 90);
@@ -402,7 +404,7 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       assert.deepEqual(noOptions.body.cycles, []);
     });
 
-    await t.test('manager change does not change the assigned DIRECTOR reviewer and public payloads remain secret-free', async () => {
+    await t.test('manager change does not affect the shared DIRECTOR queue and public payloads remain secret-free', async () => {
       const record = await createBsc('STALE', employee2, await cycle(12));
       await approvePlan(record, tokens.employee2);
       const reopen = await expectHttp(request(server).post(`/employee-bsc/${record.id}/reopen-requests`).set(auth(tokens.employee2))

@@ -151,7 +151,7 @@ test('Phase 3B.3 dual-stage BSC workflow integration', { skip: safeDatabase() ? 
       assert.equal(record.direct_manager_id, null);
       await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/submit`).set(auth(tokens.employeeNoManager)).send({}), 200);
       const step = await prisma.bsc_approval_steps.findFirstOrThrow({ where: { employee_bsc_id: record.id, stage: 'PLAN', status: 'PENDING' } });
-      assert.equal(step.approver_id, director.id);
+      assert.equal(step.approver_id, null);
       assert.equal(step.approver_role, 'DIRECTOR');
       await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/approve`).set(auth(tokens.director)).send({}), 200);
     });
@@ -252,6 +252,60 @@ test('Phase 3B.3 dual-stage BSC workflow integration', { skip: safeDatabase() ? 
       const audit = await prisma.audit_logs.findMany({ where: { entity_id: record.id } });
       assert.doesNotMatch(JSON.stringify(audit), /authorization|cookie|access.?token|refresh.?token|password|credential|database_url/i);
       assert.ok(httpAssertions >= 25, `Expected at least 25 HTTP assertions, received ${httpAssertions}`);
+    });
+
+    await t.test('multiple DIRECTORs share one pending queue and the first decision wins atomically', async () => {
+      const director2 = await user('DIRECTOR_2', directorRole.id, 'GLOBAL', department.id, admin.id);
+      const director2Token = await login(director2.username);
+      const record = await bsc('SHARED_QUEUE');
+
+      await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/submit`).set(auth(tokens.employee)).send({}), 200);
+      const pendingStep = await prisma.bsc_approval_steps.findFirstOrThrow({
+        where: { employee_bsc_id: record.id, stage: 'PLAN' },
+      });
+      assert.equal(pendingStep.status, 'PENDING');
+      assert.equal(pendingStep.approver_id, null);
+      await prisma.bsc_approval_steps.update({
+        where: { id: pendingStep.id },
+        data: { approver_id: manager.id, approver_role: 'MANAGER' },
+      });
+
+      const [firstQueue, secondQueue] = await Promise.all([
+        request(server).get('/employee-bsc/pending-review?stage=PLAN&search=SHARED_QUEUE').set(auth(tokens.director)),
+        request(server).get('/employee-bsc/pending-review?stage=PLAN&search=SHARED_QUEUE').set(auth(director2Token)),
+      ]);
+      httpAssertions += 2;
+      assert.equal(firstQueue.status, 200);
+      assert.equal(secondQueue.status, 200);
+      assert.deepEqual(firstQueue.body.items.map((row: any) => row.id), [record.id]);
+      assert.deepEqual(secondQueue.body.items.map((row: any) => row.id), [record.id]);
+
+      const decisions = await Promise.all([
+        request(server).post(`/employee-bsc/${record.id}/plan/approve`).set(auth(tokens.director)).send({}),
+        request(server).post(`/employee-bsc/${record.id}/plan/return`).set(auth(director2Token)).send({ reason: 'Xử lý đồng thời' }),
+      ]);
+      httpAssertions += 2;
+      assert.deepEqual(decisions.map(response => response.status).sort(), [200, 409]);
+      const winnerId = decisions[0].status === 200 ? director.id : director2.id;
+
+      const [step, reviews, histories, audits] = await Promise.all([
+        prisma.bsc_approval_steps.findFirstOrThrow({ where: { employee_bsc_id: record.id, stage: 'PLAN' } }),
+        prisma.bsc_reviews.findMany({ where: { employee_bsc_id: record.id, stage: 'PLAN' } }),
+        prisma.bsc_status_histories.findMany({
+          where: { employee_bsc_id: record.id, stage: 'PLAN', action: { in: ['APPROVE_PLAN', 'RETURN_PLAN'] } },
+        }),
+        prisma.audit_logs.findMany({
+          where: { entity_id: record.id, action: { in: ['BSC_PLAN_APPROVED', 'BSC_PLAN_RETURNED'] } },
+        }),
+      ]);
+      assert.equal(step.approver_id, winnerId);
+      assert.equal(step.approver_role, 'DIRECTOR');
+      assert.equal(reviews.length, 1);
+      assert.equal(reviews[0].reviewer_id, winnerId);
+      assert.equal(histories.length, 1);
+      assert.equal(histories[0].changed_by, winnerId);
+      assert.equal(audits.length, 1);
+      assert.equal(audits[0].user_id, winnerId);
     });
   } finally {
     if (app) await app.close();

@@ -6,6 +6,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { AuditRequestMetadata } from '../employee-bsc/employee-bsc.types';
 import { BSC_CLASSIFICATIONS } from '../employee-bsc/services/bsc-classification.service';
 import { BscScoringService } from '../employee-bsc/services/bsc-scoring.service';
+import { DIRECTOR_REVIEW_PERMISSIONS, hasGlobalDirectorPermission } from '../bsc-reviewers/bsc-reviewer-resolver';
 import {
   BSC_REPORT_EXPORT_LIMIT,
   BSC_REPORT_GRADE_OPTIONS,
@@ -62,15 +63,19 @@ export class BscReportsService {
     const trendQuery = Object.assign(new BscReportFilterDto(), query, { cycleId: undefined });
     const trendWhere = await this.where(actor, trendQuery, access);
     const approvedWhere: Prisma.employee_bscWhereInput = { AND: [where, { evaluation_status: 'APPROVED', final_score: { not: null }, final_grade: { not: null } }] };
+    const sharedPlanQueue = hasGlobalDirectorPermission(actor, DIRECTOR_REVIEW_PERMISSIONS.PLAN);
+    const sharedEvaluationQueue = hasGlobalDirectorPermission(actor, DIRECTOR_REVIEW_PERMISSIONS.EVALUATION);
+    const sharedReopenQueue = hasGlobalDirectorPermission(actor, DIRECTOR_REVIEW_PERMISSIONS.REOPEN);
+    const assignedBscWhere: Prisma.employee_bscWhereInput = { AND: [where, this.activeManagerWhere(actor.id)] };
     const [totalBsc, planGroups, evaluationGroups, gradeGroups, average, pendingPlanReviews, pendingEvaluationReviews, pendingReopenRequests, departmentProgress, scoreTrend] = await Promise.all([
       this.prisma.employee_bsc.count({ where }),
       this.prisma.employee_bsc.groupBy({ by: ['plan_status'], where, _count: { _all: true } }),
       this.prisma.employee_bsc.groupBy({ by: ['evaluation_status'], where, _count: { _all: true } }),
       this.prisma.employee_bsc.groupBy({ by: ['final_grade'], where: approvedWhere, _count: { _all: true } }),
       this.prisma.employee_bsc.aggregate({ where: approvedWhere, _avg: { final_score: true } }),
-      this.prisma.bsc_approval_steps.count({ where: { approver_id: actor.id, stage: 'PLAN', status: 'PENDING', employee_bsc: { is: { AND: [where, this.activeManagerWhere(actor.id)] } } } }),
-      this.prisma.bsc_approval_steps.count({ where: { approver_id: actor.id, stage: 'EVALUATION', status: 'PENDING', employee_bsc: { is: { AND: [where, this.activeManagerWhere(actor.id)] } } } }),
-      this.prisma.bsc_unlock_requests.count({ where: { status: 'PENDING', reviewer_id: actor.id, employee_bsc: { AND: [where, this.activeManagerWhere(actor.id)] } } }),
+      this.prisma.bsc_approval_steps.count({ where: { ...(sharedPlanQueue ? {} : { approver_id: actor.id }), stage: 'PLAN', status: 'PENDING', employee_bsc: { is: sharedPlanQueue ? where : assignedBscWhere } } }),
+      this.prisma.bsc_approval_steps.count({ where: { ...(sharedEvaluationQueue ? {} : { approver_id: actor.id }), stage: 'EVALUATION', status: 'PENDING', employee_bsc: { is: sharedEvaluationQueue ? where : assignedBscWhere } } }),
+      this.prisma.bsc_unlock_requests.count({ where: { status: 'PENDING', ...(sharedReopenQueue ? {} : { reviewer_id: actor.id }), employee_bsc: sharedReopenQueue ? where : assignedBscWhere } }),
       this.departmentProgress(where),
       this.scoreTrend(trendWhere),
     ]);

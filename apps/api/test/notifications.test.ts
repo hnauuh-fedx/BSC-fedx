@@ -17,6 +17,7 @@ const id = {
   actor: '00000000-0000-4000-8000-000000000004',
   source: '00000000-0000-4000-8000-000000000005',
   director: '00000000-0000-4000-8000-000000000010',
+  director2: '00000000-0000-4000-8000-000000000012',
   department: '00000000-0000-4000-8000-000000000011',
 };
 
@@ -67,12 +68,45 @@ test('publisher resolves a personal PLAN submission to an eligible director and 
     (directorQuery as {
       where: {
         user_roles_user_roles_user_idTousers: {
-          some: { roles: { role_permissions: { some: { permissions: { code: string } } } } };
+          some: { roles: { role_permissions: { some: { permissions: { code: { in: string[] } } } } } };
         };
       };
     }).where.user_roles_user_roles_user_idTousers.some.roles.role_permissions.some.permissions,
-    { code: 'bsc.plan.approve.subordinate' },
+    { code: { in: ['bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate'] } },
   );
+});
+
+test('publisher notifies every eligible director in the shared review pool', async () => {
+  const recipients: string[] = [];
+  const db = {
+    employee_bsc: {
+      findUnique: async () => ({
+        id: id.bsc,
+        bsc_code: 'BSC_NV001',
+        employee_id: id.employee,
+        department_id: id.department,
+      }),
+    },
+    users: {
+      findUnique: async () => ({ full_name: 'Nhân viên' }),
+      findMany: async () => [{ id: id.director }, { id: id.director2 }],
+    },
+    notifications: {
+      upsert: async (args: { create: { recipient_id: string } }) => {
+        recipients.push(args.create.recipient_id);
+        return { id: `notification-${recipients.length}` };
+      },
+    },
+  } as unknown as Prisma.TransactionClient;
+
+  await createPublisher().publish(db, {
+    type: NOTIFICATION_EVENT.EMPLOYEE_BSC_PLAN_SUBMITTED,
+    resourceId: id.bsc,
+    sourceId: id.source,
+    actorId: id.actor,
+  });
+
+  assert.deepEqual(recipients, [id.director, id.director2]);
 });
 
 test('publisher sends a personal review result back to the BSC owner', async () => {
@@ -105,7 +139,7 @@ test('publisher sends a personal review result back to the BSC owner', async () 
   assert.equal(recipient, id.employee);
 });
 
-test('publisher sends a personal EVALUATION submission to the single global DIRECTOR', async () => {
+test('publisher sends a personal EVALUATION submission to the eligible DIRECTOR pool', async () => {
   const recipients: string[] = [];
   let directorQuery: unknown;
   const db = {
@@ -156,7 +190,7 @@ test('publisher sends a personal EVALUATION submission to the single global DIRE
           roles: {
             code: string;
             status: string;
-            role_permissions: { some: { permissions: { code: string } } };
+            role_permissions: { some: { permissions: { code: { in: string[] } } } };
           };
         };
       };
@@ -186,7 +220,10 @@ test('publisher sends a personal EVALUATION submission to the single global DIRE
   assert.deepEqual(assignment.roles, {
     code: 'DIRECTOR',
     status: 'ACTIVE',
-    role_permissions: { some: { permissions: { code: 'bsc.evaluation.approve.subordinate' } } },
+    role_permissions: { some: { permissions: { code: { in: [
+      'bsc.evaluation.approve.subordinate',
+      'bsc.evaluation.return.subordinate',
+    ] } } } },
   });
 });
 
@@ -302,11 +339,11 @@ test('reopen requests navigate each reviewer to the actionable queue', async () 
     (reopenDirectorQuery as {
       where: {
         user_roles_user_roles_user_idTousers: {
-          some: { roles: { role_permissions: { some: { permissions: { code: string } } } } };
+          some: { roles: { role_permissions: { some: { permissions: { code: { in: string[] } } } } } };
         };
       };
     }).where.user_roles_user_roles_user_idTousers.some.roles.role_permissions.some.permissions,
-    { code: 'bsc.reopen.subordinate' },
+    { code: { in: ['bsc.reopen.subordinate'] } },
   );
 });
 
