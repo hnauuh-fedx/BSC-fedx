@@ -12,7 +12,6 @@ import { Tabs, TabsList, TabsTrigger } from '../../../components/ui/tabs';
 import { Textarea } from '../../../components/ui/textarea';
 import { personalBscTitle } from '../../../lib/bsc-display';
 import { bscStageLabel } from '../../../lib/bsc-stage';
-import { PermissionGate } from '../../auth/components/permission-gate';
 import { AccessibleDialog, EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SearchInput } from '../../organization/management-ui';
 import { BscStatusBadge } from '../components/bsc-status-badge';
 import { BSC_PERMISSIONS } from '../constants/employee-bsc.constants';
@@ -22,19 +21,15 @@ import { EmployeeBsc } from '../types/employee-bsc.types';
 type Stage = 'PLAN' | 'EVALUATION';
 const LIMIT = 10;
 const ALL = 'ALL';
-const ALL_REVIEW = [
-  BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE,
-  BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
-  BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE,
-  BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE,
-];
 const formatDate = (value?: string | null) => value
   ? new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
   : '—';
 
 export const BscPendingReviewPage: React.FC = () => {
   const { state } = useAuthContext();
-  const permissions = state.user?.permissions ?? [];
+  const directorPermissions = new Set(state.user?.roles
+    .filter(role => role.code === 'DIRECTOR' && role.scopeType === 'GLOBAL')
+    .flatMap(role => role.permissions ?? []) ?? []);
   const [stage, setStage] = useState<Stage>('PLAN');
   const [items, setItems] = useState<EmployeeBsc[]>([]);
   const [cycles, setCycles] = useState<Array<{ id: string; name: string }>>([]);
@@ -59,7 +54,9 @@ export const BscPendingReviewPage: React.FC = () => {
   const returnPermission = stage === 'PLAN'
     ? BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE
     : BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE;
-  const allowed = permissions.includes(approvePermission) || permissions.includes(returnPermission);
+  const canApprove = directorPermissions.has(approvePermission);
+  const canReturn = directorPermissions.has(returnPermission);
+  const allowed = canApprove || canReturn;
 
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
@@ -144,8 +141,7 @@ export const BscPendingReviewPage: React.FC = () => {
     setError('');
   };
 
-  return <PermissionGate anyOf={ALL_REVIEW}>
-    <main>
+  return <main>
       <PageHeader
         title="BSC chờ duyệt"
         description="Xử lý độc lập nội dung kế hoạch và kết quả tự đánh giá theo đúng thẩm quyền."
@@ -198,8 +194,8 @@ export const BscPendingReviewPage: React.FC = () => {
             <CardContent className="flex flex-col gap-3">
               <dl><dt>Đơn vị</dt><dd>{item.departments.name}</dd><dt>Ngày nộp</dt><dd>{formatDate(stage === 'PLAN' ? item.plan_submitted_at : item.evaluation_submitted_at)}</dd><dt>Trạng thái</dt><dd><BscStatusBadge status={stage === 'PLAN' ? item.plan_status : item.evaluation_status}/></dd></dl>
               <div className="flex flex-col gap-2">
-                <PermissionGate permission={returnPermission}><Button className="min-h-11 w-full" variant="outline" disabled={Boolean(actingId)} onClick={() => { setReturning(item); setReason(''); }}><RotateCcwIcon data-icon="inline-start"/>Trả lại</Button></PermissionGate>
-                <PermissionGate permission={approvePermission}><Button className="min-h-11 w-full" disabled={Boolean(actingId)} onClick={() => setApproving(item)}><CheckIcon data-icon="inline-start"/>Duyệt</Button></PermissionGate>
+                {canReturn && <Button className="min-h-11 w-full" variant="outline" disabled={Boolean(actingId)} onClick={() => { setReturning(item); setReason(''); }}><RotateCcwIcon data-icon="inline-start"/>Trả lại</Button>}
+                {canApprove && <Button className="min-h-11 w-full" disabled={Boolean(actingId)} onClick={() => setApproving(item)}><CheckIcon data-icon="inline-start"/>Duyệt</Button>}
               </div>
             </CardContent>
           </Card>)}</div>
@@ -224,16 +220,16 @@ export const BscPendingReviewPage: React.FC = () => {
                   <TableCell>{formatDate(stage === 'PLAN' ? item.plan_submitted_at : item.evaluation_submitted_at)}</TableCell>
                   <TableCell><BscStatusBadge status={stage === 'PLAN' ? item.plan_status : item.evaluation_status}/></TableCell>
                   <TableCell><div className="flex flex-wrap justify-end gap-2">
-                    <PermissionGate permission={returnPermission}>
+                    {canReturn &&
                       <Button className="min-h-11 md:min-h-0" variant="outline" size="sm" disabled={Boolean(actingId)} onClick={() => { setReturning(item); setReason(''); }}>
                         <RotateCcwIcon data-icon="inline-start"/>Trả lại
                       </Button>
-                    </PermissionGate>
-                    <PermissionGate permission={approvePermission}>
+                    }
+                    {canApprove &&
                       <Button className="min-h-11 md:min-h-0" variant="outline" size="sm" disabled={Boolean(actingId)} onClick={() => setApproving(item)}>
                         <CheckIcon data-icon="inline-start"/>{actingId === item.id ? 'Đang xử lý…' : 'Duyệt'}
                       </Button>
-                    </PermissionGate>
+                    }
                   </div></TableCell>
                 </TableRow>)}</TableBody>
               </Table>
@@ -278,6 +274,5 @@ export const BscPendingReviewPage: React.FC = () => {
           <Button variant="outline" disabled={Boolean(actingId)} onClick={() => setReturning(null)}>Hủy</Button>
         </div>
       </AccessibleDialog>
-    </main>
-  </PermissionGate>;
+    </main>;
 };

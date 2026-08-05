@@ -51,6 +51,9 @@ export const BscDetailPage: React.FC = () => {
   const confirm = useSystemConfirm();
   const printRequested = searchParams.get('print') === '1', hasPrinted = useRef(false);
   const permissions = state.user?.permissions ?? [];
+  const canReviewReopenAsDirector = state.user?.roles.some(role => role.code === 'DIRECTOR'
+    && role.scopeType === 'GLOBAL'
+    && role.permissions?.includes(BSC_PERMISSIONS.REVIEW_REOPEN)) ?? false;
   const [bsc, setBsc] = useState<EmployeeBsc | null>(null), [loading, setLoading] = useState(true), [error, setError] = useState('');
   const [scoring, setScoring] = useState<BscScoringPreview | null>(null), [scoringLoading, setScoringLoading] = useState(true), [scoringError, setScoringError] = useState('');
   const [versions, setVersions] = useState<BscVersionSummary[]>([]), [versionsLoading, setVersionsLoading] = useState(false), [versionsError, setVersionsError] = useState('');
@@ -68,10 +71,15 @@ export const BscDetailPage: React.FC = () => {
 
   const load = useCallback(async (initial = false) => {
     if (initial) { setLoading(true); setError(''); }
-    try { setBsc(await employeeBscApi.detail(id)); }
+    try {
+      const result = await employeeBscApi.detail(id);
+      setBsc(result);
+      return result;
+    }
     catch (cause) {
       if (!initial) throw cause;
       setBsc(null); setError(cause instanceof Error ? cause.message : 'Không thể tải BSC.');
+      return null;
     }
     finally { if (initial) setLoading(false); }
   }, [id]);
@@ -92,13 +100,17 @@ export const BscDetailPage: React.FC = () => {
     catch (cause) { setVersions([]); setVersionsError(cause instanceof Error ? cause.message : 'Không thể tải lịch sử phiên bản.'); }
     finally { setVersionsLoading(false); }
   }, [id, permissions]);
-  const loadReopenRequests = useCallback(async () => {
-    if (!permissions.some(value => value === BSC_PERMISSIONS.REQUEST_REOPEN || value === BSC_PERMISSIONS.REVIEW_REOPEN)) { setReopenRequests([]); return; }
+  const loadReopenRequests = useCallback(async (ownerId?: string) => {
+    const canLoadAsOwner = state.user?.id === ownerId && permissions.includes(BSC_PERMISSIONS.REQUEST_REOPEN);
+    if (!canLoadAsOwner && !canReviewReopenAsDirector) { setReopenRequests([]); return; }
     setReopenError('');
     try { setReopenRequests(await employeeBscApi.reopenRequests(id)); }
     catch (cause) { setReopenRequests([]); setReopenError(cause instanceof Error ? cause.message : 'Không thể tải yêu cầu mở lại.'); }
-  }, [id, permissions]);
-  const reloadAll = useCallback(async (initial = false) => { await Promise.all([load(initial), loadScoring(initial), loadVersions(), loadReopenRequests()]); }, [load, loadScoring, loadVersions, loadReopenRequests]);
+  }, [canReviewReopenAsDirector, id, permissions, state.user?.id]);
+  const reloadAll = useCallback(async (initial = false) => {
+    const [loadedBsc] = await Promise.all([load(initial), loadScoring(initial), loadVersions()]);
+    await loadReopenRequests(loadedBsc?.employee_id);
+  }, [load, loadScoring, loadVersions, loadReopenRequests]);
   const refreshBscAndScoring = useCallback(async () => { await Promise.all([load(), loadScoring()]); }, [load, loadScoring]);
   useEffect(() => { void reloadAll(true); }, [reloadAll]);
   useEffect(() => {
@@ -183,12 +195,11 @@ export const BscDetailPage: React.FC = () => {
   if (error) return <main><ErrorState error={error} onRetry={() => void reloadAll(true)}/><Button variant="outline" asChild><Link to="/employee-bsc">Quay lại</Link></Button></main>;
   if (!bsc) return <main><EmptyState message="Không tìm thấy BSC."/></main>;
 
-  const isOwner = state.user?.id === bsc.employee_id, isReviewer = state.user?.id === bsc.direct_manager_id;
-  const isCanonicalManager = state.user?.roles.some(role => role.code === 'MANAGER') ?? false;
-  const hasReviewPermission = (permission: string) => !isOwner && ((!isCanonicalManager && isReviewer && permissions.includes(permission))
-    || (state.user?.roles.some(role => role.code === 'DIRECTOR'
-      && role.permissions?.includes(permission)
-      && (role.scopeType === 'GLOBAL' || (role.scopeType === 'DEPARTMENT' && role.scopeId === bsc.department_id))) ?? false));
+  const isOwner = state.user?.id === bsc.employee_id;
+  const hasReviewPermission = (permission: string) => !isOwner
+    && (state.user?.roles.some(role => role.code === 'DIRECTOR'
+      && role.scopeType === 'GLOBAL'
+      && role.permissions?.includes(permission)) ?? false);
   const cycleOpen = bsc.bsc_cycles.status === 'OPEN';
   const cycleBlockReason = bsc.bsc_cycles.status === 'LOCKED' ? 'Kỳ BSC đang bị khóa. Chủ sở hữu tạm thời không thể tạo, sửa hoặc nộp BSC.'
     : bsc.bsc_cycles.status === 'CLOSED' ? 'Kỳ BSC đang ở trạng thái CLOSED lịch sử.'
@@ -196,8 +207,7 @@ export const BscDetailPage: React.FC = () => {
     : null;
   const planEditable = ['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.plan_status) && bsc.evaluation_status === 'NOT_STARTED';
   const evaluationEditable = bsc.plan_status === 'APPROVED' && ['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.evaluation_status);
-  const canManage = cycleOpen && planEditable && ((isOwner && permissions.includes(BSC_PERMISSIONS.EDIT_OWN))
-    || (!isCanonicalManager && bsc.plan_status !== 'REOPENED' && isReviewer && permissions.includes(BSC_PERMISSIONS.MANAGE_KPI)));
+  const canManage = cycleOpen && planEditable && isOwner && permissions.includes(BSC_PERMISSIONS.EDIT_OWN);
   const canActual = cycleOpen && evaluationEditable && isOwner && permissions.some(value => value === BSC_PERMISSIONS.EDIT_OWN || value === BSC_PERMISSIONS.UPDATE_ACTUAL);
   const canSubmitPlan = cycleOpen && planEditable && isOwner && permissions.includes(BSC_PERMISSIONS.SUBMIT_PLAN_OWN);
   const canSubmitEvaluation = cycleOpen && evaluationEditable && isOwner && permissions.includes(BSC_PERMISSIONS.SUBMIT_EVALUATION_OWN);

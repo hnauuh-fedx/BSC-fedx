@@ -284,7 +284,7 @@ model employee_bsc {
   employee_id                                 String                 @db.Uuid
   department_id                               String                 @db.Uuid
   position_id                                 String                 @db.Uuid
-  direct_manager_id                           String                 @db.Uuid
+  direct_manager_id                           String?                @db.Uuid
   template_id                                 String?                @db.Uuid
   template_version                            Int?
   source_bsc_id                               String?                @db.Uuid
@@ -325,7 +325,7 @@ model employee_bsc {
   bsc_cycles                                  bsc_cycles             @relation(fields: [cycle_id], references: [id], onUpdate: NoAction, map: "employee_bsc_cycle_fk")
   departments                                 departments            @relation(fields: [department_id], references: [id], onUpdate: NoAction, map: "employee_bsc_department_fk")
   users_employee_bsc_employee_idTousers       users                  @relation("employee_bsc_employee_idTousers", fields: [employee_id], references: [id], onUpdate: NoAction, map: "employee_bsc_employee_fk")
-  users_employee_bsc_direct_manager_idTousers users                  @relation("employee_bsc_direct_manager_idTousers", fields: [direct_manager_id], references: [id], onUpdate: NoAction, map: "employee_bsc_manager_fk")
+  users_employee_bsc_direct_manager_idTousers users?                 @relation("employee_bsc_direct_manager_idTousers", fields: [direct_manager_id], references: [id], onUpdate: NoAction, map: "employee_bsc_manager_fk")
   positions                                   positions              @relation(fields: [position_id], references: [id], onUpdate: NoAction, map: "employee_bsc_position_fk")
   employee_bsc                                employee_bsc?          @relation("employee_bscToemployee_bsc", fields: [source_bsc_id], references: [id], onUpdate: NoAction, map: "employee_bsc_source_fk")
   other_employee_bsc                          employee_bsc[]         @relation("employee_bscToemployee_bsc")

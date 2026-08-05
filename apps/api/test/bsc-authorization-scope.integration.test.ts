@@ -121,10 +121,10 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
         kpi_name: 'Authorization KPI', target_value: 100, actual_value: evaluation === 'SUBMITTED' ? 100 : null, weight: 100,
         calculation_method: 'ACTUAL_DIV_TARGET', assigned_by: reviewerId } });
       if (plan === 'SUBMITTED') await prisma.bsc_approval_steps.create({ data: {
-        employee_bsc_id: created.id, stage: 'PLAN', step_order: 1, approver_id: reviewerId, approver_role: 'MANAGER', status: 'PENDING',
+        employee_bsc_id: created.id, stage: 'PLAN', step_order: 1, approver_id: directorA.id, approver_role: 'DIRECTOR', status: 'PENDING',
       } });
       if (evaluation === 'SUBMITTED') await prisma.bsc_approval_steps.create({ data: {
-        employee_bsc_id: created.id, stage: 'EVALUATION', step_order: 1, approver_id: reviewerId, approver_role: 'MANAGER', status: 'PENDING',
+        employee_bsc_id: created.id, stage: 'EVALUATION', step_order: 1, approver_id: directorA.id, approver_role: 'DIRECTOR', status: 'PENDING',
       } });
       return created;
     };
@@ -138,7 +138,7 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
     const employeeViewOnlyOtherDepartmentBsc = await bsc(employeeViewOnlyOtherDepartment, managerViewOnly.id);
     const approvedEmployeeBPlanVersion = await prisma.bsc_versions.create({ data: { employee_bsc_id: approvedEmployeeBBsc.id, version_number: 1, stage: 'PLAN', version_type: 'PLAN_APPROVED', snapshot: {}, created_by: managerB.id } });
     const directorReopenRequest = await prisma.bsc_unlock_requests.create({ data: { employee_bsc_id: approvedEmployeeBBsc.id, stage: 'PLAN', requested_by: employeeB2.id,
-      reviewer_id: managerB.id, request_reason: 'Outside scope', status: 'PENDING', source_version_id: approvedEmployeeBPlanVersion.id } });
+      reviewer_id: directorA.id, request_reason: 'System-wide director review', status: 'PENDING', source_version_id: approvedEmployeeBPlanVersion.id } });
 
     const created = await createApp(); app = created.app; await app.init(); const server = app.getHttpServer();
     const login = async (username: string) => (await request(server).post('/auth/login').send({ username, password }).expect(200)).body.accessToken as string;
@@ -167,15 +167,13 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       await request(server).post(`/employee-bsc/${employeeViewOnlyBsc.id}/evaluation/return`).set(auth(tokens.managerViewOnly)).send({ reason: 'Không hợp lệ' }).expect(403);
     });
 
-    await t.test('manager list, total, pending review and object endpoints are isolated', async () => {
+    await t.test('manager list and object endpoints are isolated while review endpoints stay forbidden', async () => {
       const list = await request(server).get('/employee-bsc?limit=100').set(auth(tokens.managerA)).expect(200);
       assert.deepEqual(list.body.items.map((row: { id: string }) => row.id), [employeeABsc.id]);
       assert.equal(list.body.total, 1);
       const injected = await request(server).get(`/employee-bsc?employeeId=${employeeB.id}&limit=100`).set(auth(tokens.managerA)).expect(200);
       assert.equal(injected.body.total, 0);
-      const pending = await request(server).get('/employee-bsc/pending-review?stage=PLAN&limit=100').set(auth(tokens.managerA)).expect(200);
-      assert.deepEqual(pending.body.items.map((row: { id: string }) => row.id), [employeeABsc.id]);
-      assert.equal(pending.body.total, 1);
+      await request(server).get('/employee-bsc/pending-review?stage=PLAN&limit=100').set(auth(tokens.managerA)).expect(403);
       await request(server).get(`/employee-bsc/${employeeBBsc.id}`).set(auth(tokens.managerA)).expect(403);
       await request(server).get(`/employee-bsc/${employeeBBsc.id}/scoring-preview`).set(auth(tokens.managerA)).expect(403);
       await request(server).get(`/employee-bsc/${approvedEmployeeBBsc.id}/versions`).set(auth(tokens.managerA)).expect(403);
@@ -189,8 +187,7 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       assert.equal(expired.body.total, 0);
       await request(server).get(`/employee-bsc/${employeeABsc.id}`).set(auth(tokens.managerA)).expect(403);
       await prisma.manager_relationships.update({ where: { id: employeeARelationship.id }, data: { start_date: new Date('2199-01-01'), end_date: null } });
-      const future = await request(server).get('/employee-bsc/pending-review?stage=PLAN&limit=100').set(auth(tokens.managerA)).expect(200);
-      assert.equal(future.body.total, 0);
+      await request(server).get('/employee-bsc/pending-review?stage=PLAN&limit=100').set(auth(tokens.managerA)).expect(403);
       await request(server).post(`/employee-bsc/${employeeABsc.id}/plan/approve`).set(auth(tokens.managerA)).send({}).expect(403);
       await prisma.manager_relationships.update({ where: { id: employeeARelationship.id }, data: { start_date: new Date('2020-01-01'), end_date: null } });
       await prisma.users.update({ where: { id: employeeA.id }, data: { status: 'INACTIVE' } });
@@ -202,14 +199,15 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       await prisma.users.update({ where: { id: managerA.id }, data: { status: 'ACTIVE' } });
     });
 
-    await t.test('manager reassignment moves pending work to the new active manager', async () => {
+    await t.test('manager reassignment changes visibility but never transfers approval authority', async () => {
       await prisma.manager_relationships.update({ where: { id: employeeARelationship.id }, data: { end_date: new Date('2020-02-01') } });
       await prisma.users.update({ where: { id: employeeA.id }, data: { direct_manager_id: managerA2.id } });
       await relationship(employeeA.id, managerA2.id, '2020-01-01');
-      assert.equal((await request(server).get('/employee-bsc/pending-review?stage=PLAN&limit=100').set(auth(tokens.managerA))).body.total, 0);
-      const pending = await request(server).get('/employee-bsc/pending-review?stage=PLAN&limit=100').set(auth(tokens.managerA2)).expect(200);
-      assert.deepEqual(pending.body.items.map((row: { id: string }) => row.id), [employeeABsc.id]);
-      await request(server).post(`/employee-bsc/${employeeABsc.id}/plan/approve`).set(auth(tokens.managerA2)).send({}).expect(200);
+      assert.equal((await request(server).get('/employee-bsc?limit=100').set(auth(tokens.managerA)).expect(200)).body.total, 0);
+      const visible = await request(server).get('/employee-bsc?limit=100').set(auth(tokens.managerA2)).expect(200);
+      assert.deepEqual(visible.body.items.map((row: { id: string }) => row.id), [employeeABsc.id]);
+      await request(server).get('/employee-bsc/pending-review?stage=PLAN&limit=100').set(auth(tokens.managerA2)).expect(403);
+      await request(server).post(`/employee-bsc/${employeeABsc.id}/plan/approve`).set(auth(tokens.managerA2)).send({}).expect(403);
     });
 
     await t.test('DIRECTOR can approve and return PLAN and EVALUATION across visible Manager and Employee BSCs', async () => {
@@ -245,7 +243,7 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       assert.equal(returnedEvaluation.body.direct_manager_id, directorA.id);
     });
 
-    await t.test('DIRECTOR can review a reopen request assigned to the direct manager within scope', async () => {
+    await t.test('DIRECTOR can review a reopen request assigned independently from the direct manager', async () => {
       const pending = await request(server).get('/employee-bsc/reopen-requests/pending?stage=PLAN&limit=100')
         .set(auth(tokens.directorA)).expect(200);
       assert.ok(pending.body.items.some((item: { id: string }) => item.id === directorReopenRequest.id));

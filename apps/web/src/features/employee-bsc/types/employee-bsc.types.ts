@@ -8,7 +8,7 @@ export type BscItem = {
 export type BscGoalGroup = { code: string; marker: string; name: string; displayOrder: number };
 export type EmployeeBsc = {
   id: string; bsc_code: string; cycle_id: string; employee_id: string; department_id: string; position_id: string;
-  direct_manager_id: string; status: string; employee_comment: string | null; created_at: string; updated_at: string;
+  direct_manager_id: string | null; status: string; employee_comment: string | null; created_at: string; updated_at: string;
   source_bsc_id?: string | null; source_bsc_version_id?: string | null;
   plan_status: 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'REOPENED';
   evaluation_status: 'NOT_STARTED' | 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'REOPENED';
@@ -21,7 +21,7 @@ export type EmployeeBsc = {
       start_date?: string; end_date?: string | null;
   };
   users_employee_bsc_employee_idTousers: { id: string; employee_code: string; full_name: string; email: string };
-  users_employee_bsc_direct_manager_idTousers?: { id: string; employee_code: string; full_name: string; email?: string };
+  users_employee_bsc_direct_manager_idTousers?: { id: string; employee_code: string; full_name: string; email?: string } | null;
   departments: { id: string; code: string; name: string };
   positions?: { id: string; code: string; name: string; level: number };
   employee_bsc_items?: BscItem[];

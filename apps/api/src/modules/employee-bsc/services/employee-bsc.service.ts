@@ -40,11 +40,6 @@ export class EmployeeBscService {
     if (employee.departments.status !== 'ACTIVE' || employee.positions.status !== 'ACTIVE') {
       throw new BadRequestException({ code: 'BSC_OWNER_ORGANIZATION_INACTIVE', message: 'Đơn vị và chức danh của người lập phải đang hoạt động.' });
     }
-    if (!employee.direct_manager_id || !employee.users || employee.users.status !== 'ACTIVE' || employee.users.deleted_at) {
-      throw new BadRequestException({ code: 'BSC_MANAGER_REQUIRED', message: 'Không xác định được quản lý trực tiếp đang hoạt động.' });
-    }
-    await this.policy.assertHasActiveReviewer({ employee_id: employee.id, department_id: employee.department_id,
-      direct_manager_id: employee.direct_manager_id, plan_status: 'DRAFT', evaluation_status: 'NOT_STARTED' });
     try {
       return await this.repository.createDraft({
         actor,
@@ -177,10 +172,6 @@ export class EmployeeBscService {
           || snapshot.position_status !== 'ACTIVE') {
           throw new BadRequestException({ code: 'BSC_REOPEN_NOT_ALLOWED', message: 'Chủ sở hữu hoặc tổ chức không hoạt động.' });
         }
-        if (snapshot.reviewer_status !== 'ACTIVE' || snapshot.reviewer_deleted_at || !snapshot.reviewer_matches_owner
-          || !snapshot.reviewer_organization_active) {
-          throw new BadRequestException({ code: 'BSC_REOPEN_REVIEWER_REQUIRED', message: 'Không xác định được người duyệt hiện tại.' });
-        }
       });
     } catch (error) {
       if ((error as { code?: string }).code === 'P2002') {
@@ -257,7 +248,6 @@ export class EmployeeBscService {
     const bsc = await this.requireBsc(id);
     await this.policy.assertActiveResource(bsc);
     this.policy.assertCanSubmitOwn(actor, bsc, BSC_PERMISSIONS.SUBMIT_PLAN_OWN);
-    await this.policy.assertHasActiveReviewer(bsc);
     return this.repository.submitPlanWorkflow(actor, id, metadata, (snapshot) => {
       this.workflow.assertCanSubmitPlan(actor, this.workflowContext(snapshot), this.planDefinition(snapshot));
     });
@@ -275,7 +265,6 @@ export class EmployeeBscService {
     const bsc = await this.requireBsc(id);
     await this.policy.assertActiveResource(bsc);
     this.policy.assertCanSubmitOwn(actor, bsc, BSC_PERMISSIONS.SUBMIT_EVALUATION_OWN);
-    await this.policy.assertHasActiveReviewer(bsc);
     return this.repository.submitEvaluationWorkflow(actor, id, metadata, (snapshot) => {
       const result = this.scoreSnapshot(snapshot);
       this.workflow.assertCanSubmitEvaluation(actor, this.workflowContext(snapshot), result);
@@ -400,12 +389,10 @@ export class EmployeeBscService {
 
   private workflowContext(snapshot: WorkflowSnapshot) {
     return {
-      employeeId: snapshot.employee_id, directManagerId: snapshot.direct_manager_id, departmentId: snapshot.department_id,
+      employeeId: snapshot.employee_id, departmentId: snapshot.department_id,
       planStatus: snapshot.plan_status, evaluationStatus: snapshot.evaluation_status, cycleStatus: snapshot.cycle_status,
       ownerActive: snapshot.owner_status === 'ACTIVE' && snapshot.owner_deleted_at === null,
       ownerOrganizationActive: snapshot.department_status === 'ACTIVE' && snapshot.position_status === 'ACTIVE',
-      reviewerActive: snapshot.reviewer_status === 'ACTIVE' && snapshot.reviewer_deleted_at === null
-        && snapshot.reviewer_matches_owner && snapshot.reviewer_organization_active,
     };
   }
 
@@ -414,12 +401,10 @@ export class EmployeeBscService {
     if (request.cycle_status === 'CLOSED') {
       throw new ConflictException({ code: 'BSC_CYCLE_CLOSED', message: 'Kỳ BSC đã kết thúc nên không thể phê duyệt yêu cầu mở lại.' });
     }
-    const directorOverride = this.policy.canReviewAsDirector(actor, BSC_PERMISSIONS.REVIEW_REOPEN, request.department_id);
-    if (!directorOverride && (request.reviewer_id !== actor.id || request.direct_manager_id !== actor.id
-      || request.owner_current_manager_id !== actor.id)) {
-      throw new ConflictException({ code: 'BSC_REOPEN_REVIEWER_CHANGED', message: 'Người duyệt trực tiếp đã thay đổi; yêu cầu cũ không thể xử lý.' });
+    if (!this.policy.canReviewAsDirector(actor, BSC_PERMISSIONS.REVIEW_REOPEN, request.department_id)) {
+      throw new ForbiddenException({ code: 'BSC_ACCESS_DENIED', message: 'Chỉ Giám đốc được xử lý yêu cầu mở lại BSC.' });
     }
-    if (!request.owner_active || !request.reviewer_active || !request.organization_active) {
+    if (!request.owner_active || !request.organization_active) {
       throw new BadRequestException({ code: 'BSC_REOPEN_NOT_ALLOWED', message: 'BSC, người dùng hoặc tổ chức không còn đủ điều kiện mở lại.' });
     }
     const stageStatus = request.stage === 'PLAN' ? request.plan_status : request.evaluation_status;

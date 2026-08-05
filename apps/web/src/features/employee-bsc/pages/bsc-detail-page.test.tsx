@@ -259,6 +259,7 @@ describe('BscDetailPage background refresh', () => {
       BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE,
       BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
       BSC_PERMISSIONS.REVIEW_REOPEN,
+      BSC_PERMISSIONS.REQUEST_REOPEN,
     ];
     vi.mocked(useAuthContext).mockReturnValue({
       state: {
@@ -283,6 +284,7 @@ describe('BscDetailPage background refresh', () => {
     expect(await screen.findByRole('button', { name: /KPI/ })).toBeVisible();
     expect(screen.queryByRole('button', { name: /Duy.*BSC/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Tr.*l.*BSC/ })).not.toBeInTheDocument();
+    expect(employeeBscApi.reopenRequests).not.toHaveBeenCalled();
   });
 
   it('shows EVALUATION approval and return actions to a DIRECTOR in scope', async () => {

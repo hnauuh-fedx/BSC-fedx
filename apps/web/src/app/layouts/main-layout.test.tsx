@@ -22,6 +22,14 @@ const managerAuth = (permissions: string[]) => mockedUseAuth.mockReturnValue({
   isAuthenticated: true, isLoading: false, status: 'authenticated', login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(),
 });
 
+const directorAuth = (permissions: string[]) => mockedUseAuth.mockReturnValue({
+  user: {
+    id: 'director-1', employeeCode: 'D001', fullName: 'Director', email: 'director@example.test', departmentId: 'system', status: 'ACTIVE',
+    roles: [{ code: 'DIRECTOR' as const, scopeType: 'GLOBAL' as const, scopeId: null, permissions }], permissions,
+  },
+  isAuthenticated: true, isLoading: false, status: 'authenticated', login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(),
+});
+
 describe('MainLayout navigation permissions', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -41,7 +49,7 @@ describe('MainLayout navigation permissions', () => {
   });
 
   it('shows the reopen review queue when the user can review reopen requests', () => {
-    auth(['bsc.reopen.subordinate']);
+    directorAuth(['bsc.reopen.subordinate']);
     render(<MemoryRouter><MainLayout><p>Nội dung</p></MainLayout></MemoryRouter>);
     expect(screen.getByRole('link', { name: 'Yêu cầu mở lại' }))
       .toHaveAttribute('href', '/management/bsc-reopen-requests');
@@ -50,6 +58,26 @@ describe('MainLayout navigation permissions', () => {
   it('hides review queues for the canonical MANAGER role even when stale permissions remain', () => {
     managerAuth(['bsc.plan.approve.subordinate', 'bsc.reopen.subordinate']);
     render(<MemoryRouter><MainLayout><p>Content</p></MainLayout></MemoryRouter>);
+    expect(screen.queryByRole('link', { name: /Ch.*duy/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Y.*u c.*u m/ })).not.toBeInTheDocument();
+  });
+
+  it('does not borrow stale MANAGER permissions for a GLOBAL DIRECTOR assignment', () => {
+    const stalePermissions = ['bsc.plan.approve.subordinate', 'bsc.reopen.subordinate'];
+    mockedUseAuth.mockReturnValue({
+      user: {
+        id: 'mixed-1', employeeCode: 'MX001', fullName: 'Mixed role', email: 'mixed@example.test', departmentId: 'd1', status: 'ACTIVE',
+        roles: [
+          { code: 'DIRECTOR' as const, scopeType: 'GLOBAL' as const, scopeId: null, permissions: [] },
+          { code: 'MANAGER' as const, scopeType: 'DEPARTMENT' as const, scopeId: 'd1', permissions: stalePermissions },
+        ],
+        permissions: stalePermissions,
+      },
+      isAuthenticated: true, isLoading: false, status: 'authenticated', login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(),
+    });
+
+    render(<MemoryRouter><MainLayout><p>Content</p></MainLayout></MemoryRouter>);
+
     expect(screen.queryByRole('link', { name: /Ch.*duy/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Y.*u c.*u m/ })).not.toBeInTheDocument();
   });

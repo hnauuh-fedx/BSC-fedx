@@ -13,6 +13,7 @@ const password = 'BscVersion!Test#1';
 const ids = {
   users: [] as string[], roles: [] as string[], permissions: [] as string[], departments: [] as string[],
   positions: [] as string[], cycles: [] as string[], bscs: [] as string[],
+  rolePermissions: [] as Array<{ role_id: string; permission_id: string }>,
 };
 let httpAssertions = 0;
 
@@ -42,6 +43,7 @@ async function cleanup() {
     await prisma.role_permissions.deleteMany({ where: { role_id: { in: roleIds } } });
     await prisma.roles.deleteMany({ where: { id: { in: roleIds } } });
   }
+  for (const pair of ids.rolePermissions) await prisma.role_permissions.deleteMany({ where: pair });
   for (const id of ids.permissions) {
     if (await prisma.role_permissions.count({ where: { permission_id: id } }) === 0) await prisma.permissions.deleteMany({ where: { id } });
   }
@@ -98,7 +100,7 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       BSC_PERMISSIONS.REVIEW_REOPEN, BSC_PERMISSIONS.VIEW_VERSION,
     ]);
     const hash = await argon2.hash(password);
-    const user = async (name: string, roleId: string, departmentId: string, scope: 'SELF'|'DEPARTMENT', managerId?: string) => {
+    const user = async (name: string, roleId: string, departmentId: string, scope: 'SELF'|'DEPARTMENT'|'GLOBAL', managerId?: string) => {
       const result = await prisma.users.create({ data: {
         employee_code: `${marker}_${name}`, username: String(`${marker}_${name}`).toLowerCase(), full_name: `${marker} ${name}`,
         email: `${marker.toLowerCase()}_${name.toLowerCase()}@example.test`, password_hash: hash,
@@ -119,6 +121,24 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
     const rootManager = await user('ROOT', managerRole.id, department.id, 'DEPARTMENT');
     const manager = await user('MANAGER', managerRole.id, department.id, 'DEPARTMENT', rootManager.id);
     const otherManager = await user('OTHER_MANAGER', managerRole.id, otherDepartment.id, 'DEPARTMENT', rootManager.id);
+    let directorRole = await prisma.roles.findUnique({ where: { code: 'DIRECTOR' } });
+    const createdDirectorRole = !directorRole;
+    if (!directorRole) {
+      directorRole = await prisma.roles.create({ data: { code: 'DIRECTOR', name: 'Director', hierarchy_level: 2, is_system: true, status: 'ACTIVE' } });
+      ids.roles.push(directorRole.id);
+    }
+    const directorPermissionIds = await prisma.permissions.findMany({ where: { code: { in: [
+      BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
+      BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE,
+      BSC_PERMISSIONS.REVIEW_REOPEN, BSC_PERMISSIONS.VIEW_VERSION,
+    ] } }, select: { id: true } });
+    for (const permission of directorPermissionIds) {
+      const pair = { role_id: directorRole.id, permission_id: permission.id };
+      const existing = await prisma.role_permissions.findUnique({ where: { role_id_permission_id: pair } });
+      await prisma.role_permissions.upsert({ where: { role_id_permission_id: pair }, create: pair, update: {} });
+      if (!createdDirectorRole && !existing) ids.rolePermissions.push(pair);
+    }
+    const director = await user('DIRECTOR', directorRole.id, department.id, 'GLOBAL');
     const employee = await user('EMPLOYEE', employeeRole.id, department.id, 'SELF', manager.id);
     const employee2 = await user('EMPLOYEE2', employeeRole.id, department.id, 'SELF', manager.id);
     let cycleCounter = 0;
@@ -146,19 +166,19 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
     };
     const created = await createApp(); app = created.app; await app.init(); const server = app.getHttpServer();
     const login = async (username: string) => (await request(server).post('/auth/login').send({ username, password }).expect(200)).body.accessToken as string;
-    const tokens = { manager: await login(manager.username), otherManager: await login(otherManager.username), employee: await login(employee.username), employee2: await login(employee2.username) };
+    const tokens = { manager: await login(manager.username), otherManager: await login(otherManager.username), employee: await login(employee.username), employee2: await login(employee2.username), director: await login(director.username) };
     const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
     const expectHttp = async (call: any, status: number) => { httpAssertions += 1; return call.expect(status); };
     const approvePlan = async (record: { id: string }, ownerToken = tokens.employee) => {
       await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/submit`).set(auth(ownerToken)).send({}), 200);
-      await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/approve`).set(auth(tokens.manager)).send({}), 200);
+      await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/approve`).set(auth(tokens.director)).send({}), 200);
     };
     const approveEvaluation = async (record: { id: string }, ownerToken = tokens.employee) => {
       await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/submit`).set(auth(ownerToken)).send({}), 200);
-      await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/approve`).set(auth(tokens.manager)).send({}), 200);
+      await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/approve`).set(auth(tokens.director)).send({}), 200);
     };
 
-    await t.test('reopen eligibility rejects every non-approved stage, wrong owner and inactive reviewer', async () => {
+    await t.test('reopen eligibility rejects every non-approved stage and wrong owner but ignores manager status', async () => {
       for (const [index, status] of ['DRAFT', 'SUBMITTED', 'RETURNED', 'REOPENED'].entries()) {
         const record = await createBsc(`PLAN_${status}`, employee, await cycle(index + 1, 'OPEN', 2090));
         await prisma.employee_bsc.update({ where: { id: record.id }, data: { plan_status: status } });
@@ -178,12 +198,12 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       await expectHttp(request(server).post(`/employee-bsc/${wrongOwner.id}/reopen-requests`).set(auth(tokens.employee2))
         .send({ stage: 'PLAN', reason: 'Sai owner' }), 403);
       await prisma.users.update({ where: { id: manager.id }, data: { status: 'INACTIVE' } });
-      const inactiveReviewer = await expectHttp(request(server).post(`/employee-bsc/${wrongOwner.id}/reopen-requests`).set(auth(tokens.employee))
-        .send({ stage: 'PLAN', reason: 'Reviewer inactive' }), 400);
-      assert.equal(inactiveReviewer.body.code, 'BSC_REOPEN_REVIEWER_REQUIRED');
-      await prisma.users.update({ where: { id: manager.id }, data: { status: 'ACTIVE' } });
       await expectHttp(request(server).post(`/employee-bsc/${wrongOwner.id}/reopen-requests`).set(auth(tokens.employee))
         .send({ stage: 'PLAN', reason: '   ' }), 400);
+      const requestCreated = await expectHttp(request(server).post(`/employee-bsc/${wrongOwner.id}/reopen-requests`).set(auth(tokens.employee))
+        .send({ stage: 'PLAN', reason: 'Manager status must not select reviewer' }), 201);
+      assert.equal(requestCreated.body.reviewer_id, director.id);
+      await prisma.users.update({ where: { id: manager.id }, data: { status: 'ACTIVE' } });
     });
 
     await t.test('approval creates immutable scoped PLAN and EVALUATION versions', async () => {
@@ -203,6 +223,8 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       assert.deepEqual(list.body.map((row: any) => [row.versionNumber, row.versionType]), [[2, 'EVALUATION_APPROVED'], [1, 'PLAN_APPROVED']]);
       const evaluation = await expectHttp(request(server).get(`/employee-bsc/${record.id}/versions/${list.body[0].id}`).set(auth(tokens.employee)), 200);
       assert.equal(evaluation.body.snapshot.finalScore, '90'); assert.equal(evaluation.body.snapshot.finalGrade, 'A');
+      assert.equal(evaluation.body.snapshot.reviewer.id, director.id);
+      assert.equal(evaluation.body.snapshot.directManager.id, manager.id);
       assert.equal(evaluation.body.snapshot.items[0].rawAchievementPercentage, 90);
       assert.equal(evaluation.body.snapshot.employeeComment, 'Ghi chú nhân viên');
       assert.equal(evaluation.body.snapshot.managerComment, 'Ghi chú quản lý');
@@ -226,7 +248,7 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       assert.equal(createdRequest.body.request_reason, 'Sửa kết quả');
       await expectHttp(request(server).patch(`/employee-bsc/${record.id}/items/${record.item.id}/actual`).set(auth(tokens.employee)).send({ actualValue: 95 }), 403);
       await expectHttp(request(server).post(`/employee-bsc/${record.id}/reopen-requests`).set(auth(tokens.employee)).send({ stage: 'EVALUATION', reason: 'Trùng' }), 409);
-      const approved = await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${createdRequest.body.id}/approve`).set(auth(tokens.manager)).send({}), 200);
+      const approved = await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${createdRequest.body.id}/approve`).set(auth(tokens.director)).send({}), 200);
       assert.equal(approved.body.status, 'APPROVED');
       const active = await prisma.employee_bsc.findUniqueOrThrow({ where: { id: record.id }, include: { employee_bsc_items: true } });
       assert.equal(active.plan_status, 'APPROVED'); assert.equal(active.evaluation_status, 'REOPENED');
@@ -248,10 +270,10 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       const reopen = await expectHttp(request(server).post(`/employee-bsc/${record.id}/reopen-requests`).set(auth(tokens.employee))
         .send({ stage: 'PLAN', reason: 'Đổi chỉ tiêu' }), 201);
       await prisma.bsc_cycles.update({ where: { id: record.cycle_id }, data: { status: 'CLOSED' } });
-      const closedDecision = await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/approve`).set(auth(tokens.manager)).send({}), 409);
+      const closedDecision = await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/approve`).set(auth(tokens.director)).send({}), 409);
       assert.equal(closedDecision.body.code, 'BSC_CYCLE_CLOSED');
       await prisma.bsc_cycles.update({ where: { id: record.cycle_id }, data: { status: 'OPEN' } });
-      await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/approve`).set(auth(tokens.manager)).send({}), 200);
+      await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/approve`).set(auth(tokens.director)).send({}), 200);
       const expired = await prisma.bsc_unlock_requests.findUniqueOrThrow({ where: { id: evaluationReopen.body.id } });
       assert.equal(expired.status, 'EXPIRED');
       const reset = await prisma.employee_bsc.findUniqueOrThrow({ where: { id: record.id }, include: { employee_bsc_items: true } });
@@ -270,8 +292,8 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       await approvePlan(rejectedRecord);
       const reopen = await expectHttp(request(server).post(`/employee-bsc/${rejectedRecord.id}/reopen-requests`).set(auth(tokens.employee))
         .send({ stage: 'PLAN', reason: 'Xin sửa' }), 201);
-      await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/reject`).set(auth(tokens.manager)).send({ reason: ' ' }), 400);
-      await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/reject`).set(auth(tokens.manager)).send({ reason: '<b>Không chấp thuận</b>' }), 200);
+      await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/reject`).set(auth(tokens.director)).send({ reason: ' ' }), 400);
+      await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/reject`).set(auth(tokens.director)).send({ reason: '<b>Không chấp thuận</b>' }), 200);
       const unchanged = await prisma.employee_bsc.findUniqueOrThrow({ where: { id: rejectedRecord.id } });
       assert.equal(unchanged.plan_status, 'APPROVED');
       assert.equal(await prisma.bsc_versions.count({ where: { employee_bsc_id: rejectedRecord.id, version_type: 'BEFORE_PLAN_REOPEN' } }), 0);
@@ -289,7 +311,7 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
         snapshot: sourceVersion.snapshot,
         created_by: manager.id,
       } });
-      const staleVersionDecision = await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${staleVersionRequest.body.id}/approve`).set(auth(tokens.manager)).send({}), 409);
+      const staleVersionDecision = await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${staleVersionRequest.body.id}/approve`).set(auth(tokens.director)).send({}), 409);
       assert.equal(staleVersionDecision.body.code, 'BSC_REOPEN_SOURCE_VERSION_STALE');
 
       const raceRecord = await createBsc('REQUEST_RACE', employee2, await cycle(5));
@@ -299,8 +321,8 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       httpAssertions += 2; assert.deepEqual(requests.map(row => row.status).sort(), [201, 409]);
       const requestId = requests.find(row => row.status === 201)!.body.id;
       const decisions = await Promise.all([
-        request(server).post(`/employee-bsc/reopen-requests/${requestId}/approve`).set(auth(tokens.manager)).send({}),
-        request(server).post(`/employee-bsc/reopen-requests/${requestId}/reject`).set(auth(tokens.manager)).send({ reason: 'Race reject' }),
+        request(server).post(`/employee-bsc/reopen-requests/${requestId}/approve`).set(auth(tokens.director)).send({}),
+        request(server).post(`/employee-bsc/reopen-requests/${requestId}/reject`).set(auth(tokens.director)).send({ reason: 'Race reject' }),
       ]);
       httpAssertions += 2; assert.deepEqual(decisions.map(row => row.status).sort(), [200, 409]);
       assert.equal(await prisma.bsc_versions.count({ where: { employee_bsc_id: raceRecord.id, version_type: 'BEFORE_PLAN_REOPEN' } }), decisions.find(row => row.status === 200)!.body.status === 'APPROVED' ? 1 : 0);
@@ -310,7 +332,7 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       const approveRaceRequest = await expectHttp(request(server).post(`/employee-bsc/${approveRaceRecord.id}/reopen-requests`).set(auth(tokens.employee2))
         .send({ stage: 'PLAN', reason: 'Two approve race' }), 201);
       const approveRace = await Promise.all([0, 1].map(() => request(server)
-        .post(`/employee-bsc/reopen-requests/${approveRaceRequest.body.id}/approve`).set(auth(tokens.manager)).send({})));
+        .post(`/employee-bsc/reopen-requests/${approveRaceRequest.body.id}/approve`).set(auth(tokens.director)).send({})));
       httpAssertions += 2;
       assert.deepEqual(approveRace.map(row => row.status).sort(), [200, 409]);
       assert.equal(await prisma.bsc_versions.count({ where: { employee_bsc_id: approveRaceRecord.id, version_type: 'BEFORE_PLAN_REOPEN' } }), 1);
@@ -323,7 +345,7 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       await approvePlan(source);
       const reopen = await expectHttp(request(server).post(`/employee-bsc/${source.id}/reopen-requests`).set(auth(tokens.employee))
         .send({ stage: 'PLAN', reason: 'Draft target 150' }), 201);
-      await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/approve`).set(auth(tokens.manager)).send({}), 200);
+      await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/approve`).set(auth(tokens.director)).send({}), 200);
       await expectHttp(request(server).patch(`/employee-bsc/${source.id}/items/${source.item.id}`).set(auth(tokens.employee)).send({ targetValue: 150 }), 200);
       const options = await expectHttp(request(server).get(`/employee-bsc/${source.id}/duplicate-options`).set(auth(tokens.employee)), 200);
       assert.equal(options.body.suggestedCycleId, targetCycle1.id);
@@ -335,7 +357,7 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       assert.equal(first.body.employee_bsc_items[0].actual_value, null); assert.equal(first.body.final_score, null);
       assert.equal(first.body.direct_manager_id, manager.id); assert.equal(first.body.department_id, department.id);
       await expectHttp(request(server).post(`/employee-bsc/${source.id}/plan/submit`).set(auth(tokens.employee)).send({}), 200);
-      await expectHttp(request(server).post(`/employee-bsc/${source.id}/plan/approve`).set(auth(tokens.manager)).send({}), 200);
+      await expectHttp(request(server).post(`/employee-bsc/${source.id}/plan/approve`).set(auth(tokens.director)).send({}), 200);
       const second = await expectHttp(request(server).post(`/employee-bsc/${source.id}/duplicate`).set(auth(tokens.employee)).send({ targetCycleId: targetCycle2.id }), 201);
       assert.equal(Number(second.body.employee_bsc_items[0].target_value), 100);
       const duplicates = await Promise.all([0, 1].map(() => request(server).post(`/employee-bsc/${source.id}/duplicate`)
@@ -359,8 +381,8 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
         where: { employee_id: employee.id, manager_id: manager.id, is_primary: true },
         data: { end_date: new Date('2020-01-02T00:00:00Z') },
       });
-      const invalidManager = await expectHttp(request(server).post(`/employee-bsc/${source.id}/duplicate`).set(auth(tokens.employee)).send({ targetCycleId: targetCycle5.id }), 400);
-      assert.equal(invalidManager.body.code, 'BSC_REOPEN_REVIEWER_REQUIRED');
+      const withoutActiveManager = await expectHttp(request(server).post(`/employee-bsc/${source.id}/duplicate`).set(auth(tokens.employee)).send({ targetCycleId: targetCycle5.id }), 201);
+      assert.equal(withoutActiveManager.body.direct_manager_id, manager.id);
     });
 
     await t.test('duplicate suggestion crosses year, skips CLOSED cycles and returns null without OPEN target', async () => {
@@ -380,15 +402,15 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       assert.deepEqual(noOptions.body.cycles, []);
     });
 
-    await t.test('reviewer change makes pending request stale and public payloads remain secret-free', async () => {
+    await t.test('manager change does not change the assigned DIRECTOR reviewer and public payloads remain secret-free', async () => {
       const record = await createBsc('STALE', employee2, await cycle(12));
       await approvePlan(record, tokens.employee2);
       const reopen = await expectHttp(request(server).post(`/employee-bsc/${record.id}/reopen-requests`).set(auth(tokens.employee2))
         .send({ stage: 'PLAN', reason: 'Reviewer đổi' }), 201);
       await prisma.users.update({ where: { id: employee2.id }, data: { direct_manager_id: rootManager.id } });
-      const stale = await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/approve`).set(auth(tokens.manager)).send({}), 409);
-      assert.equal(stale.body.code, 'BSC_REOPEN_REVIEWER_CHANGED');
-      const pending = await expectHttp(request(server).get('/employee-bsc/reopen-requests/pending?stage=PLAN&page=1&limit=10').set(auth(tokens.manager)), 200);
+      const approved = await expectHttp(request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/approve`).set(auth(tokens.director)).send({}), 200);
+      assert.equal(approved.body.status, 'APPROVED');
+      const pending = await expectHttp(request(server).get('/employee-bsc/reopen-requests/pending?stage=PLAN&page=1&limit=10').set(auth(tokens.director)), 200);
       assert.ok(!pending.body.items.some((row: any) => row.id === reopen.body.id));
       assert.doesNotMatch(JSON.stringify(pending.body), /password|token|cookie|authorization|credential|user.?agent|ip.?address/i);
       const audits = await prisma.audit_logs.findMany({ where: { user_id: { in: ids.users } } });

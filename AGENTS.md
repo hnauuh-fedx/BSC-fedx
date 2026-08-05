@@ -8,8 +8,8 @@ Xây dựng hệ thống quản lý BSC/KPI theo tháng, phục vụ quy trình:
 2. Người lập thêm KPO, KPI, chỉ tiêu, tỷ trọng và tần suất đo.
 3. Người lập cập nhật kết quả thực hiện.
 4. Hệ thống tính và hiển thị điểm.
-5. Người lập nộp BSC cho cấp trên trực tiếp.
-6. Cấp trên duyệt hoặc trả lại để chỉnh sửa.
+5. Người lập nộp BSC cho DIRECTOR toàn hệ thống.
+6. DIRECTOR duyệt hoặc trả lại để chỉnh sửa.
 7. BSC đã duyệt được dùng cho thống kê, đánh giá và hồ sơ bảng lương.
 
 Hệ thống phải có quy trình trạng thái rõ ràng, phân quyền theo vai trò và phạm vi tổ chức, đồng thời lưu lịch sử thao tác.
@@ -104,17 +104,17 @@ DIRECTOR không có BSC cá nhân.
 
 DIRECTOR được phép:
 
-- Xem BSC trong phạm vi đơn vị phụ trách.
+- Xem BSC cá nhân toàn hệ thống.
 - Xem BSC của MANAGER và EMPLOYEE.
 - Duyệt hoặc trả lại BSC của MANAGER ở cả giai đoạn PLAN và EVALUATION.
-- Duyệt hoặc trả lại BSC của EMPLOYEE ở cả giai đoạn PLAN và EVALUATION trong phạm vi phụ trách, kể cả khi nhân viên có MANAGER trực tiếp.
+- Duyệt hoặc trả lại BSC của EMPLOYEE ở cả giai đoạn PLAN và EVALUATION toàn hệ thống, kể cả khi nhân viên có MANAGER trực tiếp.
 - Xem danh sách chưa nộp.
 - Xem danh sách chờ duyệt.
 - Xem danh sách bị trả lại.
 - Xem danh sách đã duyệt.
 - Xem thống kê cá nhân, phòng ban và đơn vị.
 - Xem lịch sử nộp, trả lại, duyệt và mở lại.
-- Cho phép mở lại BSC đã duyệt trong phạm vi phụ trách.
+- Xử lý yêu cầu mở lại BSC cá nhân đã duyệt toàn hệ thống.
 - Xem biên bản họp đánh giá BSC.
 - In và xuất báo cáo.
 - Chốt hoặc xác nhận dữ liệu phục vụ bảng lương nếu được cấp quyền.
@@ -124,7 +124,7 @@ DIRECTOR không được:
 - Tạo BSC cá nhân.
 - Duplicate BSC cá nhân.
 - Nhập kết quả BSC cá nhân.
-- Duyệt ngoài phạm vi tổ chức.
+- Duyệt khi không có role DIRECTOR phạm vi GLOBAL và permission tương ứng.
 - Duyệt BSC của chính mình.
 - Sửa trực tiếp BSC đã nộp của người khác.
 - Sửa dữ liệu đã duyệt mà không mở lại đúng quy trình.
@@ -136,7 +136,7 @@ DIRECTOR không được:
 MANAGER có hai vai trò nghiệp vụ:
 
 1. Tạo và nộp BSC cá nhân.
-2. Duyệt BSC của EMPLOYEE trực thuộc.
+2. Xem BSC của EMPLOYEE trực thuộc để quản lý và theo dõi.
 
 MANAGER được phép đối với BSC cá nhân:
 
@@ -162,17 +162,14 @@ MANAGER được phép đối với nhân viên trực thuộc:
 
 - Xem BSC.
 - Xem kết quả từng KPI.
-- Duyệt BSC.
-- Trả lại BSC.
-- Nhập lý do trả lại.
 - Xem lịch sử các lần nộp.
-- Cho phép mở lại nếu được cấp quyền.
 - Xem thống kê phòng ban.
 
 MANAGER không được:
 
 - Duyệt BSC của chính mình.
 - Duyệt BSC ngoài phạm vi.
+- Duyệt, trả lại hoặc xử lý yêu cầu mở lại BSC của nhân viên trực thuộc.
 - Sửa trực tiếp BSC của nhân viên sau khi nhân viên đã nộp.
 - Thay đổi thang xếp loại toàn hệ thống.
 - Sửa dữ liệu đã khóa cho bảng lương.
@@ -199,7 +196,7 @@ EMPLOYEE được phép:
 - Đính kèm minh chứng nếu có.
 - Lưu nháp.
 - Xem điểm tạm tính.
-- Nộp BSC cho MANAGER trực tiếp.
+- Nộp BSC cho DIRECTOR toàn hệ thống.
 - Sửa BSC khi bị trả lại.
 - Nộp lại sau khi sửa.
 - Gửi yêu cầu mở lại BSC đã duyệt.
@@ -227,32 +224,29 @@ EMPLOYEE tạo BSC
 → Lưu nháp
 → Hoàn thiện định nghĩa KPI đủ 100% trọng số
 → Nộp PLAN
-→ MANAGER duyệt hoặc trả lại PLAN
+→ DIRECTOR duyệt hoặc trả lại PLAN
 → PLAN được duyệt
 → Nhập kết quả và TM KQTH
 → Xem điểm tạm tính
 → Nộp EVALUATION
-→ MANAGER duyệt hoặc trả lại EVALUATION
+→ DIRECTOR duyệt hoặc trả lại EVALUATION
 
-MANAGER có hai lựa chọn:
+DIRECTOR có hai lựa chọn:
 
 - Duyệt.
 - Trả lại để sửa.
 
-DIRECTOR trong phạm vi phụ trách cũng được xử lý hai giai đoạn PLAN và EVALUATION của EMPLOYEE với cùng hai lựa chọn duyệt hoặc trả lại. Quyền can thiệp này không làm thay đổi MANAGER trực tiếp của EMPLOYEE.
+MANAGER trực tiếp chỉ xem và theo dõi BSC của EMPLOYEE; quan hệ quản lý không được dùng để xác định người duyệt.
 
 Nếu trả lại:
 
-MANAGER trả lại đúng stage
+DIRECTOR trả lại đúng stage
 → EMPLOYEE chỉ sửa nhóm trường được mở của stage đó
 → EMPLOYEE lưu
 → EMPLOYEE nộp lại đúng stage
-→ MANAGER duyệt lại
+→ DIRECTOR duyệt lại
 
-Nếu EMPLOYEE không có MANAGER trực tiếp:
-
-EMPLOYEE nộp từng stage
-→ DIRECTOR phụ trách duyệt stage tương ứng
+EMPLOYEE có hoặc không có MANAGER trực tiếp đều nộp từng stage cho cùng DIRECTOR toàn hệ thống.
 
 Không được để BSC ở trạng thái chờ duyệt mà không có người duyệt.
 
@@ -1096,17 +1090,16 @@ Mỗi API phải kiểm tra đồng thời:
 4. Quan hệ quản lý trực tiếp.
 5. Trạng thái BSC.
 
-Ví dụ MANAGER duyệt BSC:
+Ví dụ DIRECTOR duyệt BSC cá nhân:
 
 - Có permission bsc.approve.subordinate.
-- BSC thuộc EMPLOYEE trực thuộc.
-- MANAGER thuộc đúng đơn vị hoặc phạm vi.
+- Có role DIRECTOR đang hoạt động với phạm vi GLOBAL.
 - BSC đang ở trạng thái SUBMITTED.
-- MANAGER không phải chủ sở hữu BSC.
+- DIRECTOR không phải chủ sở hữu BSC.
 
 Không được chỉ kiểm tra:
 
-user.role === "MANAGER"
+user.role === "DIRECTOR"
 
 ---
 
@@ -1230,10 +1223,8 @@ Việc ẩn nút ở frontend không thay thế kiểm tra quyền ở backend.
 - Không tự duyệt BSC cá nhân.
 - Xem được BSC nhân viên trực thuộc.
 - Không xem được nhân viên ngoài phạm vi.
-- Duyệt được BSC SUBMITTED của nhân viên.
-- Trả lại được BSC và bắt buộc nhập lý do.
-- Không duyệt được BSC DRAFT.
-- Không duyệt được BSC RETURNED chưa nộp lại.
+- Không duyệt hoặc trả lại được BSC của nhân viên, kể cả khi còn permission cũ.
+- Không xử lý được yêu cầu mở lại BSC của nhân viên.
 
 ## DIRECTOR
 
@@ -1241,9 +1232,8 @@ Việc ẩn nút ở frontend không thay thế kiểm tra quyền ở backend.
 - Không duplicate được BSC cá nhân.
 - Không có điểm BSC cá nhân.
 - Xem được BSC trong phạm vi.
-- Duyệt được BSC MANAGER.
-- Không duyệt ngoài phạm vi.
-- Duyệt và trả lại được PLAN/EVALUATION của EMPLOYEE trong phạm vi, kể cả khi có MANAGER trực tiếp.
+- Duyệt được BSC của MANAGER và EMPLOYEE toàn hệ thống.
+- Duyệt và trả lại được PLAN/EVALUATION của EMPLOYEE, kể cả khi có MANAGER trực tiếp.
 - Mở lại được BSC đã duyệt khi có quyền.
 
 ## Duplicate
@@ -1276,7 +1266,7 @@ Việc ẩn nút ở frontend không thay thế kiểm tra quyền ở backend.
 
 - EMPLOYEE không sửa được BSC người khác.
 - EMPLOYEE không gọi được API duyệt.
-- MANAGER không duyệt ngoài phạm vi.
+- MANAGER không gọi được API duyệt hoặc trả lại BSC.
 - Không thể giả trạng thái bằng request.
 - Không thể sửa bản APPROVED.
 - Không thể tự duyệt.

@@ -34,6 +34,8 @@
     "report:bsc-grade-scale-impact": "dotenv -e ../../.env -- ts-node scripts/report-bsc-grade-scale-impact.ts",
     "report:bsc-version-backfill": "dotenv -e ../../.env.test.local -e ../../.env -- ts-node scripts/report-bsc-version-backfill.ts"
     ,"report:bsc-workflow-backfill-issues": "dotenv -e ../../.env.test.local -e ../../.env -- ts-node scripts/report-bsc-workflow-backfill-issues.ts"
+    ,"report:bsc-director-reviewer-backfill": "dotenv -e ../../.env -- ts-node scripts/backfill-bsc-director-reviewer.ts"
+    ,"backfill:bsc-director-reviewer": "dotenv -e ../../.env -- ts-node scripts/backfill-bsc-director-reviewer.ts --apply"
     ,"cleanup:legacy-admin-position": "dotenv -e ../../.env -- ts-node scripts/cleanup-legacy-admin-position.ts"
     ,"rehearsal:migration": "dotenv -e ../../.env.test.local -e ../../.env -- ts-node scripts/database-rehearsal.ts"
     ,"rehearsal:backup-restore": "dotenv -e ../../.env.test.local -e ../../.env -- ts-node scripts/database-rehearsal.ts --restore"

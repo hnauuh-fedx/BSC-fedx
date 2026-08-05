@@ -3,11 +3,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useAuthContext } from '../../../app/store/auth-store';
+import { BSC_PERMISSIONS } from '../constants/employee-bsc.constants';
 import { employeeBscApi } from '../services/employee-bsc.service';
 import { EmployeeBsc } from '../types/employee-bsc.types';
 import { BscListPage } from './bsc-list-page';
 
 vi.mock('../../auth/components/permission-gate', () => ({ PermissionGate: ({ children }: React.PropsWithChildren) => <>{children}</> }));
+vi.mock('../../../app/store/auth-store', () => ({ useAuthContext: vi.fn() }));
 vi.mock('../services/employee-bsc.service', () => ({
   employeeBscApi: {
     list: vi.fn(),
@@ -29,6 +32,21 @@ const bsc: EmployeeBsc = {
 describe('BscListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(useAuthContext).mockReturnValue({
+      state: {
+        status: 'authenticated',
+        user: {
+          id: 'manager-1', employeeCode: 'M001', fullName: 'Trưởng phòng', email: 'manager@example.com', status: 'ACTIVE',
+          roles: [
+            { code: 'DIRECTOR', scopeType: 'GLOBAL', scopeId: null, permissions: [] },
+            { code: 'MANAGER', scopeType: 'DEPARTMENT', scopeId: 'department-1', permissions: [BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.REVIEW_REOPEN] },
+          ],
+          permissions: [BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.REVIEW_REOPEN],
+        },
+        accessToken: 'token', expiresAt: Date.now() + 60_000,
+      },
+      login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(() => 'token'),
+    });
     vi.mocked(employeeBscApi.list).mockResolvedValue({ items: [bsc], page: 1, limit: 20, total: 1 });
     vi.mocked(employeeBscApi.duplicateOptions).mockResolvedValue({
       sourceBscId: bsc.id,
@@ -51,6 +69,8 @@ describe('BscListPage', () => {
     expect(screen.getByRole('button', { name: 'Xuất Excel' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'In BSC' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Sao chép BSC' })).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'BSC chờ duyệt' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Yêu cầu mở lại' })).not.toBeInTheDocument();
   });
 
   it('downloads the selected personal BSC as Excel', async () => {
@@ -65,6 +85,26 @@ describe('BscListPage', () => {
     expect(click).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:list-export');
     createObjectURL.mockRestore(); revokeObjectURL.mockRestore(); click.mockRestore();
+  });
+
+  it('shows reviewer links only to a GLOBAL DIRECTOR', async () => {
+    vi.mocked(useAuthContext).mockReturnValue({
+      state: {
+        status: 'authenticated',
+        user: {
+          id: 'director-1', employeeCode: 'D001', fullName: 'Giám đốc', email: 'director@example.com', status: 'ACTIVE',
+          roles: [{ code: 'DIRECTOR', scopeType: 'GLOBAL', scopeId: null, permissions: [BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.REVIEW_REOPEN] }],
+          permissions: [BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.REVIEW_REOPEN],
+        },
+        accessToken: 'token', expiresAt: Date.now() + 60_000,
+      },
+      login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(() => 'token'),
+    });
+
+    render(<MemoryRouter><BscListPage/></MemoryRouter>);
+
+    expect(await screen.findByRole('link', { name: 'BSC chờ duyệt' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Yêu cầu mở lại' })).toBeVisible();
   });
 
   it('explains that duplicate creates a blank BSC when version 1 is absent', async () => {

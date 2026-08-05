@@ -6,6 +6,9 @@ import { PrismaService } from '../src/database/prisma.service';
 import { NotificationPublisher } from '../src/modules/notifications/notifications.publisher';
 import { NOTIFICATION_EVENT } from '../src/modules/notifications/notifications.types';
 import { NotificationsService } from '../src/modules/notifications/notifications.service';
+import { BscReviewerResolver } from '../src/modules/bsc-reviewers/bsc-reviewer-resolver';
+
+const createPublisher = () => new NotificationPublisher(new BscReviewerResolver());
 
 const id = {
   bsc: '00000000-0000-4000-8000-000000000001',
@@ -44,7 +47,7 @@ test('publisher resolves a personal PLAN submission to an eligible director and 
     },
   } as unknown as Prisma.TransactionClient;
 
-  await new NotificationPublisher().publish(db, {
+  await createPublisher().publish(db, {
     type: NOTIFICATION_EVENT.EMPLOYEE_BSC_PLAN_SUBMITTED,
     resourceId: id.bsc,
     sourceId: id.source,
@@ -92,7 +95,7 @@ test('publisher sends a personal review result back to the BSC owner', async () 
     },
   } as unknown as Prisma.TransactionClient;
 
-  await new NotificationPublisher().publish(db, {
+  await createPublisher().publish(db, {
     type: NOTIFICATION_EVENT.EMPLOYEE_BSC_EVALUATION_RETURNED,
     resourceId: id.bsc,
     sourceId: id.source,
@@ -102,8 +105,7 @@ test('publisher sends a personal review result back to the BSC owner', async () 
   assert.equal(recipient, id.employee);
 });
 
-test('publisher sends a personal EVALUATION submission to every eligible director in scope', async () => {
-  const secondDirector = '00000000-0000-4000-8000-000000000012';
+test('publisher sends a personal EVALUATION submission to the single global DIRECTOR', async () => {
   const recipients: string[] = [];
   let directorQuery: unknown;
   const db = {
@@ -119,7 +121,7 @@ test('publisher sends a personal EVALUATION submission to every eligible directo
       findUnique: async () => ({ full_name: 'Trưởng phòng' }),
       findMany: async (args: unknown) => {
         directorQuery = args;
-        return [{ id: id.director }, { id: secondDirector }];
+        return [{ id: id.director }];
       },
     },
     notifications: {
@@ -130,14 +132,14 @@ test('publisher sends a personal EVALUATION submission to every eligible directo
     },
   } as unknown as Prisma.TransactionClient;
 
-  await new NotificationPublisher().publish(db, {
+  await createPublisher().publish(db, {
     type: NOTIFICATION_EVENT.EMPLOYEE_BSC_EVALUATION_SUBMITTED,
     resourceId: id.bsc,
     sourceId: id.source,
     actorId: id.manager,
   });
 
-  assert.deepEqual(recipients, [id.director, secondDirector]);
+  assert.deepEqual(recipients, [id.director]);
   assert.doesNotMatch(recipients.join(','), new RegExp(id.manager));
   const where = (directorQuery as {
     where: {
@@ -148,10 +150,9 @@ test('publisher sends a personal EVALUATION submission to every eligible directo
       positions: { status: string };
       user_roles_user_roles_user_idTousers: {
         some: {
-          AND: [
-            { OR: [{ expires_at: null }, { expires_at: { gt: Date } }] },
-            { OR: [{ scope_type: string }, { scope_type: string; scope_id: string }] },
-          ];
+          scope_type: string;
+          scope_id: null;
+          OR: [{ expires_at: null }, { expires_at: { gt: Date } }];
           roles: {
             code: string;
             status: string;
@@ -178,12 +179,10 @@ test('publisher sends a personal EVALUATION submission to every eligible directo
     },
   );
   const assignment = where.user_roles_user_roles_user_idTousers.some;
-  assert.equal(assignment.AND[0].OR[0].expires_at, null);
-  assert.ok(assignment.AND[0].OR[1].expires_at.gt instanceof Date);
-  assert.deepEqual(assignment.AND[1].OR, [
-    { scope_type: 'GLOBAL' },
-    { scope_type: 'DEPARTMENT', scope_id: id.department },
-  ]);
+  assert.equal(assignment.OR[0].expires_at, null);
+  assert.ok(assignment.OR[1].expires_at.gt instanceof Date);
+  assert.equal(assignment.scope_type, 'GLOBAL');
+  assert.equal(assignment.scope_id, null);
   assert.deepEqual(assignment.roles, {
     code: 'DIRECTOR',
     status: 'ACTIVE',
@@ -191,7 +190,7 @@ test('publisher sends a personal EVALUATION submission to every eligible directo
   });
 });
 
-test('publisher neither blocks the workflow nor falls back to the direct manager when no eligible director exists', async () => {
+test('publisher blocks submission notification when no eligible DIRECTOR exists', async () => {
   let upsertCalled = false;
   const db = {
     employee_bsc: {
@@ -214,13 +213,14 @@ test('publisher neither blocks the workflow nor falls back to the direct manager
     },
   } as unknown as Prisma.TransactionClient;
 
-  const result = await new NotificationPublisher().publish(db, {
-    type: NOTIFICATION_EVENT.EMPLOYEE_BSC_PLAN_SUBMITTED,
-    resourceId: id.bsc,
-    sourceId: id.source,
-    actorId: id.employee,
-  });
-  assert.deepEqual(result, []);
+  await assert.rejects(createPublisher().publish(db, {
+      type: NOTIFICATION_EVENT.EMPLOYEE_BSC_PLAN_SUBMITTED,
+      resourceId: id.bsc,
+      sourceId: id.source,
+      actorId: id.employee,
+    }),
+    (error: any) => error.response.code === 'BSC_DIRECTOR_REVIEWER_REQUIRED',
+  );
   assert.equal(upsertCalled, false);
 });
 
@@ -279,7 +279,7 @@ test('reopen requests navigate each reviewer to the actionable queue', async () 
       },
     },
   } as unknown as Prisma.TransactionClient;
-  const publisher = new NotificationPublisher();
+  const publisher = createPublisher();
 
   await publisher.publish(db, {
     type: NOTIFICATION_EVENT.EMPLOYEE_BSC_REOPEN_REQUESTED,
@@ -329,7 +329,7 @@ test('publisher preserves department BSC submission and review-result recipients
       },
     },
   } as unknown as Prisma.TransactionClient;
-  const publisher = new NotificationPublisher();
+  const publisher = createPublisher();
 
   await publisher.publish(db, {
     type: NOTIFICATION_EVENT.DEPARTMENT_BSC_PLAN_SUBMITTED,

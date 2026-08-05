@@ -155,11 +155,11 @@ test('Phase 3B.2 BSC scoring integration', { skip: safeDatabase() ? false : 'TES
       await request(server).get(`/employee-bsc/${bscId}/scoring-preview`).set(auth(tokens.outsider)).expect(403);
       await request(server).get(`/employee-bsc/${bscId}/scoring-preview`).set(auth(tokens.employee2)).expect(403);
 
-      const higher = await request(server).post(`/employee-bsc/${bscId}/items`).set(auth(tokens.manager)).send({ kpiCode: `${marker}_HIGHER`, kpiName: 'Higher', targetValue: 100, weight: 40, calculationMethod: 'ACTUAL_DIV_TARGET' }).expect(201);
+      const higher = await request(server).post(`/employee-bsc/${bscId}/items`).set(auth(tokens.employee)).send({ kpiCode: `${marker}_HIGHER`, kpiName: 'Higher', targetValue: 100, weight: 40, calculationMethod: 'ACTUAL_DIV_TARGET' }).expect(201);
       higherId = higher.body.id;
-      const lower = await request(server).post(`/employee-bsc/${bscId}/items`).set(auth(tokens.manager)).send({ kpiCode: `${marker}_LOWER`, kpiName: 'Second', targetValue: 10, weight: 30 }).expect(201);
+      const lower = await request(server).post(`/employee-bsc/${bscId}/items`).set(auth(tokens.employee)).send({ kpiCode: `${marker}_LOWER`, kpiName: 'Second', targetValue: 10, weight: 30 }).expect(201);
       lowerId = lower.body.id;
-      const binary = await request(server).post(`/employee-bsc/${bscId}/items`).set(auth(tokens.manager)).send({ kpiCode: `${marker}_BINARY`, kpiName: 'Third', targetValue: 1, weight: 30 }).expect(201);
+      const binary = await request(server).post(`/employee-bsc/${bscId}/items`).set(auth(tokens.employee)).send({ kpiCode: `${marker}_BINARY`, kpiName: 'Third', targetValue: 1, weight: 30 }).expect(201);
       binaryId = binary.body.id;
       const incomplete = await request(server).get(`/employee-bsc/${bscId}/scoring-preview`).set(auth(tokens.employee)).expect(200);
       assert.equal(incomplete.body.totalWeight, 100); assert.equal(incomplete.body.scoredWeight, 0); assert.equal(incomplete.body.isComplete, false); assert.equal(incomplete.body.classification, null);
@@ -190,20 +190,20 @@ test('Phase 3B.2 BSC scoring integration', { skip: safeDatabase() ? false : 'TES
       assert.equal(preview.body.totalWeightedScore, 86); assert.equal(preview.body.classification, 'B');
 
       await prisma.employee_bsc.update({ where: { id: bscId }, data: { plan_status: 'DRAFT', evaluation_status: 'NOT_STARTED' } });
-      await request(server).patch(`/employee-bsc/${bscId}/items/${higherId}`).set(auth(tokens.manager)).send({ targetValue: 80 }).expect(200);
+      await request(server).patch(`/employee-bsc/${bscId}/items/${higherId}`).set(auth(tokens.employee)).send({ targetValue: 80 }).expect(200);
       preview = await request(server).get(`/employee-bsc/${bscId}/scoring-preview`).set(auth(tokens.employee)).expect(200);
       assert.equal(preview.body.totalWeightedScore, 94); assert.equal(preview.body.classification, 'A');
 
-      await request(server).patch(`/employee-bsc/${bscId}/items/${binaryId}`).set(auth(tokens.manager)).send({ weight: 20 }).expect(200);
-      await request(server).patch(`/employee-bsc/${bscId}/items/${higherId}`).set(auth(tokens.manager)).send({ weight: 50 }).expect(200);
+      await request(server).patch(`/employee-bsc/${bscId}/items/${binaryId}`).set(auth(tokens.employee)).send({ weight: 20 }).expect(200);
+      await request(server).patch(`/employee-bsc/${bscId}/items/${higherId}`).set(auth(tokens.employee)).send({ weight: 50 }).expect(200);
       preview = await request(server).get(`/employee-bsc/${bscId}/scoring-preview`).set(auth(tokens.employee)).expect(200);
       assert.equal(preview.body.totalWeight, 100); assert.equal(preview.body.totalWeightedScore, 94);
 
-      await request(server).delete(`/employee-bsc/${bscId}/items/${binaryId}`).set(auth(tokens.manager)).expect(200);
+      await request(server).delete(`/employee-bsc/${bscId}/items/${binaryId}`).set(auth(tokens.employee)).expect(200);
       preview = await request(server).get(`/employee-bsc/${bscId}/scoring-preview`).set(auth(tokens.employee)).expect(200);
       assert.equal(preview.body.totalWeight, 80); assert.equal(preview.body.isComplete, false); assert.equal(preview.body.classification, null);
 
-      const added = await request(server).post(`/employee-bsc/${bscId}/items`).set(auth(tokens.manager)).send({ kpiCode: `${marker}_ADDED`, kpiName: 'Added', targetValue: 100, weight: 20, calculationMethod: 'ACTUAL_DIV_TARGET' }).expect(201);
+      const added = await request(server).post(`/employee-bsc/${bscId}/items`).set(auth(tokens.employee)).send({ kpiCode: `${marker}_ADDED`, kpiName: 'Added', targetValue: 100, weight: 20, calculationMethod: 'ACTUAL_DIV_TARGET' }).expect(201);
       await prisma.employee_bsc.update({ where: { id: bscId }, data: { plan_status: 'APPROVED', evaluation_status: 'DRAFT' } });
       await request(server).patch(`/employee-bsc/${bscId}/items/${added.body.id}/actual`).set(auth(tokens.employee)).send({ actualValue: 50 }).expect(200);
       preview = await request(server).get(`/employee-bsc/${bscId}/scoring-preview`).set(auth(tokens.employee)).expect(200);
@@ -216,8 +216,8 @@ test('Phase 3B.2 BSC scoring integration', { skip: safeDatabase() ? false : 'TES
     await t.test('zero targets and unsupported calculation inputs are rejected while zero actual stays safe', async () => {
       const created = await request(server).post('/employee-bsc').set(auth(tokens.employee2)).send({ cycleId: openNew.id }).expect(201);
       const edgeBscId = created.body.id; tracked.bscs.push(edgeBscId);
-      await request(server).post(`/employee-bsc/${edgeBscId}/items`).set(auth(tokens.manager)).send({ kpiCode: `${marker}_ZERO_TARGET`, kpiName: 'Zero target', targetValue: 0, weight: 50 }).expect(400);
-      const zeroActual = await request(server).post(`/employee-bsc/${edgeBscId}/items`).set(auth(tokens.manager)).send({ kpiCode: `${marker}_ZERO_ACTUAL`, kpiName: 'Zero actual', targetValue: 10, weight: 100 }).expect(201);
+      await request(server).post(`/employee-bsc/${edgeBscId}/items`).set(auth(tokens.employee2)).send({ kpiCode: `${marker}_ZERO_TARGET`, kpiName: 'Zero target', targetValue: 0, weight: 50 }).expect(400);
+      const zeroActual = await request(server).post(`/employee-bsc/${edgeBscId}/items`).set(auth(tokens.employee2)).send({ kpiCode: `${marker}_ZERO_ACTUAL`, kpiName: 'Zero actual', targetValue: 10, weight: 100 }).expect(201);
       await prisma.employee_bsc.update({ where: { id: edgeBscId }, data: { plan_status: 'APPROVED', evaluation_status: 'DRAFT' } });
       await request(server).patch(`/employee-bsc/${edgeBscId}/items/${zeroActual.body.id}/actual`).set(auth(tokens.employee2)).send({ actualValue: 0 }).expect(200);
       const preview = await request(server).get(`/employee-bsc/${edgeBscId}/scoring-preview`).set(auth(tokens.employee2)).expect(200);
@@ -225,9 +225,9 @@ test('Phase 3B.2 BSC scoring integration', { skip: safeDatabase() ? false : 'TES
       assert.equal(preview.body.totalWeightedScore, 0); assert.equal(preview.body.isComplete, true); assert.equal(preview.body.classification, 'D'); assert.doesNotMatch(JSON.stringify(preview.body), /NaN|Infinity/);
 
       await prisma.employee_bsc.update({ where: { id: edgeBscId }, data: { plan_status: 'DRAFT', evaluation_status: 'NOT_STARTED' } });
-      await request(server).delete(`/employee-bsc/${edgeBscId}/items/${zeroActual.body.id}`).set(auth(tokens.manager)).expect(200);
-      await request(server).post(`/employee-bsc/${edgeBscId}/items`).set(auth(tokens.manager)).send({ kpiCode: `${marker}_THRESHOLD`, kpiName: 'Threshold', targetValue: 10, weight: 100, calculationMethod: 'THRESHOLD' }).expect(400);
-      await request(server).post(`/employee-bsc/${edgeBscId}/items`).set(auth(tokens.manager)).send({ kpiCode: `${marker}_INVALID_BINARY`, kpiName: 'Invalid binary', targetValue: 1, weight: 100, calculationMethod: 'BINARY' }).expect(400);
+      await request(server).delete(`/employee-bsc/${edgeBscId}/items/${zeroActual.body.id}`).set(auth(tokens.employee2)).expect(200);
+      await request(server).post(`/employee-bsc/${edgeBscId}/items`).set(auth(tokens.employee2)).send({ kpiCode: `${marker}_THRESHOLD`, kpiName: 'Threshold', targetValue: 10, weight: 100, calculationMethod: 'THRESHOLD' }).expect(400);
+      await request(server).post(`/employee-bsc/${edgeBscId}/items`).set(auth(tokens.employee2)).send({ kpiCode: `${marker}_INVALID_BINARY`, kpiName: 'Invalid binary', targetValue: 1, weight: 100, calculationMethod: 'BINARY' }).expect(400);
     });
   } finally {
     if (app) await app.close();

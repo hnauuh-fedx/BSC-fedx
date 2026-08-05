@@ -12,14 +12,12 @@ export type EvaluationAction = 'SUBMIT_EVALUATION' | 'APPROVE_EVALUATION' | 'RET
 
 export interface WorkflowBscContext {
   employeeId: string;
-  directManagerId: string;
   departmentId: string;
   planStatus: string;
   evaluationStatus: string;
   cycleStatus: string;
   ownerActive: boolean;
   ownerOrganizationActive: boolean;
-  reviewerActive: boolean;
 }
 
 export interface PlanDefinitionValidation {
@@ -139,10 +137,9 @@ export class BscWorkflowService {
     if (actor.id === bsc.employeeId) throw new ForbiddenException({ code: 'BSC_SELF_APPROVAL_FORBIDDEN', message: 'Không thể tự duyệt hoặc trả lại BSC của chính mình.' });
     const canReviewAsDirector = actor.roles.some((role) => role.code === 'DIRECTOR'
       && role.permissions?.includes(permission)
-      && (role.scopeType === 'GLOBAL' || (role.scopeType === 'DEPARTMENT' && role.scopeId === bsc.departmentId)));
-    const canReviewAsManager = actor.id === bsc.directManagerId && this.scope.canAccessDepartment(actor, bsc.departmentId);
-    if (!actor.permissions.includes(permission) || (!canReviewAsDirector && !canReviewAsManager)) this.deny();
-    if (actor.status !== 'ACTIVE' || (!canReviewAsDirector && !bsc.reviewerActive)) this.badRequest('BSC_REVIEWER_INACTIVE', 'Người duyệt không còn hoạt động.');
+      && role.scopeType === 'GLOBAL');
+    if (!actor.permissions.includes(permission) || !canReviewAsDirector) this.deny();
+    if (actor.status !== 'ACTIVE') this.badRequest('BSC_REVIEWER_INACTIVE', 'Người duyệt không còn hoạt động.');
     if (!bsc.ownerActive) this.badRequest('BSC_OWNER_INACTIVE', 'Chủ sở hữu BSC không còn hoạt động.');
     if (!bsc.ownerOrganizationActive) this.badRequest('BSC_OWNER_ORGANIZATION_INACTIVE', 'Đơn vị hoặc chức danh của chủ sở hữu không còn hoạt động.');
   }
@@ -150,7 +147,6 @@ export class BscWorkflowService {
   private assertCommonActiveContext(bsc: WorkflowBscContext): void {
     if (!bsc.ownerActive) this.badRequest('BSC_OWNER_INACTIVE', 'Chủ sở hữu BSC không còn hoạt động.');
     if (!bsc.ownerOrganizationActive) this.badRequest('BSC_OWNER_ORGANIZATION_INACTIVE', 'Đơn vị hoặc chức danh của chủ sở hữu không còn hoạt động.');
-    if (!bsc.reviewerActive) this.badRequest('BSC_APPROVER_REQUIRED', 'Không xác định được quản lý trực tiếp đang hoạt động.');
   }
 
   private cycleTiming(bsc: WorkflowBscContext): CycleTiming {

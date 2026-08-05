@@ -10,7 +10,7 @@ import { BSC_PERMISSIONS } from '../src/modules/employee-bsc/policies/bsc-access
 const prisma = new PrismaClient();
 const marker = `BSCCYCLE_${Date.now()}_${randomUUID().replaceAll('-', '').slice(0, 6)}`.toUpperCase();
 const password = 'Cycle!Test#1';
-const tracked = { users: [] as string[], roles: [] as string[], permissions: [] as string[] };
+const tracked = { users: [] as string[], roles: [] as string[], permissions: [] as string[], rolePermissions: [] as Array<{ role_id: string; permission_id: string }> };
 
 function safeDatabase(): boolean {
   try { return decodeURIComponent(new URL(process.env.TEST_DATABASE_URL ?? '').pathname.slice(1)).toLowerCase() === 'bsc_organization_test'; }
@@ -34,6 +34,7 @@ async function cleanup() {
     await prisma.role_permissions.deleteMany({ where: { role_id: { in: tracked.roles } } });
     await prisma.roles.deleteMany({ where: { id: { in: tracked.roles } } });
   }
+  for (const pair of tracked.rolePermissions) await prisma.role_permissions.deleteMany({ where: pair });
   for (const id of tracked.permissions) if (await prisma.role_permissions.count({ where: { permission_id: id } }) === 0) await prisma.permissions.deleteMany({ where: { id } });
   await prisma.departments.deleteMany({ where: { code: { startsWith: marker } } });
   await prisma.positions.deleteMany({ where: { code: { startsWith: marker } } });
@@ -91,6 +92,24 @@ test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: saf
       return user;
     };
     const manager = await makeUser('MANAGER', managerRole.id, 'GLOBAL');
+    let directorRole = await prisma.roles.findUnique({ where: { code: 'DIRECTOR' } });
+    const createdDirectorRole = !directorRole;
+    if (!directorRole) {
+      directorRole = await prisma.roles.create({ data: { code: 'DIRECTOR', name: 'Director', hierarchy_level: 2, is_system: true, status: 'ACTIVE' } });
+      tracked.roles.push(directorRole.id);
+    }
+    const directorPermissionIds = await prisma.permissions.findMany({ where: { code: { in: [
+      BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
+      BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE,
+      BSC_PERMISSIONS.REVIEW_REOPEN,
+    ] } }, select: { id: true } });
+    for (const permission of directorPermissionIds) {
+      const pair = { role_id: directorRole.id, permission_id: permission.id };
+      const existing = await prisma.role_permissions.findUnique({ where: { role_id_permission_id: pair } });
+      await prisma.role_permissions.upsert({ where: { role_id_permission_id: pair }, create: pair, update: {} });
+      if (!createdDirectorRole && !existing) tracked.rolePermissions.push(pair);
+    }
+    const director = await makeUser('DIRECTOR', directorRole.id, 'GLOBAL');
     const viewer = await makeUser('VIEWER', viewerRole.id, 'GLOBAL');
     const scoped = await makeUser('SCOPED', scopedManagerRole.id, 'DEPARTMENT');
     const noPermission = await makeUser('ADMIN', noPermissionRole.id, 'GLOBAL');
@@ -99,7 +118,7 @@ test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: saf
 
     const createdApp = await createApp(); app = createdApp.app; await app.init(); const server = app.getHttpServer();
     const login = async (username: string) => (await request(server).post('/auth/login').send({ username, password }).expect(200)).body.accessToken as string;
-    const tokens = { manager: await login(manager.username), viewer: await login(viewer.username), scoped: await login(scoped.username), noPermission: await login(noPermission.username), employee: await login(employee.username) };
+    const tokens = { manager: await login(manager.username), viewer: await login(viewer.username), scoped: await login(scoped.username), noPermission: await login(noPermission.username), employee: await login(employee.username), director: await login(director.username) };
     const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
     const createCycle = async (suffix: string, payload = cyclePayload(`${marker}_${suffix}`)) => {
       const created = await request(server).post('/bsc-cycles').set(auth(tokens.manager)).send(payload).expect(201);
@@ -108,7 +127,7 @@ test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: saf
     };
     const createPlan = async (cycleId: string, suffix: string) => {
       const bsc = await request(server).post('/employee-bsc').set(auth(tokens.employee)).send({ cycleId }).expect(201);
-      const item = await request(server).post(`/employee-bsc/${bsc.body.id}/items`).set(auth(tokens.manager)).send({
+      const item = await request(server).post(`/employee-bsc/${bsc.body.id}/items`).set(auth(tokens.employee)).send({
         kpiCode: `${marker}_${suffix}_KPI`, kpiName: `KPI ${suffix}`, targetValue: 100, weight: 100,
         calculationMethod: 'ACTUAL_DIV_TARGET', sortOrder: 1,
       }).expect(201);
@@ -193,7 +212,7 @@ test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: saf
       assert.equal(pendingClose.body.code, 'BSC_CYCLE_PENDING_REVIEW');
       const locked = await request(server).post(`/bsc-cycles/${cycle.body.id}/lock`).set(auth(tokens.manager))
         .send({ expectedVersion: cycle.body.version }).expect(200);
-      await request(server).post(`/employee-bsc/${source.bsc.id}/plan/approve`).set(auth(tokens.manager)).send({}).expect(200);
+      await request(server).post(`/employee-bsc/${source.bsc.id}/plan/approve`).set(auth(tokens.director)).send({}).expect(200);
       await request(server).post(`/bsc-cycles/${cycle.body.id}/open`).set(auth(tokens.manager))
         .send({ expectedVersion: locked.body.version }).expect(400);
       const unlocked = await request(server).post(`/bsc-cycles/${cycle.body.id}/open`).set(auth(tokens.manager))
@@ -219,7 +238,7 @@ test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: saf
       const legacyDeadlineCycle = await createCycle('LEGACY_DEADLINE');
       const legacyDeadline = await createPlan(legacyDeadlineCycle.body.id, 'LEGACY_DEADLINE');
       await request(server).post(`/employee-bsc/${legacyDeadline.bsc.id}/plan/submit`).set(auth(tokens.employee)).send({}).expect(200);
-      await request(server).post(`/employee-bsc/${legacyDeadline.bsc.id}/plan/approve`).set(auth(tokens.manager)).send({}).expect(200);
+      await request(server).post(`/employee-bsc/${legacyDeadline.bsc.id}/plan/approve`).set(auth(tokens.director)).send({}).expect(200);
       await request(server).patch(`/employee-bsc/${legacyDeadline.bsc.id}/items/${legacyDeadline.item.id}/actual`).set(auth(tokens.employee))
         .send({ actualValue: 100 }).expect(200);
       await prisma.bsc_cycles.update({ where: { id: legacyDeadlineCycle.body.id }, data: { submission_deadline: new Date(Date.now() - 1_000) } });
@@ -235,13 +254,13 @@ test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: saf
       assert.equal((unlockAudit?.new_data as { reason?: string } | null)?.reason, 'Tiếp tục nhập kết quả');
       assert.equal(unlocked.body.status, 'OPEN');
 
-      await request(server).post(`/employee-bsc/${source.bsc.id}/evaluation/approve`).set(auth(tokens.manager)).send({}).expect(200);
+      await request(server).post(`/employee-bsc/${source.bsc.id}/evaluation/approve`).set(auth(tokens.director)).send({}).expect(200);
       const reopen = await request(server).post(`/employee-bsc/${source.bsc.id}/reopen-requests`).set(auth(tokens.employee))
         .send({ stage: 'EVALUATION', reason: 'Cần sửa kết quả' }).expect(201);
       const pendingReopenClose = await request(server).post(`/bsc-cycles/${cycle.body.id}/close`).set(auth(tokens.manager))
         .send({ expectedVersion: unlocked.body.version, reason: 'Kết thúc kỳ' }).expect(400);
       assert.equal(pendingReopenClose.body.code, 'BSC_CYCLE_PENDING_REOPEN_REQUEST');
-      await request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/reject`).set(auth(tokens.manager))
+      await request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/reject`).set(auth(tokens.director))
         .send({ reason: 'Không mở lại' }).expect(200);
       await request(server).post(`/bsc-cycles/${cycle.body.id}/close`).set(auth(tokens.manager))
         .send({ expectedVersion: unlocked.body.version, reason: 'Kết thúc kỳ' }).expect(200);
@@ -249,7 +268,7 @@ test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: saf
         status: 'PENDING', reviewed_by: null, review_comment: null, reviewed_at: null,
       } });
       const closedCycleApproval = await request(server).post(`/employee-bsc/reopen-requests/${reopen.body.id}/approve`)
-        .set(auth(tokens.manager)).send({}).expect(409);
+        .set(auth(tokens.director)).send({}).expect(409);
       assert.equal(closedCycleApproval.body.code, 'BSC_CYCLE_CLOSED');
     });
   } finally {

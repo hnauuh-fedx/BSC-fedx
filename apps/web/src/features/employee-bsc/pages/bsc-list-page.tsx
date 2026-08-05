@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CopyIcon, EyeIcon, FileSpreadsheetIcon, PlusIcon, PrinterIcon } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useAuthContext } from '../../../app/store/auth-store';
 import { Button } from '../../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Field, FieldLabel } from '../../../components/ui/field';
@@ -21,6 +22,12 @@ const evaluationStatuses = [{ value: 'NOT_STARTED', label: 'Chưa bắt đầu' 
 
 export const BscListPage: React.FC = () => {
   const navigate = useNavigate();
+  const { state } = useAuthContext();
+  const globalDirectorPermissions = new Set(state.user?.roles
+    .filter(role => role.code === 'DIRECTOR' && role.scopeType === 'GLOBAL')
+    .flatMap(role => role.permissions ?? []) ?? []);
+  const canReview = REVIEW_PERMISSIONS.some(permission => globalDirectorPermissions.has(permission));
+  const canReviewReopen = globalDirectorPermissions.has(BSC_PERMISSIONS.REVIEW_REOPEN);
   const [items, setItems] = useState<EmployeeBsc[]>([]), [search, setSearch] = useState('');
   const [planStatus, setPlanStatus] = useState('ALL'), [evaluationStatus, setEvaluationStatus] = useState('ALL');
   const [page, setPage] = useState(1), [total, setTotal] = useState(0), [loading, setLoading] = useState(true);
@@ -44,8 +51,8 @@ export const BscListPage: React.FC = () => {
 
   return <main>
     <PageHeader title="BSC cá nhân" description="Theo dõi độc lập trạng thái kế hoạch và đánh giá của từng kỳ." action={<>
-      <PermissionGate anyOf={REVIEW_PERMISSIONS}><Button variant="outline" asChild><Link to="/management/bsc-reviews">BSC chờ duyệt</Link></Button></PermissionGate>
-      <PermissionGate permission={BSC_PERMISSIONS.REVIEW_REOPEN}><Button variant="outline" asChild><Link to="/management/bsc-reopen-requests">Yêu cầu mở lại</Link></Button></PermissionGate>
+      {canReview && <Button variant="outline" asChild><Link to="/management/bsc-reviews">BSC chờ duyệt</Link></Button>}
+      {canReviewReopen && <Button variant="outline" asChild><Link to="/management/bsc-reopen-requests">Yêu cầu mở lại</Link></Button>}
       <PermissionGate permission={BSC_PERMISSIONS.CREATE_OWN}><Button asChild><Link to="/employee-bsc/new"><PlusIcon data-icon="inline-start"/>Tạo BSC cá nhân</Link></Button></PermissionGate>
     </>}/>
     <Card><CardHeader><CardTitle>Bộ lọc</CardTitle><CardDescription>Tìm và lọc BSC theo trạng thái của từng giai đoạn.</CardDescription></CardHeader><CardContent className="grid gap-4 md:grid-cols-3">

@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Tabs, TabsList, TabsTrigger } from '../../../components/ui/tabs';
 import { Textarea } from '../../../components/ui/textarea';
 import { bscStageLabel } from '../../../lib/bsc-stage';
-import { PermissionGate } from '../../auth/components/permission-gate';
+import { useAuthContext } from '../../../app/store/auth-store';
 import { AccessibleDialog, EmptyState, ErrorState, LoadingState, PageHeader, Pagination } from '../../organization/management-ui';
 import { BscStatusBadge } from '../components/bsc-status-badge';
 import { BSC_PERMISSIONS } from '../constants/employee-bsc.constants';
@@ -24,6 +24,10 @@ const formatDate = (value?: string | null) => value
   : '—';
 
 export const BscReopenRequestsPage: React.FC = () => {
+  const { state: authState } = useAuthContext();
+  const canReviewReopen = authState.user?.roles.some(role => role.code === 'DIRECTOR'
+    && role.scopeType === 'GLOBAL'
+    && role.permissions?.includes(BSC_PERMISSIONS.REVIEW_REOPEN)) ?? false;
   const [searchParams, setSearchParams] = useSearchParams();
   const [stage, setStage] = useState<Stage>(searchParams.get('stage') === 'EVALUATION' ? 'EVALUATION' : 'PLAN');
   const [items, setItems] = useState<BscReopenRequest[]>([]);
@@ -48,6 +52,10 @@ export const BscReopenRequestsPage: React.FC = () => {
     setError('');
     setItems([]);
     setTotal(0);
+    if (!canReviewReopen) {
+      setLoading(false);
+      return;
+    }
     try {
       const result = await employeeBscApi.pendingReopenRequests({ stage, page, limit: LIMIT });
       if (current !== generation.current) return;
@@ -60,7 +68,7 @@ export const BscReopenRequestsPage: React.FC = () => {
     } finally {
       if (current === generation.current) setLoading(false);
     }
-  }, [stage, page]);
+  }, [canReviewReopen, stage, page]);
 
   useEffect(() => {
     void load();
@@ -140,8 +148,9 @@ export const BscReopenRequestsPage: React.FC = () => {
     setError('');
   };
 
-  return <PermissionGate permission={BSC_PERMISSIONS.REVIEW_REOPEN}>
-    <main>
+  if (!canReviewReopen) return <main><ErrorState error="Chỉ Giám đốc toàn hệ thống được xử lý yêu cầu mở lại BSC."/></main>;
+
+  return <main>
       <PageHeader
         title="Yêu cầu mở lại BSC"
         description="Xem phiên bản đã duyệt và hệ quả trước khi cho phép chỉnh sửa lại."
@@ -284,6 +293,5 @@ export const BscReopenRequestsPage: React.FC = () => {
           <Button variant="outline" disabled={Boolean(actingId)} onClick={() => setRejecting(null)}>Hủy</Button>
         </div>
       </AccessibleDialog>
-    </main>
-  </PermissionGate>;
+    </main>;
 };

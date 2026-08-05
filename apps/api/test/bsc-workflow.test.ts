@@ -19,9 +19,9 @@ const actor = (overrides: Partial<AuthUser> = {}): AuthUser => ({
 });
 
 const context = (overrides: Partial<WorkflowBscContext> = {}): WorkflowBscContext => ({
-  employeeId, directManagerId: managerId, departmentId, planStatus: 'DRAFT', evaluationStatus: 'NOT_STARTED',
+  employeeId, departmentId, planStatus: 'DRAFT', evaluationStatus: 'NOT_STARTED',
   cycleStatus: 'OPEN', ownerActive: true,
-  ownerOrganizationActive: true, reviewerActive: true, ...overrides,
+  ownerOrganizationActive: true, ...overrides,
 });
 
 const definition = (overrides: Record<string, unknown> = {}) => ({
@@ -86,14 +86,21 @@ test('evaluation submit requires approved plan and complete server scoring', () 
   assert.throws(() => workflow.assertCanSubmitEvaluation(actor(), evaluation, scoring({ isComplete: false, items: [{ ...scoring().items[0], actual: null, isScorable: false, reason: 'ACTUAL_NOT_PROVIDED' }] })), (e: any) => e.response.code === 'BSC_EVALUATION_ACTUAL_REQUIRED');
 });
 
-test('stage reviews require direct reviewer, stage permission and stage-specific reason codes', () => {
+test('stage reviews require a global DIRECTOR, stage permission and stage-specific reason codes', () => {
   const manager = actor({ id: managerId, roles: [{ code: 'MANAGER', scopeType: 'DEPARTMENT', scopeId: departmentId }],
     permissions: [BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
       BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE] });
-  assert.equal(workflow.assertCanReviewPlan(manager, context({ planStatus: 'SUBMITTED' }), 'APPROVE_PLAN'), null);
-  assert.equal(workflow.assertCanReviewEvaluation(manager, context({ planStatus: 'APPROVED', evaluationStatus: 'SUBMITTED' }), 'RETURN_EVALUATION', '  Cần bổ sung. '), 'Cần bổ sung.');
-  assert.throws(() => workflow.assertCanReviewPlan(manager, context({ planStatus: 'SUBMITTED' }), 'RETURN_PLAN', ' '), (e: any) => e.response.code === 'BSC_PLAN_RETURN_REASON_REQUIRED');
-  assert.throws(() => workflow.assertCanReviewEvaluation(manager, context({ planStatus: 'APPROVED', evaluationStatus: 'SUBMITTED' }), 'RETURN_EVALUATION', ' '), (e: any) => e.response.code === 'BSC_EVALUATION_RETURN_REASON_REQUIRED');
+  const director = actor({ id: managerId, roles: [{ code: 'DIRECTOR', scopeType: 'GLOBAL', scopeId: null,
+    permissions: [BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
+      BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE] }],
+    permissions: [BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
+      BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE] });
+  assert.throws(() => workflow.assertCanReviewPlan(manager, context({ planStatus: 'SUBMITTED' }), 'APPROVE_PLAN'),
+    (e: any) => e.response.code === 'BSC_ACCESS_DENIED');
+  assert.equal(workflow.assertCanReviewPlan(director, context({ planStatus: 'SUBMITTED' }), 'APPROVE_PLAN'), null);
+  assert.equal(workflow.assertCanReviewEvaluation(director, context({ planStatus: 'APPROVED', evaluationStatus: 'SUBMITTED' }), 'RETURN_EVALUATION', '  Cần bổ sung. '), 'Cần bổ sung.');
+  assert.throws(() => workflow.assertCanReviewPlan(director, context({ planStatus: 'SUBMITTED' }), 'RETURN_PLAN', ' '), (e: any) => e.response.code === 'BSC_PLAN_RETURN_REASON_REQUIRED');
+  assert.throws(() => workflow.assertCanReviewEvaluation(director, context({ planStatus: 'APPROVED', evaluationStatus: 'SUBMITTED' }), 'RETURN_EVALUATION', ' '), (e: any) => e.response.code === 'BSC_EVALUATION_RETURN_REASON_REQUIRED');
 });
 
 test('field locking keeps definition and evaluation result groups independent', async () => {

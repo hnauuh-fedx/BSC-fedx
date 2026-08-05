@@ -92,6 +92,7 @@ test('Phase 3B.3 dual-stage BSC workflow integration', { skip: safeDatabase() ? 
     const otherManager = await user('OTHER_MANAGER', reviewerRole.id, 'DEPARTMENT', otherDepartment.id, admin.id);
     const employee = await user('EMPLOYEE', employeeRole.id, 'SELF', department.id, manager.id);
     const employee2 = await user('EMPLOYEE2', employeeRole.id, 'SELF', department.id, manager.id);
+    const employeeNoManager = await user('EMPLOYEE_NO_MANAGER', employeeRole.id, 'SELF', department.id);
     let directorRole = await prisma.roles.findUnique({ where: { code: 'DIRECTOR' } });
     const createdDirectorRole = !directorRole;
     if (!directorRole) {
@@ -105,7 +106,7 @@ test('Phase 3B.3 dual-stage BSC workflow integration', { skip: safeDatabase() ? 
       await prisma.role_permissions.upsert({ where: { role_id_permission_id: pair }, create: pair, update: {} });
       if (!createdDirectorRole && !existing) ids.rolePermissions.push(pair);
     }
-    const director = await user('DIRECTOR', directorRole.id, 'DEPARTMENT', department.id, admin.id);
+    const director = await user('DIRECTOR', directorRole.id, 'GLOBAL', department.id, admin.id);
     const managerOwner = await user('MANAGER_OWNER', managerOwnerRole.id, 'SELF', department.id, director.id);
     await prisma.manager_relationships.createMany({ data: [
       { employee_id: employee.id, manager_id: manager.id, start_date: new Date('2020-01-01'), is_primary: true },
@@ -124,7 +125,7 @@ test('Phase 3B.3 dual-stage BSC workflow integration', { skip: safeDatabase() ? 
     };
     const created = await createApp(); app = created.app; await app.init(); const server = app.getHttpServer();
     const login = async (username: string) => (await request(server).post('/auth/login').send({ username, password }).expect(200)).body.accessToken as string;
-    const tokens = { admin: await login(admin.username), manager: await login(manager.username), otherManager: await login(otherManager.username), employee: await login(employee.username), employee2: await login(employee2.username), director: await login(director.username), managerOwner: await login(managerOwner.username) };
+    const tokens = { admin: await login(admin.username), manager: await login(manager.username), otherManager: await login(otherManager.username), employee: await login(employee.username), employee2: await login(employee2.username), employeeNoManager: await login(employeeNoManager.username), director: await login(director.username), managerOwner: await login(managerOwner.username) };
     const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
     const expectHttp = async (call: any, status: number) => { httpAssertions += 1; return call.expect(status); };
 
@@ -135,31 +136,42 @@ test('Phase 3B.3 dual-stage BSC workflow integration', { skip: safeDatabase() ? 
       await expectHttp(request(server).patch(`/employee-bsc/${record.id}/items/${record.item.id}/actual`).set(auth(tokens.employee)).send({ actualValue: 80 }), 403);
       await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/approve`).set(auth(tokens.admin)).send({}), 403);
       await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/approve`).set(auth(tokens.otherManager)).send({}), 403);
-      const approved = await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/approve`).set(auth(tokens.manager)).send({}), 200);
+      await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/approve`).set(auth(tokens.manager)).send({}), 403);
+      const approved = await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/approve`).set(auth(tokens.director)).send({}), 200);
       assert.equal(approved.body.plan_status, 'APPROVED'); assert.equal(approved.body.evaluation_status, 'DRAFT'); assert.equal(approved.body.final_grade, null);
-      await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/approve`).set(auth(tokens.manager)).send({}), 409);
+      await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/approve`).set(auth(tokens.director)).send({}), 409);
       await expectHttp(request(server).patch(`/employee-bsc/${record.id}/items/${record.item.id}`).set(auth(tokens.manager)).send({ targetValue: 90 }), 403);
       await expectHttp(request(server).patch(`/employee-bsc/${record.id}/items/${record.item.id}/actual`).set(auth(tokens.employee)).send({ actualValue: 95, employeeNote: 'TM KQTH fixture' }), 200);
       const histories = await prisma.bsc_status_histories.findMany({ where: { employee_bsc_id: record.id } });
       assert.deepEqual(histories.map(row => row.stage), ['PLAN', 'PLAN']);
     });
 
+    await t.test('employee without a direct manager still submits to the global DIRECTOR', async () => {
+      const record = await bsc('NO_MANAGER', employeeNoManager);
+      assert.equal(record.direct_manager_id, null);
+      await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/submit`).set(auth(tokens.employeeNoManager)).send({}), 200);
+      const step = await prisma.bsc_approval_steps.findFirstOrThrow({ where: { employee_bsc_id: record.id, stage: 'PLAN', status: 'PENDING' } });
+      assert.equal(step.approver_id, director.id);
+      assert.equal(step.approver_role, 'DIRECTOR');
+      await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/approve`).set(auth(tokens.director)).send({}), 200);
+    });
+
     await t.test('evaluation return opens only result fields and approval persists official score', async () => {
       const record = await bsc('EVALUATION', employee, 90);
       await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/submit`).set(auth(tokens.employee)).send({}), 200);
-      await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/approve`).set(auth(tokens.manager)).send({}), 200);
+      await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/approve`).set(auth(tokens.director)).send({}), 200);
       await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/submit`).set(auth(tokens.employee)).send({ score: 999 }), 400);
       await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/submit`).set(auth(tokens.employee)).send({}), 200);
-      const missingReason = await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/return`).set(auth(tokens.manager)).send({ reason: ' ' }), 400);
+      const missingReason = await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/return`).set(auth(tokens.director)).send({ reason: ' ' }), 400);
       assert.ok(['VALIDATION_ERROR', 'BSC_EVALUATION_RETURN_REASON_REQUIRED'].includes(missingReason.body.code));
-      await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/return`).set(auth(tokens.manager)).send({ reason: 'Bổ sung TM KQTH' }), 200);
-      await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/return`).set(auth(tokens.manager)).send({ reason: 'Lặp lại' }), 409);
+      await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/return`).set(auth(tokens.director)).send({ reason: 'Bổ sung TM KQTH' }), 200);
+      await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/return`).set(auth(tokens.director)).send({ reason: 'Lặp lại' }), 409);
       await expectHttp(request(server).patch(`/employee-bsc/${record.id}/items/${record.item.id}`).set(auth(tokens.manager)).send({ weight: 99 }), 403);
       await expectHttp(request(server).patch(`/employee-bsc/${record.id}/items/${record.item.id}/actual`).set(auth(tokens.employee)).send({ actualValue: 92, employeeNote: 'Đã bổ sung' }), 200);
       await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/submit`).set(auth(tokens.employee)).send({}), 200);
-      const approved = await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/approve`).set(auth(tokens.manager)).send({}), 200);
-      assert.equal(approved.body.evaluation_status, 'APPROVED'); assert.equal(Number(approved.body.final_score), 90); assert.equal(approved.body.final_grade, 'A'); assert.equal(approved.body.evaluation_approved_by, manager.id);
-      await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/approve`).set(auth(tokens.manager)).send({}), 409);
+      const approved = await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/approve`).set(auth(tokens.director)).send({}), 200);
+      assert.equal(approved.body.evaluation_status, 'APPROVED'); assert.equal(Number(approved.body.final_score), 90); assert.equal(approved.body.final_grade, 'A'); assert.equal(approved.body.evaluation_approved_by, director.id);
+      await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/approve`).set(auth(tokens.director)).send({}), 409);
       await expectHttp(request(server).patch(`/employee-bsc/${record.id}/items/${record.item.id}/actual`).set(auth(tokens.employee)).send({ actualValue: 100 }), 403);
       const reasons = await prisma.bsc_status_histories.findMany({ where: { employee_bsc_id: record.id, comment: { not: null } } });
       assert.deepEqual(reasons.map(row => [row.stage, row.comment]), [['EVALUATION', 'Bổ sung TM KQTH']]);
@@ -171,8 +183,8 @@ test('Phase 3B.3 dual-stage BSC workflow integration', { skip: safeDatabase() ? 
       httpAssertions += 2; assert.deepEqual(submits.map(row => row.status).sort(), [200, 409]);
       assert.equal(await prisma.bsc_status_histories.count({ where: { employee_bsc_id: planRace.id, stage: 'PLAN', action: 'SUBMIT_PLAN' } }), 1);
       const reviews = await Promise.all([
-        request(server).post(`/employee-bsc/${planRace.id}/plan/approve`).set(auth(tokens.manager)).send({}),
-        request(server).post(`/employee-bsc/${planRace.id}/plan/return`).set(auth(tokens.manager)).send({ reason: 'Race' }),
+        request(server).post(`/employee-bsc/${planRace.id}/plan/approve`).set(auth(tokens.director)).send({}),
+        request(server).post(`/employee-bsc/${planRace.id}/plan/return`).set(auth(tokens.director)).send({ reason: 'Race' }),
       ]);
       httpAssertions += 2; assert.deepEqual(reviews.map(row => row.status).sort(), [200, 409]);
       assert.equal(await prisma.bsc_reviews.count({ where: { employee_bsc_id: planRace.id, stage: 'PLAN' } }), 1);
@@ -181,13 +193,13 @@ test('Phase 3B.3 dual-stage BSC workflow integration', { skip: safeDatabase() ? 
     await t.test('evaluation concurrency has one submit and one final review winner', async () => {
       const record = await bsc('EVALUATION_RACE', employee2, 100);
       await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/submit`).set(auth(tokens.employee2)).send({}), 200);
-      await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/approve`).set(auth(tokens.manager)).send({}), 200);
+      await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/approve`).set(auth(tokens.director)).send({}), 200);
       const submits = await Promise.all([0, 1].map(() => request(server).post(`/employee-bsc/${record.id}/evaluation/submit`).set(auth(tokens.employee2)).send({})));
       httpAssertions += 2; assert.deepEqual(submits.map(row => row.status).sort(), [200, 409]);
       assert.equal(await prisma.bsc_status_histories.count({ where: { employee_bsc_id: record.id, stage: 'EVALUATION', action: 'SUBMIT_EVALUATION' } }), 1);
       const decisions = await Promise.all([
-        request(server).post(`/employee-bsc/${record.id}/evaluation/approve`).set(auth(tokens.manager)).send({}),
-        request(server).post(`/employee-bsc/${record.id}/evaluation/return`).set(auth(tokens.manager)).send({ reason: 'Race result' }),
+        request(server).post(`/employee-bsc/${record.id}/evaluation/approve`).set(auth(tokens.director)).send({}),
+        request(server).post(`/employee-bsc/${record.id}/evaluation/return`).set(auth(tokens.director)).send({ reason: 'Race result' }),
       ]);
       httpAssertions += 2; assert.deepEqual(decisions.map(row => row.status).sort(), [200, 409]);
       assert.equal(await prisma.bsc_reviews.count({ where: { employee_bsc_id: record.id, stage: 'EVALUATION' } }), 1);
@@ -201,7 +213,7 @@ test('Phase 3B.3 dual-stage BSC workflow integration', { skip: safeDatabase() ? 
       assert.equal(planResponse.body.code, 'BSC_PLAN_TOTAL_WEIGHT_NOT_100');
       const missingActual = await bsc('MISSING_ACTUAL');
       await expectHttp(request(server).post(`/employee-bsc/${missingActual.id}/plan/submit`).set(auth(tokens.employee)).send({}), 200);
-      await expectHttp(request(server).post(`/employee-bsc/${missingActual.id}/plan/approve`).set(auth(tokens.manager)).send({}), 200);
+      await expectHttp(request(server).post(`/employee-bsc/${missingActual.id}/plan/approve`).set(auth(tokens.director)).send({}), 200);
       const evaluationResponse = await expectHttp(request(server).post(`/employee-bsc/${missingActual.id}/evaluation/submit`).set(auth(tokens.employee)).send({}), 400);
       assert.equal(evaluationResponse.body.code, 'BSC_EVALUATION_ACTUAL_REQUIRED');
     });
@@ -221,13 +233,13 @@ test('Phase 3B.3 dual-stage BSC workflow integration', { skip: safeDatabase() ? 
       const evaluationPending = await bsc('PENDING_EVAL', employee2, 100);
       await expectHttp(request(server).post(`/employee-bsc/${planPending.id}/plan/submit`).set(auth(tokens.employee)).send({}), 200);
       await expectHttp(request(server).post(`/employee-bsc/${evaluationPending.id}/plan/submit`).set(auth(tokens.employee2)).send({}), 200);
-      await expectHttp(request(server).post(`/employee-bsc/${evaluationPending.id}/plan/approve`).set(auth(tokens.manager)).send({}), 200);
+      await expectHttp(request(server).post(`/employee-bsc/${evaluationPending.id}/plan/approve`).set(auth(tokens.director)).send({}), 200);
       await expectHttp(request(server).post(`/employee-bsc/${evaluationPending.id}/evaluation/submit`).set(auth(tokens.employee2)).send({}), 200);
-      const plan = await expectHttp(request(server).get(`/employee-bsc/pending-review?stage=PLAN&search=PENDING&page=1&limit=1&sortBy=plan_submitted_at&sortOrder=asc`).set(auth(tokens.manager)), 200);
-      const evaluation = await expectHttp(request(server).get(`/employee-bsc/pending-review?stage=EVALUATION&search=PENDING&page=1&limit=1&sortBy=evaluation_submitted_at&sortOrder=asc`).set(auth(tokens.manager)), 200);
+      const plan = await expectHttp(request(server).get(`/employee-bsc/pending-review?stage=PLAN&search=PENDING&page=1&limit=1&sortBy=plan_submitted_at&sortOrder=asc`).set(auth(tokens.director)), 200);
+      const evaluation = await expectHttp(request(server).get(`/employee-bsc/pending-review?stage=EVALUATION&search=PENDING&page=1&limit=1&sortBy=evaluation_submitted_at&sortOrder=asc`).set(auth(tokens.director)), 200);
       assert.deepEqual(plan.body.items.map((row: any) => row.id), [planPending.id]);
       assert.deepEqual(evaluation.body.items.map((row: any) => row.id), [evaluationPending.id]);
-      await expectHttp(request(server).get('/employee-bsc/pending-review?stage=PLAN').set(auth(tokens.otherManager)), 200).then(response => assert.equal(response.body.total, 0));
+      await expectHttp(request(server).get('/employee-bsc/pending-review?stage=PLAN').set(auth(tokens.otherManager)), 403);
     });
 
     await t.test('history/audit are stage-aware, public history is private and payloads are secret-free', async () => {

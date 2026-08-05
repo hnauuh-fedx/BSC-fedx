@@ -10,7 +10,7 @@ import { BSC_PERMISSIONS } from '../src/modules/employee-bsc/policies/bsc-access
 const prisma = new PrismaClient();
 const marker = `BSCROUND_${Date.now()}_${randomUUID().replaceAll('-', '').slice(0, 8)}`.toUpperCase();
 const password = 'BscRound!Test#1';
-const ids = { users: [] as string[], roles: [] as string[], permissions: [] as string[] };
+const ids = { users: [] as string[], roles: [] as string[], permissions: [] as string[], rolePermissions: [] as Array<{ role_id: string; permission_id: string }> };
 let httpAssertions = 0;
 
 function safeDatabase() {
@@ -33,6 +33,7 @@ async function cleanup() {
     await prisma.role_permissions.deleteMany({ where: { role_id: { in: ids.roles } } });
     await prisma.roles.deleteMany({ where: { id: { in: ids.roles } } });
   }
+  for (const pair of ids.rolePermissions) await prisma.role_permissions.deleteMany({ where: pair });
   for (const id of ids.permissions) {
     if (await prisma.role_permissions.count({ where: { permission_id: id } }) === 0) await prisma.permissions.deleteMany({ where: { id } });
   }
@@ -79,13 +80,30 @@ test('Phase 3B.4 scoring alignment integration', {
     const managerRole = await role('MANAGER', [BSC_PERMISSIONS.VIEW_SUBORDINATE, BSC_PERMISSIONS.MANAGE_KPI, BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE, BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.VIEW_PLAN_HISTORY, BSC_PERMISSIONS.VIEW_EVALUATION_HISTORY]);
     const noAccessRole = await role('NO_ACCESS', []);
     const hash = await argon2.hash(password);
-    const user = async (name: string, roleId: string, scope: 'SELF' | 'DEPARTMENT', managerId?: string) => {
+    const user = async (name: string, roleId: string, scope: 'SELF' | 'DEPARTMENT' | 'GLOBAL', managerId?: string) => {
       const result = await prisma.users.create({ data: { employee_code: `${marker}_${name}`, username: String(`${marker}_${name}`).toLowerCase(), full_name: `${marker} ${name}`, email: `${marker.toLowerCase()}_${name.toLowerCase()}@example.test`, password_hash: hash, department_id: department.id, position_id: position.id, direct_manager_id: managerId } });
       ids.users.push(result.id);
       await prisma.user_roles.create({ data: { user_id: result.id, role_id: roleId, scope_type: scope, scope_id: scope === 'DEPARTMENT' ? department.id : null } });
       return result;
     };
     const manager = await user('MANAGER', managerRole.id, 'DEPARTMENT');
+    let directorRole = await prisma.roles.findUnique({ where: { code: 'DIRECTOR' } });
+    const createdDirectorRole = !directorRole;
+    if (!directorRole) {
+      directorRole = await prisma.roles.create({ data: { code: 'DIRECTOR', name: 'Director', hierarchy_level: 2, is_system: true, status: 'ACTIVE' } });
+      ids.roles.push(directorRole.id);
+    }
+    const directorPermissionIds = await prisma.permissions.findMany({ where: { code: { in: [
+      BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
+      BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE,
+    ] } }, select: { id: true } });
+    for (const permission of directorPermissionIds) {
+      const pair = { role_id: directorRole.id, permission_id: permission.id };
+      const existing = await prisma.role_permissions.findUnique({ where: { role_id_permission_id: pair } });
+      await prisma.role_permissions.upsert({ where: { role_id_permission_id: pair }, create: pair, update: {} });
+      if (!createdDirectorRole && !existing) ids.rolePermissions.push(pair);
+    }
+    const director = await user('DIRECTOR', directorRole.id, 'GLOBAL');
     const employee = await user('EMPLOYEE', employeeRole.id, 'SELF', manager.id);
     const outsider = await user('OUTSIDER', employeeRole.id, 'SELF', manager.id);
     const noAccess = await user('NO_ACCESS', noAccessRole.id, 'SELF', manager.id);
@@ -109,7 +127,7 @@ test('Phase 3B.4 scoring alignment integration', {
 
     const created = await createApp(); app = created.app; await app.init(); const server = app.getHttpServer();
     const login = async (username: string) => (await request(server).post('/auth/login').send({ username, password }).expect(200)).body.accessToken as string;
-    const tokens = { employee: await login(employee.username), outsider: await login(outsider.username), noAccess: await login(noAccess.username), manager: await login(manager.username) };
+    const tokens = { employee: await login(employee.username), outsider: await login(outsider.username), noAccess: await login(noAccess.username), manager: await login(manager.username), director: await login(director.username) };
     const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
     const expectHttp = async (call: any, status: number) => { httpAssertions += 1; return call.expect(status); };
 
@@ -154,16 +172,16 @@ test('Phase 3B.4 scoring alignment integration', {
       const submittedPlan = await expectHttp(request(server).post(`/employee-bsc/${record.bsc.id}/plan/submit`).set(auth(tokens.employee)).send({ finalScore: 999 }), 400);
       assert.equal(submittedPlan.body.code, 'VALIDATION_ERROR');
       await expectHttp(request(server).post(`/employee-bsc/${record.bsc.id}/plan/submit`).set(auth(tokens.employee)).send({}), 200);
-      const planApproved = await expectHttp(request(server).post(`/employee-bsc/${record.bsc.id}/plan/approve`).set(auth(tokens.manager)).send({}), 200);
+      const planApproved = await expectHttp(request(server).post(`/employee-bsc/${record.bsc.id}/plan/approve`).set(auth(tokens.director)).send({}), 200);
       assert.equal(planApproved.body.final_score, null); assert.equal(planApproved.body.final_grade, null);
       await expectHttp(request(server).patch(`/employee-bsc/${record.bsc.id}/items/${record.items[0].id}/actual`).set(auth(tokens.employee)).send({ actualValue: 84, employeeNote: 'TM KQTH' }), 200);
       await expectHttp(request(server).post(`/employee-bsc/${record.bsc.id}/evaluation/submit`).set(auth(tokens.employee)).send({ score: 999 }), 400);
       await expectHttp(request(server).post(`/employee-bsc/${record.bsc.id}/evaluation/submit`).set(auth(tokens.employee)).send({}), 200);
-      const planPending = await expectHttp(request(server).get(`/employee-bsc/pending-review?stage=PLAN&search=${marker}_WORKFLOW`).set(auth(tokens.manager)), 200);
-      const evaluationPending = await expectHttp(request(server).get(`/employee-bsc/pending-review?stage=EVALUATION&search=${marker}_WORKFLOW`).set(auth(tokens.manager)), 200);
+      const planPending = await expectHttp(request(server).get(`/employee-bsc/pending-review?stage=PLAN&search=${marker}_WORKFLOW`).set(auth(tokens.director)), 200);
+      const evaluationPending = await expectHttp(request(server).get(`/employee-bsc/pending-review?stage=EVALUATION&search=${marker}_WORKFLOW`).set(auth(tokens.director)), 200);
       assert.equal(planPending.body.total, 0); assert.deepEqual(evaluationPending.body.items.map((item: any) => item.id), [record.bsc.id]);
       await prisma.employee_bsc_items.update({ where: { id: record.items[0].id }, data: { actual_value: 95 } });
-      const approved = await expectHttp(request(server).post(`/employee-bsc/${record.bsc.id}/evaluation/approve`).set(auth(tokens.manager)).send({}), 200);
+      const approved = await expectHttp(request(server).post(`/employee-bsc/${record.bsc.id}/evaluation/approve`).set(auth(tokens.director)).send({}), 200);
       assert.equal(Number(approved.body.final_score), 100); assert.equal(approved.body.final_grade, 'A');
       const persisted = await prisma.employee_bsc.findUniqueOrThrow({ where: { id: record.bsc.id } });
       assert.equal(Number(persisted.manager_total_score), 100); assert.equal(Number(persisted.final_score), 100); assert.equal(persisted.final_grade, 'A');
@@ -182,7 +200,7 @@ test('Phase 3B.4 scoring alignment integration', {
         { actual: 80, weight: '0.05' },
       ]);
       await expectHttp(request(server).post(`/employee-bsc/${record.bsc.id}/evaluation/submit`).set(auth(tokens.employee)).send({}), 200);
-      const approved = await expectHttp(request(server).post(`/employee-bsc/${record.bsc.id}/evaluation/approve`).set(auth(tokens.manager)).send({}), 200);
+      const approved = await expectHttp(request(server).post(`/employee-bsc/${record.bsc.id}/evaluation/approve`).set(auth(tokens.director)).send({}), 200);
       assert.equal(approved.body.final_score, '89.995'); assert.equal(approved.body.final_grade, 'B');
       const persisted = await prisma.employee_bsc.findUniqueOrThrow({ where: { id: record.bsc.id } });
       assert.equal(persisted.final_score?.toString(), '89.995'); assert.equal(persisted.manager_total_score?.toString(), '89.995');
@@ -195,8 +213,8 @@ test('Phase 3B.4 scoring alignment integration', {
       const record = await makeBsc('RACE', [{ actual: 100, weight: 100 }]);
       await expectHttp(request(server).post(`/employee-bsc/${record.bsc.id}/evaluation/submit`).set(auth(tokens.employee)).send({}), 200);
       const decisions = await Promise.all([
-        request(server).post(`/employee-bsc/${record.bsc.id}/evaluation/approve`).set(auth(tokens.manager)).send({}),
-        request(server).post(`/employee-bsc/${record.bsc.id}/evaluation/return`).set(auth(tokens.manager)).send({ reason: 'Race' }),
+        request(server).post(`/employee-bsc/${record.bsc.id}/evaluation/approve`).set(auth(tokens.director)).send({}),
+        request(server).post(`/employee-bsc/${record.bsc.id}/evaluation/return`).set(auth(tokens.director)).send({ reason: 'Race' }),
       ]);
       httpAssertions += 2;
       assert.deepEqual(decisions.map((response) => response.status).sort(), [200, 409]);

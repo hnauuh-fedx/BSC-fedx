@@ -295,7 +295,7 @@ export class BscReportsService {
         employeeCode: record.users_employee_bsc_employee_idTousers.employee_code,
         employeeName: record.users_employee_bsc_employee_idTousers.full_name,
         departmentId: record.department_id, departmentName: record.departments.name,
-        positionName: record.positions.name, directManagerName: record.users_employee_bsc_direct_manager_idTousers.full_name,
+        positionName: record.positions.name, directManagerName: record.users_employee_bsc_direct_manager_idTousers?.full_name ?? '',
         cycleId: record.cycle_id, cycleCode: record.bsc_cycles.code, cycleName: record.bsc_cycles.name,
         planStatus: record.plan_status, evaluationStatus: record.evaluation_status,
         totalWeight: item?._sum.weight?.toString() ?? '0', kpiCount: item?._count._all ?? 0,

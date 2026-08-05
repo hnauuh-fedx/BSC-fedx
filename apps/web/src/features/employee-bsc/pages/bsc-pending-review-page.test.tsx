@@ -56,7 +56,15 @@ describe('BscPendingReviewPage', () => {
           fullName: 'Giám đốc thử nghiệm',
           email: 'director@example.com',
           status: 'ACTIVE',
-          roles: [],
+          roles: [{
+            code: 'DIRECTOR',
+            scopeType: 'GLOBAL',
+            scopeId: null,
+            permissions: [
+              BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE,
+              BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
+            ],
+          }],
           permissions: [
             BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE,
             BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
@@ -106,5 +114,29 @@ describe('BscPendingReviewPage', () => {
         name: 'Trả lại kế hoạch BSC Tháng 7/2026 của Nhân viên thử nghiệm',
       }),
     ).toBeVisible();
+  });
+
+  it('does not borrow review permissions from a MANAGER assignment', async () => {
+    const stalePermissions = [BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE];
+    vi.mocked(useAuthContext).mockReturnValue({
+      state: {
+        status: 'authenticated',
+        user: {
+          id: 'mixed-1', employeeCode: 'MX001', fullName: 'Mixed role', email: 'mixed@example.com', status: 'ACTIVE',
+          roles: [
+            { code: 'DIRECTOR', scopeType: 'GLOBAL', scopeId: null, permissions: [] },
+            { code: 'MANAGER', scopeType: 'DEPARTMENT', scopeId: 'department-1', permissions: stalePermissions },
+          ],
+          permissions: stalePermissions,
+        },
+        accessToken: 'token', expiresAt: Date.now() + 60_000,
+      },
+      login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(() => 'token'),
+    });
+
+    render(<MemoryRouter><BscPendingReviewPage /></MemoryRouter>);
+
+    expect(await screen.findByText('Bạn không có quyền xử lý giai đoạn này.')).toBeVisible();
+    expect(employeeBscApi.pendingReview).not.toHaveBeenCalled();
   });
 });

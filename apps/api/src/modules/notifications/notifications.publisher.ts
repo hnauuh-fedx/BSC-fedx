@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { NotificationEvent, NotificationEventType, NotificationStage } from './notifications.types';
+import { BscReviewerResolver } from '../bsc-reviewers/bsc-reviewer-resolver';
 
 interface NotificationDraft {
   recipientId: string;
@@ -38,6 +39,8 @@ const DEPARTMENT_EVENTS = new Set<NotificationEventType>([
 
 @Injectable()
 export class NotificationPublisher {
+  constructor(private readonly reviewerResolver: BscReviewerResolver) {}
+
   async publish(db: Prisma.TransactionClient, event: NotificationEvent) {
     const drafts = await this.resolveDrafts(db, event);
     return Promise.all(drafts.map((draft) => {
@@ -96,40 +99,12 @@ export class NotificationPublisher {
 
   private async directorRecipientIds(
     db: Prisma.TransactionClient,
-    departmentId: string,
+    _departmentId: string,
     ownerId: string,
     permission: string,
   ): Promise<string[]> {
-    const now = new Date();
-    const directors = await db.users.findMany({
-      where: {
-        id: { not: ownerId },
-        status: 'ACTIVE',
-        deleted_at: null,
-        departments: { status: 'ACTIVE' },
-        positions: { status: 'ACTIVE' },
-        user_roles_user_roles_user_idTousers: {
-          some: {
-            AND: [
-              { OR: [{ expires_at: null }, { expires_at: { gt: now } }] },
-              {
-                OR: [
-                  { scope_type: 'GLOBAL' },
-                  { scope_type: 'DEPARTMENT', scope_id: departmentId },
-                ],
-              },
-            ],
-            roles: {
-              code: 'DIRECTOR',
-              status: 'ACTIVE',
-              role_permissions: { some: { permissions: { code: permission } } },
-            },
-          },
-        },
-      },
-      select: { id: true },
-    });
-    return directors.map((director) => director.id);
+    const reviewer = await this.reviewerResolver.resolveRequiredDirector(db, { ownerId, permission });
+    return [reviewer.id];
   }
 
   private async employeeReopenDrafts(db: Prisma.TransactionClient, event: NotificationEvent): Promise<NotificationDraft[]> {
