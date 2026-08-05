@@ -115,6 +115,7 @@ DIRECTOR được phép:
 - Xem thống kê cá nhân, phòng ban và đơn vị.
 - Xem lịch sử nộp, trả lại, duyệt và mở lại.
 - Xử lý yêu cầu mở lại BSC cá nhân đã duyệt toàn hệ thống.
+- Chủ động mở lại PLAN hoặc EVALUATION đã duyệt khi có permission `bsc.reset.approved`, không cần chủ sở hữu gửi yêu cầu trước.
 - Xem biên bản họp đánh giá BSC.
 - In và xuất báo cáo.
 - Chốt hoặc xác nhận dữ liệu phục vụ bảng lương nếu được cấp quyền.
@@ -470,11 +471,11 @@ Nên cho phép người duyệt chỉ rõ:
 
 ---
 
-## 15. Quy tắc reopen lịch sử (ngoài phạm vi phase hiện tại)
+## 15. Quy tắc mở lại BSC đã duyệt
 
 Người lập không được tự sửa BSC đã nộp hoặc đã duyệt.
 
-Muốn sửa phải:
+Chủ sở hữu muốn sửa phải:
 
 1. Gửi yêu cầu cho cấp trên.
 2. Nêu lý do cần sửa.
@@ -494,6 +495,15 @@ Khi mở lại BSC đã duyệt, hệ thống phải lưu:
 - Nội dung thay đổi sau khi mở lại.
 
 BSC mở lại không được giữ nguyên trạng thái APPROVED.
+
+DIRECTOR phạm vi GLOBAL có permission `bsc.reset.approved` được chủ động mở lại BSC đã duyệt mà không cần yêu cầu trước của chủ sở hữu. Thao tác này bắt buộc có lý do và chạy trong transaction:
+
+- Mở lại PLAN: lưu snapshot, chuyển PLAN sang REOPENED, đặt EVALUATION về NOT_STARTED, xóa điểm chính thức và dữ liệu kết quả hiện tại; minh chứng hiện tại được soft-delete.
+- Mở lại EVALUATION: lưu snapshot, giữ PLAN APPROVED và định nghĩa KPI bị khóa, chuyển EVALUATION sang REOPENED, xóa điểm/xếp loại chính thức nhưng giữ kết quả để chủ sở hữu chỉnh sửa.
+- Các yêu cầu mở lại PENDING bị ảnh hưởng phải chuyển EXPIRED.
+- Phải ghi người thực hiện, lý do, lịch sử trạng thái, phiên bản trước khi mở lại và audit log.
+- Kỳ phải ở trạng thái OPEN; không cho phép thao tác trên kỳ LOCKED/CLOSED hoặc dữ liệu đã khóa cho bảng lương.
+- Nếu nhiều DIRECTOR thao tác đồng thời, chỉ transaction đầu tiên được thành công; các thao tác còn lại nhận conflict và không tạo side effect trùng.
 
 ---
 
@@ -1069,6 +1079,7 @@ bsc.payroll.export
 
 bsc.audit.view
 bsc.unlock.approved
+bsc.reset.approved
 bsc.unlock.payroll
 
 DIRECTOR không được gán mặc định:
@@ -1237,6 +1248,7 @@ Việc ẩn nút ở frontend không thay thế kiểm tra quyền ở backend.
 - Duyệt được BSC của MANAGER và EMPLOYEE toàn hệ thống.
 - Duyệt và trả lại được PLAN/EVALUATION của EMPLOYEE, kể cả khi có MANAGER trực tiếp.
 - Mở lại được BSC đã duyệt khi có quyền.
+- Chủ động mở lại được từng stage đã duyệt với lý do, snapshot và audit; thao tác đồng thời chỉ một người thành công.
 
 ## Duplicate
 

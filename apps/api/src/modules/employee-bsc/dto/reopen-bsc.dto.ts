@@ -10,6 +10,10 @@ export class RejectReopenRequestDto {
   @IsString() @MaxLength(2000) reason!: string;
 }
 
+export class ResetApprovedBscDto {
+  @IsString() @MaxLength(2000) reason!: string;
+}
+
 export class QueryReopenRequestDto {
   @IsOptional() @IsIn(['PLAN', 'EVALUATION']) stage?: 'PLAN' | 'EVALUATION';
   @IsOptional() @IsIn(['PENDING', 'APPROVED', 'REJECTED']) status?: 'PENDING' | 'APPROVED' | 'REJECTED';

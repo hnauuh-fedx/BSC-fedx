@@ -19,6 +19,7 @@ export const CANONICAL_BSC_WORKFLOW_PERMISSIONS = [
   'bsc.evaluation.submit.own', 'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate',
   'bsc.plan.history.view', 'bsc.evaluation.history.view',
   'bsc.reopen.request', 'bsc.reopen.subordinate', 'bsc.version.view', 'bsc.duplicate.own',
+  'bsc.reset.approved',
 ] as const;
 
 export const CANONICAL_BSC_REPORT_PERMISSIONS = [
@@ -52,7 +53,7 @@ const ROLE_BSC_PERMISSIONS: Record<keyof typeof CANONICAL_ROLES, readonly string
   EMPLOYEE: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.request', 'bsc.version.view', 'bsc.duplicate.own', 'bsc.statistics.personal', 'bsc.report.export'],
   MANAGER: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own', 'bsc.view.subordinate', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.request', 'bsc.version.view', 'bsc.duplicate.own', 'bsc.statistics.personal', 'bsc.statistics.unit', 'bsc.report.export',
     'bsc.department.create', 'bsc.department.view', 'bsc.department.edit', 'bsc.department.delete.draft', 'bsc.department.duplicate', 'bsc.department.plan.submit', 'bsc.department.evaluation.submit', 'bsc.department.reopen.request', 'bsc.department.version.view', 'bsc.department.report.export'],
-  DIRECTOR: ['bsc.view.unit', 'bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate', 'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.subordinate', 'bsc.version.view', 'bsc.statistics.organization', 'bsc.report.export', 'bsc.minutes.create', 'bsc.minutes.view',
+  DIRECTOR: ['bsc.view.unit', 'bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate', 'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.subordinate', 'bsc.reset.approved', 'bsc.version.view', 'bsc.statistics.organization', 'bsc.report.export', 'bsc.minutes.create', 'bsc.minutes.view',
     'bsc.department.view', 'bsc.department.plan.approve', 'bsc.department.plan.return', 'bsc.department.evaluation.approve', 'bsc.department.evaluation.return', 'bsc.department.reopen.review', 'bsc.department.version.view', 'bsc.department.report.export'],
   ADMIN: [],
 };

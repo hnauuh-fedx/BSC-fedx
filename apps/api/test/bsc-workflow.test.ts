@@ -121,3 +121,21 @@ test('field locking keeps definition and evaluation result groups independent', 
   assert.throws(() => policy.assertCanEditEvaluationResult(owner, { ...base, plan_status: 'SUBMITTED', evaluation_status: 'NOT_STARTED' }), (e: any) => e.response.code === 'BSC_FIELD_NOT_EDITABLE_IN_CURRENT_STAGE');
   assert.throws(() => policy.assertCanEditEvaluationResult(owner, { ...base, plan_status: 'APPROVED', evaluation_status: 'SUBMITTED' }), (e: any) => e.response.code === 'BSC_FIELD_NOT_EDITABLE_IN_CURRENT_STAGE');
 });
+
+test('a reset-only GLOBAL DIRECTOR may view reopen trace without gaining request-review permission', () => {
+  const policy = new BscAccessPolicy({} as PrismaService);
+  const resetDirector = actor({
+    id: managerId,
+    roles: [{ code: 'DIRECTOR', scopeType: 'GLOBAL', scopeId: null, permissions: [BSC_PERMISSIONS.RESET_APPROVED] }],
+    permissions: [BSC_PERMISSIONS.RESET_APPROVED],
+  });
+  const staleManager = actor({
+    id: managerId,
+    roles: [{ code: 'MANAGER', scopeType: 'DEPARTMENT', scopeId: departmentId, permissions: [BSC_PERMISSIONS.RESET_APPROVED] }],
+    permissions: [BSC_PERMISSIONS.RESET_APPROVED],
+  });
+  const bsc = { employee_id: employeeId, department_id: departmentId } as any;
+
+  assert.doesNotThrow(() => policy.assertCanViewReopenHistory(resetDirector, bsc));
+  assert.throws(() => policy.assertCanViewReopenHistory(staleManager, bsc), (e: any) => e.response.code === 'BSC_ACCESS_DENIED');
+});

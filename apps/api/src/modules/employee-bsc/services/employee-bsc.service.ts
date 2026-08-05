@@ -185,7 +185,7 @@ export class EmployeeBscService {
     const bsc = await this.requireBsc(bscId);
     await this.policy.assertActiveResource(bsc);
     if (actor.id === bsc.employee_id) this.policy.assertCanRequestReopen(actor, bsc);
-    else await this.policy.assertCanReview(actor, bsc, BSC_PERMISSIONS.REVIEW_REOPEN);
+    else this.policy.assertCanViewReopenHistory(actor, bsc);
     return this.repository.findReopenRequestsForBsc(bscId);
   }
 
@@ -200,8 +200,8 @@ export class EmployeeBscService {
     const request = await this.repository.findReopenRequest(requestId);
     if (!request) throw new NotFoundException({ code: 'BSC_REOPEN_REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu mở lại.' });
     await this.policy.assertActiveResource(request.employee_bsc);
-    if (actor.id === request.requested_by) this.policy.assertCanRequestReopen(actor, request.employee_bsc);
-    else await this.policy.assertCanReviewReopen(actor, request.employee_bsc);
+    if (actor.id === request.employee_bsc.employee_id) this.policy.assertCanRequestReopen(actor, request.employee_bsc);
+    else this.policy.assertCanViewReopenHistory(actor, request.employee_bsc);
     return request;
   }
 
@@ -261,6 +261,15 @@ export class EmployeeBscService {
     return this.reviewPlan(actor, id, 'RETURN_PLAN', reason, metadata);
   }
 
+  async resetApprovedPlan(actor: AuthUser, id: string, rawReason: string, metadata: AuditRequestMetadata) {
+    const reason = this.normalizeReason(rawReason, 'BSC_RESET_REASON_REQUIRED');
+    const bsc = await this.requireBsc(id);
+    await this.policy.assertCanResetApproved(actor, bsc);
+    return this.repository.resetApprovedStage(actor, id, 'PLAN', reason, metadata, (snapshot) => {
+      this.assertDirectResetAllowed(snapshot, 'PLAN');
+    });
+  }
+
   async submitEvaluation(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
     const bsc = await this.requireBsc(id);
     await this.policy.assertActiveResource(bsc);
@@ -278,6 +287,15 @@ export class EmployeeBscService {
 
   returnEvaluation(actor: AuthUser, id: string, reason: string, metadata: AuditRequestMetadata) {
     return this.reviewEvaluation(actor, id, 'RETURN_EVALUATION', reason, metadata);
+  }
+
+  async resetApprovedEvaluation(actor: AuthUser, id: string, rawReason: string, metadata: AuditRequestMetadata) {
+    const reason = this.normalizeReason(rawReason, 'BSC_RESET_REASON_REQUIRED');
+    const bsc = await this.requireBsc(id);
+    await this.policy.assertCanResetApproved(actor, bsc);
+    return this.repository.resetApprovedStage(actor, id, 'EVALUATION', reason, metadata, (snapshot) => {
+      this.assertDirectResetAllowed(snapshot, 'EVALUATION');
+    });
   }
 
   async update(actor: AuthUser, id: string, dto: UpdateEmployeeBscDto, metadata: AuditRequestMetadata) {
@@ -409,6 +427,25 @@ export class EmployeeBscService {
     }
     const stageStatus = request.stage === 'PLAN' ? request.plan_status : request.evaluation_status;
     if (stageStatus !== 'APPROVED') throw new ConflictException({ code: 'BSC_REOPEN_WORKFLOW_CONFLICT', message: 'Stage không còn ở trạng thái đã duyệt.' });
+  }
+
+  private assertDirectResetAllowed(snapshot: WorkflowSnapshot, stage: 'PLAN' | 'EVALUATION'): void {
+    if (snapshot.cycle_status !== 'OPEN') {
+      const code = snapshot.cycle_status === 'LOCKED' ? 'BSC_CYCLE_LOCKED'
+        : snapshot.cycle_status === 'CLOSED' ? 'BSC_CYCLE_CLOSED' : 'BSC_CYCLE_NOT_OPEN';
+      throw new ConflictException({ code, message: 'Kỳ BSC không cho phép mở lại trực tiếp dữ liệu đã duyệt.' });
+    }
+    if (snapshot.owner_status !== 'ACTIVE' || snapshot.owner_deleted_at
+      || snapshot.department_status !== 'ACTIVE' || snapshot.position_status !== 'ACTIVE') {
+      throw new BadRequestException({ code: 'BSC_RESET_NOT_ALLOWED', message: 'BSC, người dùng hoặc tổ chức không còn đủ điều kiện mở lại.' });
+    }
+    const approved = stage === 'PLAN'
+      ? snapshot.plan_status === 'APPROVED'
+      : snapshot.plan_status === 'APPROVED' && snapshot.evaluation_status === 'APPROVED';
+    if (!approved) throw new ConflictException({
+      code: stage === 'PLAN' ? 'BSC_PLAN_NOT_APPROVED_FOR_RESET' : 'BSC_EVALUATION_NOT_APPROVED_FOR_RESET',
+      message: 'Chỉ giai đoạn đã duyệt mới được mở lại trực tiếp.',
+    });
   }
 
   private normalizeReason(reason: string | undefined, code: string): string {

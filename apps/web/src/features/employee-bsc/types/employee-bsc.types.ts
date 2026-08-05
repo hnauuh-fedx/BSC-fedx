@@ -62,6 +62,7 @@ export type BscVersionDetail = Omit<BscVersionSummary, 'summary'> & { snapshot: 
 
 export type BscReopenRequest = {
   id: string; employee_bsc_id: string; stage: 'PLAN' | 'EVALUATION'; requested_by: string; reviewer_id: string | null;
+  request_source?: 'OWNER_REQUEST' | 'DIRECTOR_RESET';
   request_reason: string; requested_at: string; status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
   reviewed_by: string | null; review_comment: string | null; reviewed_at: string | null;
   source_version_id: string | null; resulting_version_id: string | null;

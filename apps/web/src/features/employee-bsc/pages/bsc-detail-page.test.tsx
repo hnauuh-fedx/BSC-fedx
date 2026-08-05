@@ -21,6 +21,8 @@ vi.mock('../services/employee-bsc.service', () => ({
     reopenRequests: vi.fn(),
     approveReopen: vi.fn(),
     rejectReopen: vi.fn(),
+    resetApprovedPlan: vi.fn(),
+    resetApprovedEvaluation: vi.fn(),
     exportExcel: vi.fn(),
   },
 }));
@@ -310,6 +312,41 @@ describe('BscDetailPage background refresh', () => {
 
     expect(await screen.findByRole('button', { name: 'Duyệt đánh giá' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Trả lại đánh giá' })).toBeVisible();
+  });
+
+  it('lets a GLOBAL DIRECTOR directly reopen either approved stage with a required reason', async () => {
+    const user = userEvent.setup();
+    const resetPermission = 'bsc.reset.approved';
+    vi.mocked(useAuthContext).mockReturnValue({
+      state: {
+        status: 'authenticated',
+        user: {
+          id: 'director-1', employeeCode: 'D001', fullName: 'Giám đốc', email: 'director@example.com', departmentId: 'system', status: 'ACTIVE',
+          roles: [{ code: 'DIRECTOR', scopeType: 'GLOBAL', scopeId: null, permissions: [resetPermission] }],
+          permissions: [resetPermission],
+        },
+        accessToken: 'token', expiresAt: Date.now() + 60_000,
+      },
+      login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(() => 'token'),
+    });
+    vi.mocked(employeeBscApi.detail).mockResolvedValue({ ...bsc, plan_status: 'APPROVED', evaluation_status: 'APPROVED' });
+
+    render(
+      <MemoryRouter initialEntries={['/employee-bsc/bsc-1']}>
+        <Routes><Route path="/employee-bsc/:id" element={<BscDetailPage/>}/></Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Mở lại kế hoạch đã duyệt' })).toBeVisible();
+    await waitFor(() => expect(employeeBscApi.reopenRequests).toHaveBeenCalledWith('bsc-1'));
+    await user.click(screen.getByRole('button', { name: 'Mở lại đánh giá đã duyệt' }));
+    const dialog = screen.getByRole('dialog', { name: 'Mở lại trực tiếp đánh giá' });
+    expect(dialog).toHaveTextContent('Định nghĩa KPI vẫn khóa');
+    const confirmReset = screen.getByRole('button', { name: 'Xác nhận mở lại đánh giá' });
+    expect(confirmReset).toBeDisabled();
+    await user.type(screen.getByRole('textbox', { name: 'Lý do mở lại trực tiếp' }), 'Điều chỉnh sau cuộc họp');
+    await user.click(confirmReset);
+    await waitFor(() => expect(employeeBscApi.resetApprovedEvaluation).toHaveBeenCalledWith('bsc-1', 'Điều chỉnh sau cuộc họp'));
   });
 
   it('does not show review actions for a DIRECTOR-owned BSC', async () => {

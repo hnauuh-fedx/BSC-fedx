@@ -23,6 +23,7 @@ export const BSC_PERMISSIONS = {
   VIEW_EVALUATION_HISTORY: 'bsc.evaluation.history.view',
   REQUEST_REOPEN: 'bsc.reopen.request',
   REVIEW_REOPEN: 'bsc.reopen.subordinate',
+  RESET_APPROVED: 'bsc.reset.approved',
   VIEW_VERSION: 'bsc.version.view',
   DUPLICATE_OWN: 'bsc.duplicate.own',
 } as const;
@@ -133,6 +134,16 @@ export class BscAccessPolicy {
     if (actor.id === bsc.employee_id
       || !this.canReviewAsDirector(actor, BSC_PERMISSIONS.REVIEW_REOPEN)) this.deny();
     return;
+  }
+
+  async assertCanResetApproved(actor: AuthUser, bsc: BscAccessResource): Promise<void> {
+    await this.assertActiveResource(bsc);
+    if (actor.id === bsc.employee_id || !this.canReviewAsDirector(actor, BSC_PERMISSIONS.RESET_APPROVED)) this.deny();
+  }
+
+  assertCanViewReopenHistory(actor: AuthUser, bsc: BscAccessResource): void {
+    if (actor.id === bsc.employee_id || (!this.canReviewAsDirector(actor, BSC_PERMISSIONS.REVIEW_REOPEN)
+      && !this.canReviewAsDirector(actor, BSC_PERMISSIONS.RESET_APPROVED))) this.deny();
   }
 
   async assertCanReview(actor: AuthUser, bsc: BscAccessResource, permission: string): Promise<void> {

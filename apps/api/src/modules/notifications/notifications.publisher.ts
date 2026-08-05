@@ -110,7 +110,7 @@ export class NotificationPublisher {
   private async employeeReopenDrafts(db: Prisma.TransactionClient, event: NotificationEvent): Promise<NotificationDraft[]> {
     const request = await db.bsc_unlock_requests.findUnique({
       where: { id: event.resourceId },
-      select: { id: true, employee_bsc_id: true, stage: true, requested_by: true },
+      select: { id: true, employee_bsc_id: true, stage: true, requested_by: true, request_source: true },
     });
     if (!request) this.sourceNotFound();
     const bsc = await db.employee_bsc.findUnique({
@@ -121,12 +121,15 @@ export class NotificationPublisher {
     const requested = event.type.endsWith('_REQUESTED');
     const recipientIds = requested
       ? await this.directorRecipientIds(db, bsc.department_id, bsc.employee_id, 'bsc.reopen.subordinate')
-      : [request.requested_by];
+      : [request.request_source === 'DIRECTOR_RESET' ? bsc.employee_id : request.requested_by];
     const owner = await db.users.findUnique({ where: { id: bsc.employee_id }, select: { full_name: true } });
-    const action = requested ? 'REQUESTED' : event.type.endsWith('_APPROVED') ? 'APPROVED' : 'REJECTED';
+    const directReset = request.request_source === 'DIRECTOR_RESET';
+    const action = directReset ? 'DIRECTOR_RESET' : requested ? 'REQUESTED' : event.type.endsWith('_APPROVED') ? 'APPROVED' : 'REJECTED';
     return recipientIds.map((recipientId) => ({
       recipientId,
-      ...this.reopenCopy(request.stage as NotificationStage, action, 'cá nhân', owner?.full_name ?? bsc.bsc_code),
+      ...(directReset
+        ? this.directResetCopy(request.stage as NotificationStage, owner?.full_name ?? bsc.bsc_code)
+        : this.reopenCopy(request.stage as NotificationStage, action, 'cá nhân', owner?.full_name ?? bsc.bsc_code)),
       entityType: 'employee_bsc',
       entityId: bsc.id,
       targetPath: requested
@@ -216,6 +219,14 @@ export class NotificationPublisher {
     return {
       title: 'Yêu cầu mở lại BSC bị từ chối',
       message: `Yêu cầu mở lại ${stageLabel} BSC của ${subject} không được chấp thuận.`,
+    };
+  }
+
+  private directResetCopy(stage: NotificationStage, subject: string) {
+    const stageLabel = this.stageLabel(stage);
+    return {
+      title: `Giám đốc đã mở lại ${stageLabel} BSC`,
+      message: `${stageLabel[0].toUpperCase()}${stageLabel.slice(1)} BSC của ${subject} đã được Giám đốc mở lại trực tiếp.`,
     };
   }
 

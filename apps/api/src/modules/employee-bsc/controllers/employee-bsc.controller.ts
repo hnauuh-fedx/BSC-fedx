@@ -11,7 +11,7 @@ import { QueryEmployeeBscDto } from '../dto/query-employee-bsc.dto';
 import { UpdateEmployeeBscDto } from '../dto/update-employee-bsc.dto';
 import { SubmitBscDto } from '../dto/submit-bsc.dto';
 import { ReturnBscDto } from '../dto/return-bsc.dto';
-import { CreateReopenRequestDto, DuplicateBscDto, QueryReopenRequestDto, RejectReopenRequestDto } from '../dto/reopen-bsc.dto';
+import { CreateReopenRequestDto, DuplicateBscDto, QueryReopenRequestDto, RejectReopenRequestDto, ResetApprovedBscDto } from '../dto/reopen-bsc.dto';
 import { AuditRequestMetadata } from '../employee-bsc.types';
 import { BSC_PERMISSIONS } from '../policies/bsc-access.policy';
 import { EmployeeBscService } from '../services/employee-bsc.service';
@@ -47,7 +47,7 @@ export class EmployeeBscController {
   }
 
   @Get('reopen-requests/:requestId')
-  @RequireAnyPermission(BSC_PERMISSIONS.REQUEST_REOPEN, BSC_PERMISSIONS.REVIEW_REOPEN)
+  @RequireAnyPermission(BSC_PERMISSIONS.REQUEST_REOPEN, BSC_PERMISSIONS.REVIEW_REOPEN, BSC_PERMISSIONS.RESET_APPROVED)
   reopenRequestDetail(@CurrentUser() actor: AuthUser, @Param('requestId') requestId: string) {
     return this.service.reopenRequestDetail(actor, requestId);
   }
@@ -138,6 +138,14 @@ export class EmployeeBscController {
     return this.service.returnPlan(actor, id, dto.reason, metadata(request));
   }
 
+  @Post(':id/plan/reset-approved')
+  @HttpCode(200)
+  @RequirePermissions(BSC_PERMISSIONS.RESET_APPROVED)
+  resetApprovedPlan(@CurrentUser() actor: AuthUser, @Param('id') id: string,
+    @Body() dto: ResetApprovedBscDto, @Req() request: Request) {
+    return this.service.resetApprovedPlan(actor, id, dto.reason, metadata(request));
+  }
+
   @Post(':id/evaluation/submit')
   @HttpCode(200)
   @RequirePermissions(BSC_PERMISSIONS.SUBMIT_EVALUATION_OWN)
@@ -157,6 +165,14 @@ export class EmployeeBscController {
   @RequirePermissions(BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE)
   returnEvaluation(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() dto: ReturnBscDto, @Req() request: Request) {
     return this.service.returnEvaluation(actor, id, dto.reason, metadata(request));
+  }
+
+  @Post(':id/evaluation/reset-approved')
+  @HttpCode(200)
+  @RequirePermissions(BSC_PERMISSIONS.RESET_APPROVED)
+  resetApprovedEvaluation(@CurrentUser() actor: AuthUser, @Param('id') id: string,
+    @Body() dto: ResetApprovedBscDto, @Req() request: Request) {
+    return this.service.resetApprovedEvaluation(actor, id, dto.reason, metadata(request));
   }
 
   @Patch(':id')

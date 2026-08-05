@@ -51,9 +51,10 @@ export const BscDetailPage: React.FC = () => {
   const confirm = useSystemConfirm();
   const printRequested = searchParams.get('print') === '1', hasPrinted = useRef(false);
   const permissions = state.user?.permissions ?? [];
-  const canReviewReopenAsDirector = state.user?.roles.some(role => role.code === 'DIRECTOR'
+  const canViewReopenHistoryAsDirector = state.user?.roles.some(role => role.code === 'DIRECTOR'
     && role.scopeType === 'GLOBAL'
-    && role.permissions?.includes(BSC_PERMISSIONS.REVIEW_REOPEN)) ?? false;
+    && (role.permissions?.includes(BSC_PERMISSIONS.REVIEW_REOPEN)
+      || role.permissions?.includes(BSC_PERMISSIONS.RESET_APPROVED))) ?? false;
   const [bsc, setBsc] = useState<EmployeeBsc | null>(null), [loading, setLoading] = useState(true), [error, setError] = useState('');
   const [scoring, setScoring] = useState<BscScoringPreview | null>(null), [scoringLoading, setScoringLoading] = useState(true), [scoringError, setScoringError] = useState('');
   const [versions, setVersions] = useState<BscVersionSummary[]>([]), [versionsLoading, setVersionsLoading] = useState(false), [versionsError, setVersionsError] = useState('');
@@ -61,6 +62,7 @@ export const BscDetailPage: React.FC = () => {
   const [action, setAction] = useState<WorkflowAction | null>(null), [actionError, setActionError] = useState('');
   const [returnStage, setReturnStage] = useState<Stage | null>(null), [returnReason, setReturnReason] = useState('');
   const [reopenStage, setReopenStage] = useState<Stage | null>(null), [reopenReason, setReopenReason] = useState('');
+  const [resetStage, setResetStage] = useState<Stage | null>(null), [resetReason, setResetReason] = useState('');
   const [reopenActionId, setReopenActionId] = useState(''), [rejectingReopen, setRejectingReopen] = useState<BscReopenRequest | null>(null);
   const [reopenRejectReason, setReopenRejectReason] = useState('');
   const [duplicateOptions, setDuplicateOptions] = useState<BscDuplicateOptions | null>(null), [targetCycleId, setTargetCycleId] = useState('');
@@ -102,11 +104,11 @@ export const BscDetailPage: React.FC = () => {
   }, [id, permissions]);
   const loadReopenRequests = useCallback(async (ownerId?: string) => {
     const canLoadAsOwner = state.user?.id === ownerId && permissions.includes(BSC_PERMISSIONS.REQUEST_REOPEN);
-    if (!canLoadAsOwner && !canReviewReopenAsDirector) { setReopenRequests([]); return; }
+    if (!canLoadAsOwner && !canViewReopenHistoryAsDirector) { setReopenRequests([]); return; }
     setReopenError('');
     try { setReopenRequests(await employeeBscApi.reopenRequests(id)); }
     catch (cause) { setReopenRequests([]); setReopenError(cause instanceof Error ? cause.message : 'Không thể tải yêu cầu mở lại.'); }
-  }, [canReviewReopenAsDirector, id, permissions, state.user?.id]);
+  }, [canViewReopenHistoryAsDirector, id, permissions, state.user?.id]);
   const reloadAll = useCallback(async (initial = false) => {
     const [loadedBsc] = await Promise.all([load(initial), loadScoring(initial), loadVersions()]);
     await loadReopenRequests(loadedBsc?.employee_id);
@@ -142,6 +144,17 @@ export const BscDetailPage: React.FC = () => {
     mutationPending.current = true; setActionError('');
     try { await employeeBscApi.requestReopen(id, reopenStage, reopenReason); setReopenStage(null); setReopenReason(''); await reloadAll(); }
     catch (cause) { setActionError(cause instanceof Error ? cause.message : 'Không thể gửi yêu cầu mở lại.'); }
+    finally { mutationPending.current = false; }
+  };
+
+  const resetApproved = async () => {
+    if (!resetStage || !resetReason.trim() || mutationPending.current) return;
+    mutationPending.current = true; setActionError('');
+    try {
+      if (resetStage === 'PLAN') await employeeBscApi.resetApprovedPlan(id, resetReason.trim());
+      else await employeeBscApi.resetApprovedEvaluation(id, resetReason.trim());
+      setResetStage(null); setResetReason(''); await reloadAll();
+    } catch (cause) { setActionError(cause instanceof Error ? cause.message : 'Không thể mở lại BSC đã duyệt.'); }
     finally { mutationPending.current = false; }
   };
 
@@ -221,6 +234,9 @@ export const BscDetailPage: React.FC = () => {
   const canRequestPlan = isOwner && bsc.plan_status === 'APPROVED' && !planPending && permissions.includes(BSC_PERMISSIONS.REQUEST_REOPEN);
   const canRequestEvaluation = isOwner && bsc.evaluation_status === 'APPROVED' && !evaluationPending && permissions.includes(BSC_PERMISSIONS.REQUEST_REOPEN);
   const canReviewReopen = hasReviewPermission(BSC_PERMISSIONS.REVIEW_REOPEN);
+  const canResetApproved = cycleOpen && hasReviewPermission(BSC_PERMISSIONS.RESET_APPROVED);
+  const canResetPlan = canResetApproved && bsc.plan_status === 'APPROVED';
+  const canResetEvaluation = canResetApproved && bsc.plan_status === 'APPROVED' && bsc.evaluation_status === 'APPROVED';
   const canDuplicate = isOwner && permissions.includes(BSC_PERMISSIONS.DUPLICATE_OWN) && versions.some(value => value.versionType === 'PLAN_APPROVED');
   const planReturn = [...(bsc.bsc_status_histories ?? [])].reverse().find(value => value.stage === 'PLAN' && value.action === 'RETURN_PLAN');
   const evaluationReturn = [...(bsc.bsc_status_histories ?? [])].reverse().find(value => value.stage === 'EVALUATION' && value.action === 'RETURN_EVALUATION');
@@ -278,10 +294,13 @@ export const BscDetailPage: React.FC = () => {
     {canReturnEvaluation && <Button variant="outline" disabled={Boolean(action)} onClick={() => setReturnStage('EVALUATION')}>Trả lại đánh giá</Button>}
     {canRequestPlan && <Button variant="outline" onClick={() => { setReopenStage('PLAN'); setReopenReason(''); }}>Yêu cầu sửa kế hoạch</Button>}
     {canRequestEvaluation && <Button variant="outline" onClick={() => { setReopenStage('EVALUATION'); setReopenReason(''); }}>Yêu cầu sửa đánh giá</Button>}
+    {canResetPlan && <Button variant="destructive" onClick={() => { setResetStage('PLAN'); setResetReason(''); }}>Mở lại kế hoạch đã duyệt</Button>}
+    {canResetEvaluation && <Button variant="destructive" onClick={() => { setResetStage('EVALUATION'); setResetReason(''); }}>Mở lại đánh giá đã duyệt</Button>}
     {canDuplicate && <Button variant="outline" onClick={() => void openDuplicate()}>Sao chép BSC</Button>}</div>
     {actionError && <ErrorState error={actionError}/>} {reopenError && <ErrorState error={reopenError}/>} {' '}
     <AccessibleDialog open={Boolean(returnStage)} title={`Trả lại ${bscStageLabel(returnStage ?? '').toLowerCase()}`} description="BSC sẽ được mở lại đúng nhóm trường của giai đoạn này. Lý do sẽ được lưu trong lịch sử." onClose={() => setReturnStage(null)} busy={Boolean(action)}><FormField label="Lý do trả lại" error={!returnReason.trim() ? 'Vui lòng nhập lý do rõ ràng.' : undefined}><Textarea aria-invalid={!returnReason.trim()} maxLength={2000} rows={5} value={returnReason} onChange={event => setReturnReason(event.target.value)} /></FormField><div className="dialog-actions"><Button disabled={Boolean(action) || !returnReason.trim()} onClick={() => void runAction(returnStage === 'PLAN' ? 'returnPlan' : 'returnEvaluation')}>{action && <Spinner/>}Xác nhận trả lại</Button><Button variant="outline" disabled={Boolean(action)} onClick={() => setReturnStage(null)}>Hủy</Button></div></AccessibleDialog>
     <AccessibleDialog open={Boolean(reopenStage)} title={`Yêu cầu sửa ${bscStageLabel(reopenStage ?? '').toLowerCase()}`} description={reopenStage === 'PLAN' ? 'Khi được duyệt, dữ liệu đánh giá hiện tại sẽ được lưu vào lịch sử và đặt lại.' : 'Định nghĩa KPI vẫn khóa; điểm và xếp loại hiện tại sẽ chuyển vào lịch sử.'} onClose={() => setReopenStage(null)} busy={mutationPending.current}><FormField label="Lý do mở lại" error={!reopenReason.trim() ? 'Vui lòng nhập lý do mở lại.' : undefined}><Textarea aria-invalid={!reopenReason.trim()} maxLength={2000} rows={5} value={reopenReason} onChange={event => setReopenReason(event.target.value)} /></FormField><div className="dialog-actions"><Button disabled={!reopenReason.trim() || mutationPending.current} onClick={() => void requestReopen()}>{mutationPending.current && <Spinner/>}Gửi yêu cầu</Button><Button variant="outline" onClick={() => setReopenStage(null)}>Hủy</Button></div></AccessibleDialog>
+    <AccessibleDialog open={Boolean(resetStage)} title={`Mở lại trực tiếp ${bscStageLabel(resetStage ?? '').toLowerCase()}`} description={resetStage === 'PLAN' ? 'Hệ thống sẽ lưu phiên bản hiện tại, mở lại định nghĩa KPI và đặt lại dữ liệu đánh giá cùng minh chứng đang hoạt động.' : 'Hệ thống sẽ lưu phiên bản hiện tại và mở lại phần kết quả. Định nghĩa KPI vẫn khóa.'} onClose={() => setResetStage(null)} busy={mutationPending.current}><FormField label="Lý do mở lại trực tiếp" error={!resetReason.trim() ? 'Vui lòng nhập lý do mở lại.' : undefined}><Textarea aria-invalid={!resetReason.trim()} maxLength={2000} rows={5} value={resetReason} onChange={event => setResetReason(event.target.value)} /></FormField><div className="dialog-actions"><Button variant="destructive" disabled={!resetReason.trim() || mutationPending.current} onClick={() => void resetApproved()}>{mutationPending.current && <Spinner/>}Xác nhận mở lại {bscStageLabel(resetStage ?? '').toLowerCase()}</Button><Button variant="outline" disabled={mutationPending.current} onClick={() => setResetStage(null)}>Hủy</Button></div></AccessibleDialog>
     <AccessibleDialog open={Boolean(rejectingReopen)} title="Từ chối yêu cầu mở lại" description="BSC tiếp tục giữ trạng thái đã duyệt và lý do từ chối được lưu vào lịch sử." onClose={() => setRejectingReopen(null)} busy={Boolean(reopenActionId)}><FormField label="Lý do từ chối" error={!reopenRejectReason.trim() ? 'Vui lòng nhập lý do cụ thể.' : undefined}><Textarea aria-invalid={!reopenRejectReason.trim()} maxLength={2000} rows={5} value={reopenRejectReason} onChange={event => setReopenRejectReason(event.target.value)} /></FormField><div className="dialog-actions"><Button variant="destructive" disabled={!reopenRejectReason.trim() || Boolean(reopenActionId)} onClick={() => void rejectReopen()}>{reopenActionId && <Spinner/>}Xác nhận từ chối</Button><Button variant="outline" disabled={Boolean(reopenActionId)} onClick={() => setRejectingReopen(null)}>Hủy</Button></div></AccessibleDialog>
     {(planPending || evaluationPending) && <p role="status">Yêu cầu mở lại đang chờ xử lý. BSC vẫn ở chế độ chỉ xem.</p>}
     {duplicateLoading && <LoadingState/>}{duplicateError && <ErrorState error={duplicateError}/>} {' '}
@@ -290,7 +309,7 @@ export const BscDetailPage: React.FC = () => {
     <BscItemTable bscId={bsc.id} goalGroups={bsc.goal_groups ?? []} items={items} scoring={scoring} canManage={canManage} canUpdateActual={canActual} isOfficial={bsc.evaluation_status === 'APPROVED'} onChange={refreshBscAndScoring}/>
     {permissions.includes(BSC_PERMISSIONS.VIEW_VERSION) && <section><h2>Lịch sử phiên bản</h2>{versionsLoading ? <LoadingState/> : versionsError ? <ErrorState error={versionsError} onRetry={() => void loadVersions()}/> : versions.length === 0 ? <EmptyState message="Chưa có phiên bản đã duyệt."/> : <ol>{versions.map(version => <li key={version.id}>Phiên bản {version.versionNumber} — {bscStageLabel(version.stage)} — {versionTypeLabel(version.versionType)} — {version.createdBy.full_name}, {formatDate(version.createdAt)} {version.summary.finalGrade ? `— ${String(version.summary.totalScore)} / ${String(version.summary.finalGrade)}` : ''} <Button variant="outline" size="sm" onClick={() => void showVersion(version.id)}>Xem chi tiết</Button></li>)}</ol>}{versionDetailLoading && <LoadingState/>}</section>}
     <AccessibleDialog open={Boolean(versionDetail)} title={`Phiên bản ${versionDetail?.versionNumber ?? ''}`} description={versionDetail ? `${bscStageLabel(versionDetail.stage)} · ${versionTypeLabel(versionDetail.versionType)}` : 'Chi tiết phiên bản BSC'} onClose={() => setVersionDetail(null)}>{versionDetail && <><pre>{JSON.stringify(versionDetail.snapshot, null, 2)}</pre><div className="dialog-actions"><Button variant="outline" onClick={() => setVersionDetail(null)}>Đóng</Button></div></>}</AccessibleDialog>
-    <section><h2>Lịch sử yêu cầu mở lại</h2>{reopenError ? <ErrorState error={reopenError}/> : reopenRequests.length === 0 ? <EmptyState message="Chưa có yêu cầu mở lại."/> : <ol>{reopenRequests.map(request => <li key={request.id}><strong>{bscStageLabel(request.stage)}</strong> — <BscStatusBadge status={request.status}/> — yêu cầu bởi {request.users_bsc_unlock_requests_requested_byTousers.full_name}, {formatDate(request.requested_at)}<br/>Lý do: {request.request_reason}{request.reviewed_at && <><br/>Xử lý bởi {request.users_bsc_unlock_requests_reviewer_idTousers?.full_name ?? '—'}, {formatDate(request.reviewed_at)}{request.review_comment ? `: ${request.review_comment}` : ''}</>}{request.status === 'PENDING' && canReviewReopen && <div className="dialog-actions"><Button disabled={Boolean(reopenActionId)} onClick={() => void approveReopen(request)}>{reopenActionId === request.id && <Spinner/>}{reopenActionId === request.id ? 'Đang xử lý…' : 'Duyệt mở lại'}</Button><Button variant="outline" disabled={Boolean(reopenActionId)} onClick={() => { setRejectingReopen(request); setReopenRejectReason(''); }}>Từ chối mở lại</Button></div>}</li>)}</ol>}</section>
+    <section><h2>Lịch sử yêu cầu mở lại</h2>{reopenError ? <ErrorState error={reopenError}/> : reopenRequests.length === 0 ? <EmptyState message="Chưa có yêu cầu mở lại."/> : <ol>{reopenRequests.map(request => <li key={request.id}><strong>{bscStageLabel(request.stage)}</strong> — <BscStatusBadge status={request.status}/> — {request.request_source === 'DIRECTOR_RESET' ? 'mở lại trực tiếp bởi' : 'yêu cầu bởi'} {request.users_bsc_unlock_requests_requested_byTousers.full_name}, {formatDate(request.requested_at)}<br/>Lý do: {request.request_reason}{request.reviewed_at && <><br/>Xử lý bởi {request.users_bsc_unlock_requests_reviewer_idTousers?.full_name ?? '—'}, {formatDate(request.reviewed_at)}{request.review_comment ? `: ${request.review_comment}` : ''}</>}{request.status === 'PENDING' && canReviewReopen && <div className="dialog-actions"><Button disabled={Boolean(reopenActionId)} onClick={() => void approveReopen(request)}>{reopenActionId === request.id && <Spinner/>}{reopenActionId === request.id ? 'Đang xử lý…' : 'Duyệt mở lại'}</Button><Button variant="outline" disabled={Boolean(reopenActionId)} onClick={() => { setRejectingReopen(request); setReopenRejectReason(''); }}>Từ chối mở lại</Button></div>}</li>)}</ol>}</section>
     {(permissions.includes(BSC_PERMISSIONS.VIEW_PLAN_HISTORY) || permissions.includes(BSC_PERMISSIONS.VIEW_EVALUATION_HISTORY)) && <section><h2>Lịch sử trạng thái</h2>{visibleHistory.length === 0 ? <EmptyState message="Chưa có thay đổi trạng thái."/> : <ol>{visibleHistory.map(history => <li key={history.id}><strong>{bscStageLabel(history.stage)}:</strong> <BscStatusBadge status={history.to_status}/> — {history.users.full_name}, {formatDate(history.changed_at)}{history.comment ? `: ${history.comment}` : ''}</li>)}</ol>}</section>}
   </main>;
 };

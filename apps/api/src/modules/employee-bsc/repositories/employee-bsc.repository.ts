@@ -17,6 +17,7 @@ import { BscReviewerResolver, DIRECTOR_REVIEW_PERMISSIONS } from '../../bsc-revi
 const PLAN_APPROVAL_PERMISSION = 'bsc.plan.approve.subordinate';
 const EVALUATION_APPROVAL_PERMISSION = 'bsc.evaluation.approve.subordinate';
 const REOPEN_REVIEW_PERMISSION = 'bsc.reopen.subordinate';
+const RESET_APPROVED_PERMISSION = 'bsc.reset.approved';
 
 const bscAccessSelect = {
   id: true,
@@ -77,6 +78,7 @@ const reopenRequestSelect = {
   requested_by: true,
   reviewer_id: true,
   request_reason: true,
+  request_source: true,
   requested_at: true,
   status: true,
   reviewed_by: true,
@@ -496,6 +498,143 @@ export class EmployeeBscRepository {
 
   findReopenRequest(requestId: string) {
     return this.prisma.bsc_unlock_requests.findUnique({ where: { id: requestId }, select: reopenRequestSelect });
+  }
+
+  resetApprovedStage(
+    actor: AuthUser,
+    bscId: string,
+    stage: 'PLAN' | 'EVALUATION',
+    reason: string,
+    metadata: AuditRequestMetadata,
+    validate: (snapshot: NonNullable<Awaited<ReturnType<EmployeeBscRepository['workflowSnapshot']>>>) => void,
+  ) {
+    return this.serializable(async (db) => {
+      const snapshot = await this.workflowSnapshot(db, bscId);
+      if (!snapshot) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC.' });
+      await this.assertEligibleDirector(db, actor, snapshot.employee_id, RESET_APPROVED_PERMISSION);
+      validate(snapshot);
+      const sourceVersion = await db.bsc_versions.findFirst({
+        where: { employee_bsc_id: bscId, version_type: stage === 'PLAN' ? 'PLAN_APPROVED' : 'EVALUATION_APPROVED' },
+        orderBy: { version_number: 'desc' },
+        select: { id: true },
+      });
+      if (!sourceVersion) throw new ConflictException({
+        code: stage === 'PLAN' ? 'BSC_APPROVED_PLAN_VERSION_NOT_FOUND' : 'BSC_VERSION_NOT_FOUND',
+        message: 'Không tìm thấy phiên bản đã duyệt để mở lại trực tiếp.',
+      });
+      const now = new Date();
+      const resetRecord = await db.bsc_unlock_requests.create({
+        data: {
+          employee_bsc_id: bscId,
+          stage,
+          requested_by: actor.id,
+          reviewer_id: actor.id,
+          request_reason: reason,
+          request_source: 'DIRECTOR_RESET',
+          status: 'APPROVED',
+          reviewed_by: actor.id,
+          reviewed_at: now,
+          allowed_fields: (stage === 'PLAN'
+            ? ['definition']
+            : ['actualValue', 'actualText', 'employeeNote']) as Prisma.InputJsonValue,
+          source_version_id: sourceVersion.id,
+        },
+        select: reopenRequestSelect,
+      });
+      const version = await this.createVersion(
+        db,
+        bscId,
+        stage === 'PLAN' ? 'FULL' : 'EVALUATION',
+        stage === 'PLAN' ? 'BEFORE_PLAN_REOPEN' : 'BEFORE_EVALUATION_REOPEN',
+        actor,
+        metadata,
+        { sourceReopenRequestId: resetRecord.id },
+      );
+      await db.bsc_unlock_requests.update({ where: { id: resetRecord.id }, data: { resulting_version_id: version.id } });
+      await db.bsc_unlock_requests.updateMany({
+        where: {
+          employee_bsc_id: bscId,
+          status: 'PENDING',
+          ...(stage === 'EVALUATION' ? { stage: 'EVALUATION' } : {}),
+        },
+        data: {
+          status: 'EXPIRED',
+          reviewed_by: actor.id,
+          reviewed_at: now,
+          review_comment: 'Yêu cầu hết hiệu lực do Giám đốc đã mở lại trực tiếp BSC.',
+        },
+      });
+
+      let resetEffects = { resultItemsCleared: 0, evidenceSoftDeleted: 0 };
+      if (stage === 'PLAN') {
+        const changed = await db.employee_bsc.updateMany({
+          where: { id: bscId, plan_status: 'APPROVED', evaluation_status: snapshot.evaluation_status },
+          data: {
+            plan_status: 'REOPENED', plan_approved_at: null, plan_approved_by: null,
+            evaluation_status: 'NOT_STARTED', evaluation_submitted_at: null, evaluation_approved_at: null,
+            evaluation_approved_by: null, manager_total_score: null, final_score: null, final_grade: null,
+            locked_at: null, updated_at: now,
+          },
+        });
+        if (changed.count !== 1) this.reopenConflict('BSC_RESET_WORKFLOW_CONFLICT');
+        const resultItems = await db.employee_bsc_items.updateMany({ where: { employee_bsc_id: bscId }, data: {
+          actual_value: null, actual_text: null, employee_note: null, manager_note: null,
+          achievement_percent: 0, employee_score: 0, manager_score: null, final_score: null, updated_at: now,
+        } });
+        const evidence = await db.bsc_attachments.updateMany({ where: { employee_bsc_id: bscId, deleted_at: null }, data: { deleted_at: now } });
+        resetEffects = { resultItemsCleared: resultItems.count, evidenceSoftDeleted: evidence.count };
+      } else {
+        const changed = await db.employee_bsc.updateMany({
+          where: { id: bscId, plan_status: 'APPROVED', evaluation_status: 'APPROVED' },
+          data: {
+            evaluation_status: 'REOPENED', evaluation_approved_at: null, evaluation_approved_by: null,
+            manager_total_score: null, final_score: null, final_grade: null, locked_at: null, updated_at: now,
+          },
+        });
+        if (changed.count !== 1) this.reopenConflict('BSC_RESET_WORKFLOW_CONFLICT');
+      }
+
+      await db.bsc_status_histories.create({ data: {
+        employee_bsc_id: bscId,
+        stage,
+        from_status: 'APPROVED',
+        to_status: 'REOPENED',
+        action: stage === 'PLAN' ? 'RESET_PLAN_APPROVED' : 'RESET_EVALUATION_APPROVED',
+        comment: reason,
+        changed_by: actor.id,
+        changed_at: now,
+        ip_address: metadata.ipAddress,
+        user_agent: metadata.userAgent,
+      } });
+      await this.audit(
+        db,
+        actor,
+        stage === 'PLAN' ? 'BSC_PLAN_RESET_BY_DIRECTOR' : 'BSC_EVALUATION_RESET_BY_DIRECTOR',
+        'employee_bsc',
+        bscId,
+        {
+          stage, status: 'APPROVED', planStatus: snapshot.plan_status, evaluationStatus: snapshot.evaluation_status,
+          finalScore: snapshot.final_score?.toString() ?? null, ownerId: snapshot.employee_id,
+          departmentId: snapshot.department_id, beforeVersionId: version.id,
+        },
+        {
+          stage, status: 'REOPENED',
+          planStatus: stage === 'PLAN' ? 'REOPENED' : 'APPROVED',
+          evaluationStatus: stage === 'PLAN' ? 'NOT_STARTED' : 'REOPENED',
+          finalScore: null, reason, resetRecordId: resetRecord.id, resultingVersionId: version.id,
+          actorRole: 'DIRECTOR', actorScope: 'GLOBAL', ownerId: snapshot.employee_id,
+          departmentId: snapshot.department_id, ...resetEffects,
+        },
+        metadata,
+      );
+      await this.notifications.publish(db, {
+        type: NOTIFICATION_EVENT.EMPLOYEE_BSC_REOPEN_APPROVED,
+        resourceId: resetRecord.id,
+        sourceId: resetRecord.id,
+        actorId: actor.id,
+      });
+      return db.bsc_unlock_requests.findUniqueOrThrow({ where: { id: resetRecord.id }, select: reopenRequestSelect });
+    });
   }
 
   approveReopenRequest(

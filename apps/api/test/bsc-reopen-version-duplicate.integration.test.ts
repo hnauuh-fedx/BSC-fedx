@@ -75,7 +75,7 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
     const otherDepartment = await prisma.departments.create({ data: { code: `${marker}_OTHER`, name: `${marker} Other` } });
     const position = await prisma.positions.create({ data: { code: `${marker}_POS`, name: `${marker} Position`, level: 1 } });
     ids.departments.push(department.id, otherDepartment.id); ids.positions.push(position.id);
-    for (const code of Object.values(BSC_PERMISSIONS)) {
+    for (const code of [...Object.values(BSC_PERMISSIONS), 'bsc.reset.approved']) {
       const existing = await prisma.permissions.findUnique({ where: { code } });
       const permission = await prisma.permissions.upsert({ where: { code }, create: { code, name: code, module: 'bsc' }, update: {} });
       if (!existing) ids.permissions.push(permission.id);
@@ -97,7 +97,7 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       BSC_PERMISSIONS.VIEW_SUBORDINATE, BSC_PERMISSIONS.MANAGE_KPI,
       BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
       BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE,
-      BSC_PERMISSIONS.REVIEW_REOPEN, BSC_PERMISSIONS.VIEW_VERSION,
+      BSC_PERMISSIONS.REVIEW_REOPEN, BSC_PERMISSIONS.VIEW_VERSION, 'bsc.reset.approved',
     ]);
     const hash = await argon2.hash(password);
     const user = async (name: string, roleId: string, departmentId: string, scope: 'SELF'|'DEPARTMENT'|'GLOBAL', managerId?: string) => {
@@ -130,7 +130,7 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
     const directorPermissionIds = await prisma.permissions.findMany({ where: { code: { in: [
       BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
       BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE,
-      BSC_PERMISSIONS.REVIEW_REOPEN, BSC_PERMISSIONS.VIEW_VERSION,
+      BSC_PERMISSIONS.REVIEW_REOPEN, BSC_PERMISSIONS.VIEW_VERSION, 'bsc.reset.approved',
     ] } }, select: { id: true } });
     for (const permission of directorPermissionIds) {
       const pair = { role_id: directorRole.id, permission_id: permission.id };
@@ -262,6 +262,102 @@ test('Phase 3B.5 reopen, version and approved PLAN duplicate integration', {
       assert.deepEqual(versions.map(row => row.version_type), ['PLAN_APPROVED', 'EVALUATION_APPROVED', 'BEFORE_EVALUATION_REOPEN', 'EVALUATION_APPROVED']);
       const current = await prisma.employee_bsc.findUniqueOrThrow({ where: { id: record.id } });
       assert.equal(Number(current.final_score), 110); assert.equal(current.final_grade, 'A+');
+    });
+
+    await t.test('DIRECTOR directly resets an approved EVALUATION with an immutable trace', async () => {
+      const record = await createBsc('DIRECT_EVAL_RESET', employee, await cycle(2, 'OPEN', 2094));
+      await approvePlan(record); await approveEvaluation(record);
+      const pending = await expectHttp(request(server).post(`/employee-bsc/${record.id}/reopen-requests`).set(auth(tokens.employee))
+        .send({ stage: 'EVALUATION', reason: 'Yêu cầu đang chờ' }), 201);
+
+      await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/reset-approved`).set(auth(tokens.manager))
+        .send({ reason: 'Manager không được reset' }), 403);
+      await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/reset-approved`).set(auth(tokens.director))
+        .send({ reason: '   ' }), 400);
+      const reset = await expectHttp(request(server).post(`/employee-bsc/${record.id}/evaluation/reset-approved`).set(auth(tokens.director))
+        .send({ reason: ' <b>Điều chỉnh kết quả sau họp</b> ' }), 200);
+
+      assert.equal(reset.body.request_source, 'DIRECTOR_RESET');
+      assert.equal(reset.body.status, 'APPROVED');
+      assert.equal(reset.body.request_reason, 'Điều chỉnh kết quả sau họp');
+      assert.equal(reset.body.requested_by, director.id);
+      assert.equal(reset.body.reviewer_id, director.id);
+      const active = await prisma.employee_bsc.findUniqueOrThrow({ where: { id: record.id }, include: { employee_bsc_items: true } });
+      assert.equal(active.plan_status, 'APPROVED'); assert.equal(active.evaluation_status, 'REOPENED');
+      assert.equal(active.final_score, null); assert.equal(active.final_grade, null);
+      assert.equal(Number(active.employee_bsc_items[0].actual_value), 90);
+      assert.equal((await prisma.bsc_unlock_requests.findUniqueOrThrow({ where: { id: pending.body.id } })).status, 'EXPIRED');
+      assert.equal(await prisma.bsc_versions.count({ where: { employee_bsc_id: record.id, version_type: 'BEFORE_EVALUATION_REOPEN' } }), 1);
+      assert.equal(await prisma.bsc_status_histories.count({ where: { employee_bsc_id: record.id, action: 'RESET_EVALUATION_APPROVED' } }), 1);
+      const audit = await prisma.audit_logs.findFirstOrThrow({ where: { entity_id: record.id, action: 'BSC_EVALUATION_RESET_BY_DIRECTOR', user_id: director.id } });
+      assert.equal((audit.old_data as any).beforeVersionId !== undefined, true);
+      assert.equal((audit.new_data as any).actorRole, 'DIRECTOR');
+      const notification = await prisma.notifications.findFirstOrThrow({
+        where: { recipient_id: employee.id, entity_id: record.id, actor_id: director.id },
+        orderBy: { created_at: 'desc' },
+      });
+      assert.match(notification.title, /Giám đốc đã mở lại đánh giá BSC/);
+      assert.doesNotMatch(notification.title, /Yêu cầu/);
+      await expectHttp(request(server).get(`/employee-bsc/reopen-requests/${reset.body.id}`).set(auth(tokens.employee)), 200);
+      const reviewPermission = await prisma.permissions.findUniqueOrThrow({ where: { code: BSC_PERMISSIONS.REVIEW_REOPEN } });
+      await prisma.role_permissions.delete({
+        where: { role_id_permission_id: { role_id: directorRole.id, permission_id: reviewPermission.id } },
+      });
+      try {
+        const resetOnlyDetail = await expectHttp(request(server).get(`/employee-bsc/reopen-requests/${reset.body.id}`)
+          .set(auth(tokens.director)), 200);
+        assert.equal(resetOnlyDetail.body.request_source, 'DIRECTOR_RESET');
+      } finally {
+        await prisma.role_permissions.create({ data: { role_id: directorRole.id, permission_id: reviewPermission.id } });
+      }
+    });
+
+    await t.test('DIRECTOR directly resets an approved PLAN once and invalidates active evaluation data', async () => {
+      const sourceCycle = await cycle(3, 'OPEN', 2094);
+      const record = await createBsc('DIRECT_PLAN_RESET', employee2, sourceCycle);
+      const attachment = await prisma.bsc_attachments.create({ data: {
+        employee_bsc_id: record.id,
+        bsc_item_id: record.item.id,
+        file_name: 'direct-reset-evidence.pdf',
+        file_path: '/private/direct-reset-evidence.pdf',
+        mime_type: 'application/pdf',
+        file_size: 321,
+        uploaded_by: employee2.id,
+      } });
+      await approvePlan(record, tokens.employee2); await approveEvaluation(record, tokens.employee2);
+      const pendingEvaluation = await expectHttp(request(server).post(`/employee-bsc/${record.id}/reopen-requests`).set(auth(tokens.employee2))
+        .send({ stage: 'EVALUATION', reason: 'Pending evaluation' }), 201);
+      const pendingPlan = await expectHttp(request(server).post(`/employee-bsc/${record.id}/reopen-requests`).set(auth(tokens.employee2))
+        .send({ stage: 'PLAN', reason: 'Pending plan' }), 201);
+
+      await prisma.bsc_cycles.update({ where: { id: sourceCycle.id }, data: { status: 'CLOSED' } });
+      const closed = await expectHttp(request(server).post(`/employee-bsc/${record.id}/plan/reset-approved`).set(auth(tokens.director))
+        .send({ reason: 'Không được reset kỳ đóng' }), 409);
+      assert.equal(closed.body.code, 'BSC_CYCLE_CLOSED');
+      await prisma.bsc_cycles.update({ where: { id: sourceCycle.id }, data: { status: 'OPEN' } });
+
+      const decisions = await Promise.all([0, 1].map(() => request(server)
+        .post(`/employee-bsc/${record.id}/plan/reset-approved`).set(auth(tokens.director))
+        .send({ reason: 'Điều chỉnh kế hoạch trực tiếp' })));
+      httpAssertions += 2;
+      assert.deepEqual(decisions.map(row => row.status).sort(), [200, 409]);
+      const winner = decisions.find(row => row.status === 200)!;
+      assert.equal(winner.body.request_source, 'DIRECTOR_RESET');
+
+      const active = await prisma.employee_bsc.findUniqueOrThrow({ where: { id: record.id }, include: { employee_bsc_items: true } });
+      assert.equal(active.plan_status, 'REOPENED'); assert.equal(active.evaluation_status, 'NOT_STARTED');
+      assert.equal(active.plan_approved_by, null); assert.equal(active.evaluation_approved_by, null);
+      assert.equal(active.final_score, null); assert.equal(active.final_grade, null);
+      assert.equal(active.employee_bsc_items[0].actual_value, null);
+      assert.ok((await prisma.bsc_attachments.findUniqueOrThrow({ where: { id: attachment.id } })).deleted_at);
+      const expired = await prisma.bsc_unlock_requests.findMany({ where: { id: { in: [pendingEvaluation.body.id, pendingPlan.body.id] } } });
+      assert.deepEqual(expired.map(row => row.status), ['EXPIRED', 'EXPIRED']);
+      assert.equal(await prisma.bsc_unlock_requests.count({ where: { employee_bsc_id: record.id, request_source: 'DIRECTOR_RESET' } }), 1);
+      assert.equal(await prisma.bsc_versions.count({ where: { employee_bsc_id: record.id, version_type: 'BEFORE_PLAN_REOPEN' } }), 1);
+      assert.equal(await prisma.bsc_status_histories.count({ where: { employee_bsc_id: record.id, action: 'RESET_PLAN_APPROVED' } }), 1);
+      const audit = await prisma.audit_logs.findFirstOrThrow({ where: { entity_id: record.id, action: 'BSC_PLAN_RESET_BY_DIRECTOR', user_id: director.id } });
+      assert.equal((audit.new_data as any).resultItemsCleared, 1);
+      assert.equal((audit.new_data as any).evidenceSoftDeleted, 1);
     });
 
     await t.test('PLAN reopen resets active evaluation, owner edits definition and plan is approved again', async () => {

@@ -213,6 +213,7 @@ model bsc_unlock_requests {
   requested_by                                  String       @db.Uuid
   reviewer_id                                   String?      @db.Uuid
   request_reason                                String
+  request_source                                String       @default("OWNER_REQUEST") @db.VarChar(30)
   requested_at                                  DateTime     @default(now()) @db.Timestamptz(6)
   status                                        String       @default("PENDING") @db.VarChar(20)
   reviewed_by                                   String?      @db.Uuid
