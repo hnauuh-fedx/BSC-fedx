@@ -26,11 +26,9 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SearchInput } from '../../organization/management-ui';
 import { ReportOptions } from '../reports.types';
-import { workflowStatusLabel } from '../report-status';
+import { REPORT_EVALUATION_STATUSES, REPORT_PLAN_STATUSES, workflowStatusLabel } from '../report-status';
 
 const ALL = 'ALL';
-const STATUSES = ['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REOPENED'];
-const EVALUATION_STATUSES = ['NOT_STARTED', ...STATUSES];
 
 export const FilterSelect: React.FC<{
   id: string;
@@ -54,7 +52,7 @@ export const FilterSelect: React.FC<{
   </Field>
 );
 
-const EmployeeCombobox: React.FC<{
+export const EmployeeCombobox: React.FC<{
   value: string;
   options: ReportOptions['employees'];
   onChange: (value: string) => void;
@@ -155,11 +153,11 @@ export const BscReportFilters: React.FC<{
           <FieldGroup className="grid grid-cols-4 items-end gap-4">
             <FilterSelect id="report-plan" label="Trạng thái kế hoạch" value={values.planStatus} onChange={value => onChange('planStatus', value)} options={[
               { value: ALL, label: 'Tất cả' },
-              ...STATUSES.map(item => ({ value: item, label: workflowStatusLabel(item) })),
+              ...REPORT_PLAN_STATUSES.map(item => ({ value: item, label: workflowStatusLabel(item) })),
             ]}/>
             <FilterSelect id="report-evaluation" label="Trạng thái đánh giá" value={values.evaluationStatus} onChange={value => onChange('evaluationStatus', value)} options={[
               { value: ALL, label: 'Tất cả' },
-              ...EVALUATION_STATUSES.map(item => ({ value: item, label: workflowStatusLabel(item) })),
+              ...REPORT_EVALUATION_STATUSES.map(item => ({ value: item, label: workflowStatusLabel(item) })),
             ]}/>
             <FilterSelect id="report-grade" label="Xếp loại" value={values.finalGrade} onChange={value => onChange('finalGrade', value)} options={[
               { value: ALL, label: 'Tất cả' },

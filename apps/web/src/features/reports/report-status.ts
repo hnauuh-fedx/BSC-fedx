@@ -7,4 +7,7 @@ export const WORKFLOW_STATUS_LABELS: Record<string, string> = {
   REOPENED: 'Được mở lại',
 };
 
+export const REPORT_PLAN_STATUSES = ['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REOPENED'];
+export const REPORT_EVALUATION_STATUSES = ['NOT_STARTED', ...REPORT_PLAN_STATUSES];
+
 export const workflowStatusLabel = (status: string) => WORKFLOW_STATUS_LABELS[status] ?? status;

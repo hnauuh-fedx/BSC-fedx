@@ -94,6 +94,8 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
     const employee2 = await makeUser('EMPLOYEE2', employeeRole.id, department.id, 'SELF', manager.id);
     const employee3 = await makeUser('EMPLOYEE3', employeeRole.id, department.id, 'SELF', manager.id);
     const employeeWithoutBsc = await makeUser('NO_BSC', employeeRole.id, department.id, 'SELF', manager.id);
+    const canonicalEmployeeRole = await prisma.roles.findUniqueOrThrow({ where: { code: 'EMPLOYEE' } });
+    await prisma.user_roles.create({ data: { user_id: employeeWithoutBsc.id, role_id: canonicalEmployeeRole.id, scope_type: 'SELF' } });
     const crossDepartmentEmployee = await makeUser('CROSS_EMPLOYEE', employeeRole.id, outsideDepartment.id, 'SELF', manager.id);
     const outsideEmployee = await makeUser('OUT_EMPLOYEE', employeeRole.id, outsideDepartment.id, 'SELF', outsideManager.id);
     await prisma.manager_relationships.createMany({ data: [
@@ -178,6 +180,8 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
         canExportManagement: true,
         defaultScope: 'MANAGEMENT',
       });
+      assert.ok(managerOptions.body.departments.some((row: { id: string }) => row.id === department.id));
+      assert.ok(managerOptions.body.employees.some((row: { id: string }) => row.id === employeeWithoutBsc.id));
       const personalReport = await request(server).get('/bsc-reports?viewScope=PERSONAL&limit=100').set(auth(tokens.manager)).expect(200);
       assert.deepEqual(personalReport.body.items.map((row: { employeeId: string }) => row.employeeId), [manager.id]);
     });
@@ -196,6 +200,39 @@ test('Phase 3C.2 BSC dashboard, report and export integration', { skip: safeData
       assert.equal(legacyView.body.total, 1);
       assert.equal(legacyView.body.items[0].officialGrade, 'A++');
       assert.equal(legacyView.body.items[0].employeeId, outsideEmployee.id);
+    });
+
+    await t.test('management dashboard applies the same report filters', async () => {
+      const filteredDashboard = await request(server)
+        .get(`/bsc-reports/dashboard?cycleId=${cycle.id}&departmentId=${department.id}&employeeId=${employee.id}&planStatus=APPROVED&evaluationStatus=APPROVED&finalGrade=A&search=${marker}_EMPLOYEE`)
+        .set(auth(tokens.manager))
+        .expect(200);
+      assert.equal(filteredDashboard.body.kind, 'MANAGEMENT');
+      assert.equal(filteredDashboard.body.totalBsc, 1);
+      assert.equal(filteredDashboard.body.planStatusCounts.APPROVED, 1);
+      assert.equal(filteredDashboard.body.evaluationStatusCounts.APPROVED, 1);
+      assert.equal(filteredDashboard.body.approvedAverageScore, '100');
+
+      const missingDashboard = await request(server)
+        .get(`/bsc-reports/dashboard?cycleId=${cycle.id}&departmentId=${department.id}&employeeId=${employeeWithoutBsc.id}&search=${marker}_NO_BSC&planStatus=APPROVED&evaluationStatus=APPROVED&finalGrade=A`)
+        .set(auth(tokens.manager))
+        .expect(200);
+      assert.equal(missingDashboard.body.totalBsc, 0);
+      assert.equal(missingDashboard.body.notCreated, 1);
+
+      await request(server)
+        .get(`/bsc-reports/dashboard?departmentId=${outsideDepartment.id}`)
+        .set(auth(tokens.manager))
+        .expect(403);
+      await request(server)
+        .get('/bsc-reports/dashboard?planStatus=INVALID')
+        .set(auth(tokens.manager))
+        .expect(400);
+
+      await request(server)
+        .get(`/bsc-reports/dashboard?cycleId=${randomUUID()}`)
+        .set(auth(tokens.manager))
+        .expect(400);
     });
 
     await t.test('summary uses only persisted approved final score and grade', async () => {

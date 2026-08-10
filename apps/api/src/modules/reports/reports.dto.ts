@@ -21,6 +21,4 @@ export class BscReportQueryDto extends BscReportFilterDto {
   @IsOptional() @IsIn(['asc', 'desc']) sortOrder: 'asc' | 'desc' = 'desc';
 }
 
-export class BscDashboardQueryDto {
-  @IsOptional() @IsUUID() cycleId?: string;
-}
+export class BscDashboardQueryDto extends BscReportFilterDto {}
