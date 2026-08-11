@@ -323,6 +323,10 @@ main > table { display: block; max-width: 100%; overflow-x: auto; border: 1px so
 
 .minutes-print-document {
   display: none;
+  box-sizing: border-box;
+  width: 210mm;
+  min-height: 297mm;
+  padding: 2cm;
   color: black;
   font-family: "Times New Roman", Times, serif;
   font-size: 12pt;
@@ -362,10 +366,6 @@ main > table { display: block; max-width: 100%; overflow-x: auto; border: 1px so
   top: 0;
   left: -10000px;
   display: block;
-  box-sizing: border-box;
-  width: 210mm;
-  min-height: 297mm;
-  padding: 2cm;
   background: white;
 }
 .minutes-pdf-export,
@@ -382,13 +382,15 @@ main > table { display: block; max-width: 100%; overflow-x: auto; border: 1px so
 .minutes-pdf-export .minutes-print-document { background-color: rgb(255 255 255) !important; }
 
 @media print {
-  @page { size: A4 portrait; margin: 2cm; }
+  @page { size: A4 portrait; margin: 0; }
+  html, body { margin: 0; padding: 0; }
   body, .app-shell, .app-content { background: white; }
   .app-header, .skip-link, .minutes-editor { display: none !important; }
   .app-content { max-width: none; padding: 0; }
   .bsc-minutes-page { display: block; color: black; }
   .minutes-print-document {
     display: block;
-    width: 100%;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
   }
 }
