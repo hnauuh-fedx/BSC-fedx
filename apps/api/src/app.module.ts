@@ -12,6 +12,7 @@ import { RolesModule } from './modules/roles/roles.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { DepartmentBscModule } from './modules/department-bsc/department-bsc.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { BscMinutesModule } from './modules/bsc-minutes/bsc-minutes.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     AuditLogsModule,
     DepartmentBscModule,
     NotificationsModule,
+    BscMinutesModule,
   ],
 })
 export class AppModule {}

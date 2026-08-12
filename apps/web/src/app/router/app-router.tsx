@@ -60,7 +60,7 @@ const WorkspaceRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   const location = useLocation();
   const permissions = user?.permissions ?? [];
 
-  if (!canAccessWorkspacePath(location.pathname, permissions)) {
+  if (!canAccessWorkspacePath(location.pathname, permissions, user?.roles)) {
     return <Navigate to="/" replace />;
   }
   return <>{children}</>;
@@ -80,7 +80,7 @@ const PermissionLandingPage: React.FC = () => {
 
   if (isLoading) return <LoadingPage />;
   if (!isAuthenticated || !user) return <Navigate to="/login" replace />;
-  return <Navigate to={resolveLandingPath(user.permissions)} replace />;
+  return <Navigate to={resolveLandingPath(user.permissions, user.roles)} replace />;
 };
 
 export const AppRouter: React.FC = () => (

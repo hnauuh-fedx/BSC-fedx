@@ -36,7 +36,7 @@ export const LoginPage: React.FC = () => {
 
   useEffect(() => {
     if (!isLoading && isAuthenticated && user) {
-      navigate(resolvePostLoginPath(user.permissions, requestedPath), { replace: true });
+      navigate(resolvePostLoginPath(user.permissions, requestedPath, user.roles), { replace: true });
     }
   }, [isAuthenticated, isLoading, navigate, requestedPath, user]);
 

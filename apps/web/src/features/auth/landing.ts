@@ -1,4 +1,7 @@
 import { ADMINISTRATION_PERMISSIONS } from '../organization/administration-navigation';
+import type { AuthUser } from './types/auth.types';
+
+type ScopedRole = AuthUser['roles'][number];
 
 export const OWN_BSC_PERMISSIONS = [
   'bsc.view.own',
@@ -41,7 +44,7 @@ export const REPORT_PERMISSIONS = [
   'bsc.statistics.organization',
 ] as const;
 
-export const BSC_MINUTES_CREATE_PERMISSIONS = ['bsc.minutes.create'] as const;
+export const BSC_MINUTES_ACCESS_PERMISSIONS = ['bsc.minutes.create', 'bsc.minutes.view'] as const;
 export const DEPARTMENT_BSC_VIEW_PERMISSIONS = ['bsc.department.view'] as const;
 export const DEPARTMENT_BSC_REVIEW_PERMISSIONS = [
   'bsc.department.plan.approve', 'bsc.department.plan.return',
@@ -53,15 +56,18 @@ export const hasAnyWorkspacePermission = (
   required: readonly string[],
 ): boolean => required.some((permission) => permissions.includes(permission));
 
+const hasGlobalRolePermission = (roles: readonly ScopedRole[], required: readonly string[]) =>
+  roles.some((role) => role.scopeType === 'GLOBAL' && role.permissions?.some((permission) => required.includes(permission)));
+
 /** Chooses the default workspace solely from permissions; role labels never grant access. */
-export function resolveLandingPath(permissions: readonly string[]): string {
+export function resolveLandingPath(permissions: readonly string[], roles: readonly ScopedRole[] = []): string {
   if (hasAnyWorkspacePermission(permissions, OWN_BSC_PERMISSIONS)) return '/employee-bsc';
   if (hasAnyWorkspacePermission(permissions, DEPARTMENT_BSC_VIEW_PERMISSIONS)) return '/department-bsc';
   if (hasAnyWorkspacePermission(permissions, MANAGEMENT_OVERVIEW_PERMISSIONS)) {
     return '/management/bsc-overview';
   }
   if (permissions.includes('bsc.statistics.personal')) return '/dashboard';
-  if (hasAnyWorkspacePermission(permissions, BSC_MINUTES_CREATE_PERMISSIONS)) return '/management/bsc-minutes';
+  if (hasGlobalRolePermission(roles, BSC_MINUTES_ACCESS_PERMISSIONS)) return '/management/bsc-minutes';
   if (hasAnyWorkspacePermission(permissions, ADMINISTRATION_PERMISSIONS)) return '/management';
   return '/forbidden';
 }
@@ -73,7 +79,7 @@ const pathMatches = (pathname: string, prefix: string): boolean =>
  * Frontend route eligibility for restoring a protected URL after login.
  * Backend authorization remains authoritative for ownership and data scope.
  */
-export function canAccessWorkspacePath(pathname: string, permissions: readonly string[]): boolean {
+export function canAccessWorkspacePath(pathname: string, permissions: readonly string[], roles: readonly ScopedRole[] = []): boolean {
   if (pathname === '/department-bsc/new') return permissions.includes('bsc.department.create');
   if (pathname === '/management/department-bsc-reviews') {
     return hasAnyWorkspacePermission(permissions, DEPARTMENT_BSC_REVIEW_PERMISSIONS);
@@ -94,7 +100,7 @@ export function canAccessWorkspacePath(pathname: string, permissions: readonly s
     return permissions.includes('bsc.reopen.subordinate');
   }
   if (pathname === '/management/bsc-minutes') {
-    return hasAnyWorkspacePermission(permissions, BSC_MINUTES_CREATE_PERMISSIONS);
+    return hasGlobalRolePermission(roles, BSC_MINUTES_ACCESS_PERMISSIONS);
   }
   if (pathname === '/employee-bsc/new') return permissions.includes('bsc.create.own');
   if (/^\/employee-bsc\/[^/]+\/edit$/.test(pathname)) return permissions.includes('bsc.edit.own');
@@ -145,12 +151,13 @@ export function canAccessWorkspacePath(pathname: string, permissions: readonly s
 export function resolvePostLoginPath(
   permissions: readonly string[],
   requestedPath?: string,
+  roles: readonly ScopedRole[] = [],
 ): string {
   const requestedPathname = requestedPath?.split(/[?#]/, 1)[0];
   if (
     requestedPath
     && requestedPathname
-    && canAccessWorkspacePath(requestedPathname, permissions)
+    && canAccessWorkspacePath(requestedPathname, permissions, roles)
   ) return requestedPath;
-  return resolveLandingPath(permissions);
+  return resolveLandingPath(permissions, roles);
 }

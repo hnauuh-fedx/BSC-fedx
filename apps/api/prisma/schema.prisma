@@ -77,6 +77,7 @@ model bsc_cycles {
   users               users          @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "bsc_cycles_created_by_fk")
   employee_bsc        employee_bsc[]
   department_bsc      department_bsc[]
+  bsc_minutes         bsc_minutes[]
 
   @@index([status, start_date, id], map: "bsc_cycles_status_start_idx")
 }
@@ -516,9 +517,61 @@ model users {
   auth_refresh_tokens auth_refresh_tokens[]
   notifications_received notifications[] @relation("notifications_recipient")
   notifications_acted    notifications[] @relation("notifications_actor")
+  bsc_minutes_created    bsc_minutes[] @relation("bsc_minutes_created_by")
+  bsc_minutes_updated    bsc_minutes[] @relation("bsc_minutes_updated_by")
+  bsc_minutes_events     bsc_minutes_events[]
 
   @@index([department_id], map: "users_department_idx")
   @@index([direct_manager_id], map: "users_direct_manager_idx")
+}
+
+model bsc_minutes {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cycle_id              String   @db.Uuid
+  minutes_number        String   @db.VarChar(50)
+  issue_place           String   @db.VarChar(255)
+  meeting_date          DateTime @db.Date
+  start_time            String   @db.VarChar(5)
+  end_time              String   @db.VarChar(5)
+  meeting_location      String   @db.VarChar(500)
+  chair_name            String   @db.VarChar(255)
+  secretary_name        String   @db.VarChar(255)
+  absent_count          Int      @default(0)
+  subject               String
+  meeting_content       String
+  next_month_assignment String
+  conclusion            String
+  snapshot              Json
+  version               Int      @default(1)
+  print_count           Int      @default(0)
+  pdf_export_count      Int      @default(0)
+  last_printed_at       DateTime? @db.Timestamptz(6)
+  last_pdf_exported_at  DateTime? @db.Timestamptz(6)
+  created_by            String   @db.Uuid
+  updated_by            String   @db.Uuid
+  created_at            DateTime @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  bsc_cycles            bsc_cycles @relation(fields: [cycle_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "bsc_minutes_cycle_fk")
+  creator               users @relation("bsc_minutes_created_by", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "bsc_minutes_created_by_fk")
+  updater               users @relation("bsc_minutes_updated_by", fields: [updated_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "bsc_minutes_updated_by_fk")
+  events                bsc_minutes_events[]
+
+  @@index([cycle_id, updated_at], map: "bsc_minutes_cycle_updated_idx")
+  @@index([created_by], map: "bsc_minutes_created_by_idx")
+}
+
+model bsc_minutes_events {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  minutes_id  String   @db.Uuid
+  action      String   @db.VarChar(30)
+  actor_id    String   @db.Uuid
+  ip_address  String?  @db.VarChar(50)
+  user_agent  String?
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  minutes     bsc_minutes @relation(fields: [minutes_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "bsc_minutes_events_minutes_fk")
+  actor       users @relation(fields: [actor_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "bsc_minutes_events_actor_fk")
+
+  @@index([minutes_id, created_at], map: "bsc_minutes_events_minutes_created_idx")
 }
 
 model auth_refresh_tokens {

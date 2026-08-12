@@ -93,7 +93,8 @@ export const MainLayout: React.FC<PropsWithChildren> = ({ children }) => {
     .filter((role) => role.code === 'DIRECTOR' && role.scopeType === 'GLOBAL')
     .flatMap((role) => role.permissions ?? []) ?? []);
   const canReport = hasAnyWorkspacePermission(permissions, REPORT_PERMISSIONS);
-  const canCreateMinutes = permissions.includes('bsc.minutes.create');
+  const canAccessMinutes = user?.roles.some((role) => role.scopeType === 'GLOBAL'
+    && role.permissions?.some((permission) => permission === 'bsc.minutes.create' || permission === 'bsc.minutes.view')) ?? false;
   const canViewOwnBsc = permissions.includes('bsc.view.own');
   const canViewDepartmentBsc = permissions.includes('bsc.department.view');
   const canReviewDepartmentBsc = [
@@ -118,7 +119,7 @@ export const MainLayout: React.FC<PropsWithChildren> = ({ children }) => {
     ...(canReviewDepartmentBsc ? [{ href: '/management/department-bsc-reviews', label: 'Duyệt BSC phòng ban', icon: ClipboardCheckIcon }] : []),
     ...(canReviewReopen ? [{ href: '/management/bsc-reopen-requests', label: 'Yêu cầu mở lại', icon: RotateCcwIcon }] : []),
     ...(canReport ? [{ href: '/reports/bsc', label: 'Báo cáo', icon: FileBarChartIcon }] : []),
-    ...(canCreateMinutes ? [{ href: '/management/bsc-minutes', label: 'Biên bản', icon: FileTextIcon }] : []),
+    ...(canAccessMinutes ? [{ href: '/management/bsc-minutes', label: 'Biên bản', icon: FileTextIcon }] : []),
   ];
   const administration: NavigationItem[] = ADMINISTRATION_DESTINATIONS
     .filter((item) => hasAnyPermission(permissions, item.permissions))
