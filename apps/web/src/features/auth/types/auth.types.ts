@@ -9,6 +9,7 @@ export interface AuthUser {
   appearanceTheme?: AppearanceTheme;
   departmentId?: string;
   positionId?: string;
+  isEmployeeBscDepartmentReviewer?: boolean;
   roles: Array<{ code: string; scopeType: 'GLOBAL' | 'DEPARTMENT' | 'SELF'; scopeId: string | null; permissions?: string[] }>;
   permissions: string[];
 }

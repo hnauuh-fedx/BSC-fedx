@@ -13,6 +13,7 @@ import { Textarea } from '../../../components/ui/textarea';
 import { personalBscTitle } from '../../../lib/bsc-display';
 import { bscStageLabel } from '../../../lib/bsc-stage';
 import { AccessibleDialog, EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SearchInput } from '../../organization/management-ui';
+import { employeeBscReviewerPermissions } from '../../auth/permissions';
 import { BscStatusBadge } from '../components/bsc-status-badge';
 import { BSC_PERMISSIONS } from '../constants/employee-bsc.constants';
 import { employeeBscApi } from '../services/employee-bsc.service';
@@ -27,9 +28,7 @@ const formatDate = (value?: string | null) => value
 
 export const BscPendingReviewPage: React.FC = () => {
   const { state } = useAuthContext();
-  const directorPermissions = new Set(state.user?.roles
-    .filter(role => role.code === 'DIRECTOR' && role.scopeType === 'GLOBAL')
-    .flatMap(role => role.permissions ?? []) ?? []);
+  const reviewerPermissions = employeeBscReviewerPermissions(state.user);
   const [stage, setStage] = useState<Stage>('PLAN');
   const [items, setItems] = useState<EmployeeBsc[]>([]);
   const [cycles, setCycles] = useState<Array<{ id: string; name: string }>>([]);
@@ -54,8 +53,8 @@ export const BscPendingReviewPage: React.FC = () => {
   const returnPermission = stage === 'PLAN'
     ? BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE
     : BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE;
-  const canApprove = directorPermissions.has(approvePermission);
-  const canReturn = directorPermissions.has(returnPermission);
+  const canApprove = reviewerPermissions.has(approvePermission);
+  const canReturn = reviewerPermissions.has(returnPermission);
   const allowed = canApprove || canReturn;
 
   const load = useCallback(async () => {

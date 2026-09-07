@@ -51,7 +51,7 @@ const CANONICAL_ROLES = {
 
 const ROLE_BSC_PERMISSIONS: Record<keyof typeof CANONICAL_ROLES, readonly string[]> = {
   EMPLOYEE: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.request', 'bsc.version.view', 'bsc.duplicate.own', 'bsc.statistics.personal', 'bsc.report.export'],
-  MANAGER: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own', 'bsc.view.subordinate', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.request', 'bsc.version.view', 'bsc.duplicate.own', 'bsc.statistics.personal', 'bsc.statistics.unit', 'bsc.report.export',
+  MANAGER: ['bsc.create.own', 'bsc.view.own', 'bsc.edit.own', 'bsc.delete.own', 'bsc.actual.update.own', 'bsc.plan.submit.own', 'bsc.evaluation.submit.own', 'bsc.view.subordinate', 'bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate', 'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.request', 'bsc.reopen.subordinate', 'bsc.reset.approved', 'bsc.version.view', 'bsc.duplicate.own', 'bsc.statistics.personal', 'bsc.statistics.unit', 'bsc.report.export',
     'bsc.department.create', 'bsc.department.view', 'bsc.department.edit', 'bsc.department.delete.draft', 'bsc.department.duplicate', 'bsc.department.plan.submit', 'bsc.department.evaluation.submit', 'bsc.department.reopen.request', 'bsc.department.version.view', 'bsc.department.report.export'],
   DIRECTOR: ['bsc.view.unit', 'bsc.plan.approve.subordinate', 'bsc.plan.return.subordinate', 'bsc.evaluation.approve.subordinate', 'bsc.evaluation.return.subordinate', 'bsc.plan.history.view', 'bsc.evaluation.history.view', 'bsc.reopen.subordinate', 'bsc.reset.approved', 'bsc.version.view', 'bsc.statistics.organization', 'bsc.report.export', 'bsc.minutes.create', 'bsc.minutes.view',
     'bsc.department.view', 'bsc.department.plan.approve', 'bsc.department.plan.return', 'bsc.department.evaluation.approve', 'bsc.department.evaluation.return', 'bsc.department.reopen.review', 'bsc.department.version.view', 'bsc.department.report.export'],
@@ -109,6 +109,22 @@ export async function seedPermissions(client: Prisma.TransactionClient): Promise
   }
 }
 
+export async function seedEmployeeBscApprovalRoutes(client: Prisma.TransactionClient): Promise<void> {
+  const routedDepartments = await client.departments.findMany({
+    where: { name: { in: ['Marketing', 'Chăm sóc khách hàng'], mode: 'insensitive' } },
+    select: { id: true },
+  });
+  for (const department of routedDepartments) {
+    for (const stage of ['PLAN', 'EVALUATION'] as const) {
+      await client.employee_bsc_approval_routes.upsert({
+        where: { department_id_stage: { department_id: department.id, stage } },
+        create: { department_id: department.id, stage, reviewer_type: 'DEPARTMENT_MANAGER' },
+        update: { reviewer_type: 'DEPARTMENT_MANAGER', updated_at: new Date() },
+      });
+    }
+  }
+}
+
 const BOOTSTRAP_KEYS = [
   'BOOTSTRAP_ADMIN_EMAIL', 'BOOTSTRAP_ADMIN_PASSWORD', 'BOOTSTRAP_ADMIN_EMPLOYEE_CODE',
   'BOOTSTRAP_ADMIN_FULL_NAME', 'BOOTSTRAP_ADMIN_DEPARTMENT_CODE', 'BOOTSTRAP_ADMIN_DEPARTMENT_NAME',
@@ -163,7 +179,10 @@ export async function ensureBootstrapAdmin(client: PrismaClient, env: NodeJS.Pro
 }
 
 export async function seedReleaseData(client: PrismaClient = prisma, env: NodeJS.ProcessEnv = process.env) {
-  await client.$transaction((tx) => seedPermissions(tx));
+  await client.$transaction(async (tx) => {
+    await seedPermissions(tx);
+    await seedEmployeeBscApprovalRoutes(tx);
+  });
   return { admin: await ensureBootstrapAdmin(client, env) };
 }
 

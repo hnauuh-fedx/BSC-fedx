@@ -30,6 +30,8 @@ export class JwtAccessStrategy extends PassportStrategy(Strategy, 'jwt-access') 
       permissions: assignment.roles.role_permissions.map((rolePermission) => rolePermission.permissions.code),
     }));
     const permissions = [...new Set(user.user_roles_user_roles_user_idTousers.flatMap((assignment) => assignment.roles.role_permissions.map((rolePermission) => rolePermission.permissions.code)))];
-    return { id: user.id, employeeCode: user.employee_code, fullName: user.full_name, email: user.email, departmentId: user.department_id, status: user.status, roles, permissions };
+    return { id: user.id, employeeCode: user.employee_code, fullName: user.full_name, email: user.email, departmentId: user.department_id,
+      status: user.status, isEmployeeBscDepartmentReviewer: (user.department_manager_assignments_manager_idTousers?.length ?? 0) > 0,
+      roles, permissions };
   }
 }

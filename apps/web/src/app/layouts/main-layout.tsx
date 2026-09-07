@@ -43,6 +43,7 @@ import {
   REVIEW_QUEUE_PERMISSIONS,
 } from '../../features/auth/landing';
 import { useAuth } from '../../features/auth/hooks/use-auth';
+import { employeeBscReviewerPermissions } from '../../features/auth/permissions';
 import {
   ADMINISTRATION_DESTINATIONS,
   hasAnyPermission,
@@ -89,9 +90,7 @@ export const MainLayout: React.FC<PropsWithChildren> = ({ children }) => {
   const location = useLocation();
   const [mobileNavigationOpen, setMobileNavigationOpen] = React.useState(false);
   const permissions = user?.permissions ?? [];
-  const globalDirectorPermissions = new Set(user?.roles
-    .filter((role) => role.code === 'DIRECTOR' && role.scopeType === 'GLOBAL')
-    .flatMap((role) => role.permissions ?? []) ?? []);
+  const reviewerPermissions = employeeBscReviewerPermissions(user);
   const canReport = hasAnyWorkspacePermission(permissions, REPORT_PERMISSIONS);
   const canAccessMinutes = user?.roles.some((role) => role.scopeType === 'GLOBAL'
     && role.permissions?.some((permission) => permission === 'bsc.minutes.create' || permission === 'bsc.minutes.view')) ?? false;
@@ -101,8 +100,8 @@ export const MainLayout: React.FC<PropsWithChildren> = ({ children }) => {
     'bsc.department.plan.approve', 'bsc.department.plan.return',
     'bsc.department.evaluation.approve', 'bsc.department.evaluation.return',
   ].some((permission) => permissions.includes(permission));
-  const canReview = REVIEW_QUEUE_PERMISSIONS.some((permission) => globalDirectorPermissions.has(permission));
-  const canReviewReopen = globalDirectorPermissions.has('bsc.reopen.subordinate');
+  const canReview = REVIEW_QUEUE_PERMISSIONS.some((permission) => reviewerPermissions.has(permission));
+  const canReviewReopen = reviewerPermissions.has('bsc.reopen.subordinate');
   const canViewManagementOverview = hasAnyWorkspacePermission(permissions, MANAGEMENT_OVERVIEW_PERMISSIONS);
   const userInitials = user?.fullName.trim().split(/\s+/).filter(Boolean)
     .filter((_, index, words) => index === 0 || index === words.length - 1)

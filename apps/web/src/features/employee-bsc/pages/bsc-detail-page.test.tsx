@@ -243,7 +243,10 @@ describe('BscDetailPage background refresh', () => {
       },
       login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(() => 'token'),
     });
-    vi.mocked(employeeBscApi.detail).mockResolvedValue({ ...bsc, plan_status: 'SUBMITTED' });
+    vi.mocked(employeeBscApi.detail).mockResolvedValue({ ...bsc, plan_status: 'SUBMITTED', review_capabilities: {
+      canApprovePlan: true, canReturnPlan: true, canApproveEvaluation: false, canReturnEvaluation: false,
+      canResetPlan: false, canResetEvaluation: false,
+    } });
 
     render(
       <MemoryRouter initialEntries={['/employee-bsc/bsc-1']}>
@@ -255,7 +258,7 @@ describe('BscDetailPage background refresh', () => {
     expect(screen.getByRole('button', { name: 'Trả lại kế hoạch' })).toBeVisible();
   });
 
-  it('keeps a canonical MANAGER in view-only mode even when stale review permissions remain', async () => {
+  it('shows PLAN review actions to the assigned department MANAGER', async () => {
     const reviewPermissions = [
       BSC_PERMISSIONS.MANAGE_KPI,
       BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE,
@@ -268,6 +271,7 @@ describe('BscDetailPage background refresh', () => {
         status: 'authenticated',
         user: {
           id: 'manager-1', employeeCode: 'M001', fullName: 'Trưởng phòng', email: 'manager@example.com', departmentId: 'department-1', status: 'ACTIVE',
+          isEmployeeBscDepartmentReviewer: true,
           roles: [{ code: 'MANAGER', scopeType: 'DEPARTMENT', scopeId: 'department-1', permissions: reviewPermissions }],
           permissions: reviewPermissions,
         },
@@ -275,7 +279,10 @@ describe('BscDetailPage background refresh', () => {
       },
       login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(() => 'token'),
     });
-    vi.mocked(employeeBscApi.detail).mockResolvedValue({ ...bsc, plan_status: 'SUBMITTED' });
+    vi.mocked(employeeBscApi.detail).mockResolvedValue({ ...bsc, plan_status: 'SUBMITTED', review_capabilities: {
+      canApprovePlan: true, canReturnPlan: true, canApproveEvaluation: false, canReturnEvaluation: false,
+      canResetPlan: false, canResetEvaluation: false,
+    } });
 
     render(
       <MemoryRouter initialEntries={['/employee-bsc/bsc-1']}>
@@ -284,9 +291,9 @@ describe('BscDetailPage background refresh', () => {
     );
 
     expect(await screen.findByRole('button', { name: /KPI/ })).toBeVisible();
-    expect(screen.queryByRole('button', { name: /Duy.*BSC/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Tr.*l.*BSC/ })).not.toBeInTheDocument();
-    expect(employeeBscApi.reopenRequests).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Duyệt kế hoạch' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Trả lại kế hoạch' })).toBeVisible();
+    expect(employeeBscApi.reopenRequests).toHaveBeenCalled();
   });
 
   it('shows EVALUATION approval and return actions to a DIRECTOR in scope', async () => {
@@ -302,7 +309,10 @@ describe('BscDetailPage background refresh', () => {
       },
       login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(() => 'token'),
     });
-    vi.mocked(employeeBscApi.detail).mockResolvedValue({ ...bsc, plan_status: 'APPROVED', evaluation_status: 'SUBMITTED' });
+    vi.mocked(employeeBscApi.detail).mockResolvedValue({ ...bsc, plan_status: 'APPROVED', evaluation_status: 'SUBMITTED', review_capabilities: {
+      canApprovePlan: false, canReturnPlan: false, canApproveEvaluation: true, canReturnEvaluation: true,
+      canResetPlan: false, canResetEvaluation: false,
+    } });
 
     render(
       <MemoryRouter initialEntries={['/employee-bsc/bsc-1']}>
@@ -329,7 +339,10 @@ describe('BscDetailPage background refresh', () => {
       },
       login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(() => 'token'),
     });
-    vi.mocked(employeeBscApi.detail).mockResolvedValue({ ...bsc, plan_status: 'APPROVED', evaluation_status: 'APPROVED' });
+    vi.mocked(employeeBscApi.detail).mockResolvedValue({ ...bsc, plan_status: 'APPROVED', evaluation_status: 'APPROVED', review_capabilities: {
+      canApprovePlan: false, canReturnPlan: false, canApproveEvaluation: false, canReturnEvaluation: false,
+      canResetPlan: true, canResetEvaluation: true,
+    } });
 
     render(
       <MemoryRouter initialEntries={['/employee-bsc/bsc-1']}>

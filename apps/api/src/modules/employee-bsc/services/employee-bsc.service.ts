@@ -107,11 +107,13 @@ export class EmployeeBscService {
   async findOne(actor: AuthUser, id: string) {
     const bsc = await this.requireBsc(id);
     await this.policy.assertCanView(actor, bsc);
+    const reviewCapabilities = await this.repository.reviewCapabilities(actor, bsc);
     const visibleStages = new Set<string>();
     if (this.policy.canViewStageHistory(actor, bsc, BSC_PERMISSIONS.VIEW_PLAN_HISTORY)) visibleStages.add('PLAN');
     if (this.policy.canViewStageHistory(actor, bsc, BSC_PERMISSIONS.VIEW_EVALUATION_HISTORY)) visibleStages.add('EVALUATION');
     return {
       ...bsc,
+      review_capabilities: reviewCapabilities,
       goal_groups: BSC_GOAL_GROUPS,
       bsc_status_histories: bsc.bsc_status_histories.filter((history) => visibleStages.has(history.stage)),
     };
@@ -208,7 +210,7 @@ export class EmployeeBscService {
   async approveReopenRequest(actor: AuthUser, requestId: string, metadata: AuditRequestMetadata) {
     const request = await this.repository.findReopenRequest(requestId);
     if (!request) throw new NotFoundException({ code: 'BSC_REOPEN_REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu mở lại.' });
-    await this.policy.assertCanReviewReopen(actor, request.employee_bsc);
+    await this.policy.assertCanReviewReopen(actor, request);
     return this.repository.approveReopenRequest(actor, requestId, metadata, (snapshot) => this.assertReopenDecision(actor, snapshot));
   }
 
@@ -216,7 +218,7 @@ export class EmployeeBscService {
     const reason = this.normalizeReason(rawReason, 'BSC_REOPEN_REJECT_REASON_REQUIRED');
     const request = await this.repository.findReopenRequest(requestId);
     if (!request) throw new NotFoundException({ code: 'BSC_REOPEN_REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu mở lại.' });
-    await this.policy.assertCanReviewReopen(actor, request.employee_bsc);
+    await this.policy.assertCanReviewReopen(actor, request);
     return this.repository.rejectReopenRequest(actor, requestId, reason, metadata, (snapshot) => this.assertReopenDecision(actor, snapshot));
   }
 
@@ -374,7 +376,7 @@ export class EmployeeBscService {
 
   private async reviewPlan(actor: AuthUser, id: string, action: 'APPROVE_PLAN' | 'RETURN_PLAN', reason: string | undefined, metadata: AuditRequestMetadata) {
     const bsc = await this.requireBsc(id);
-    await this.policy.assertCanReview(actor, bsc, action === 'APPROVE_PLAN'
+    await this.policy.assertCanReview(actor, bsc, 'PLAN', action === 'APPROVE_PLAN'
       ? BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE : BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE);
     return this.repository.reviewPlanWorkflow(actor, id, action, metadata, (snapshot) => {
       const normalizedReason = this.workflow.assertCanReviewPlan(actor, this.workflowContext(snapshot), action, reason);
@@ -385,7 +387,7 @@ export class EmployeeBscService {
 
   private async reviewEvaluation(actor: AuthUser, id: string, action: 'APPROVE_EVALUATION' | 'RETURN_EVALUATION', reason: string | undefined, metadata: AuditRequestMetadata) {
     const bsc = await this.requireBsc(id);
-    await this.policy.assertCanReview(actor, bsc, action === 'APPROVE_EVALUATION'
+    await this.policy.assertCanReview(actor, bsc, 'EVALUATION', action === 'APPROVE_EVALUATION'
       ? BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE : BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE);
     return this.repository.reviewEvaluationWorkflow(actor, id, action, metadata, (snapshot) => {
       const result = this.scoreSnapshot(snapshot);
@@ -418,9 +420,6 @@ export class EmployeeBscService {
     if (request.status !== 'PENDING') throw new ConflictException({ code: 'BSC_REOPEN_REQUEST_NOT_PENDING', message: 'Yêu cầu không còn ở trạng thái chờ xử lý.' });
     if (request.cycle_status === 'CLOSED') {
       throw new ConflictException({ code: 'BSC_CYCLE_CLOSED', message: 'Kỳ BSC đã kết thúc nên không thể phê duyệt yêu cầu mở lại.' });
-    }
-    if (!this.policy.canReviewAsDirector(actor, BSC_PERMISSIONS.REVIEW_REOPEN, request.department_id)) {
-      throw new ForbiddenException({ code: 'BSC_ACCESS_DENIED', message: 'Chỉ Giám đốc được xử lý yêu cầu mở lại BSC.' });
     }
     if (!request.owner_active || !request.organization_active) {
       throw new BadRequestException({ code: 'BSC_REOPEN_NOT_ALLOWED', message: 'BSC, người dùng hoặc tổ chức không còn đủ điều kiện mở lại.' });

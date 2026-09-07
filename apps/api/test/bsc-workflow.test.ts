@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { ResourceScopePolicy } from '../src/common/policies/resource-scope.policy';
 import { AuthUser } from '../src/common/types/auth-user.type';
 import { BSC_PERMISSIONS, BscAccessPolicy } from '../src/modules/employee-bsc/policies/bsc-access.policy';
+import { BscReviewerResolver } from '../src/modules/bsc-reviewers/bsc-reviewer-resolver';
 import { BscWorkflowService, WorkflowBscContext } from '../src/modules/employee-bsc/services/bsc-workflow.service';
 import { PrismaService } from '../src/database/prisma.service';
 import { BscCyclePolicy } from '../src/modules/bsc-cycles/bsc-cycle.policy';
@@ -86,8 +87,11 @@ test('evaluation submit requires approved plan and complete server scoring', () 
   assert.throws(() => workflow.assertCanSubmitEvaluation(actor(), evaluation, scoring({ isComplete: false, items: [{ ...scoring().items[0], actual: null, isScorable: false, reason: 'ACTUAL_NOT_PROVIDED' }] })), (e: any) => e.response.code === 'BSC_EVALUATION_ACTUAL_REQUIRED');
 });
 
-test('stage reviews require a global DIRECTOR, stage permission and stage-specific reason codes', () => {
-  const manager = actor({ id: managerId, roles: [{ code: 'MANAGER', scopeType: 'DEPARTMENT', scopeId: departmentId }],
+test('stage reviews accept an assigned department MANAGER or global DIRECTOR with stage permissions', () => {
+  const reviewPermissions = [BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
+    BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE];
+  const manager = actor({ id: managerId, roles: [{ code: 'MANAGER', scopeType: 'DEPARTMENT', scopeId: departmentId,
+    permissions: reviewPermissions }],
     permissions: [BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
       BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE] });
   const director = actor({ id: managerId, roles: [{ code: 'DIRECTOR', scopeType: 'GLOBAL', scopeId: null,
@@ -95,8 +99,7 @@ test('stage reviews require a global DIRECTOR, stage permission and stage-specif
       BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE] }],
     permissions: [BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
       BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE] });
-  assert.throws(() => workflow.assertCanReviewPlan(manager, context({ planStatus: 'SUBMITTED' }), 'APPROVE_PLAN'),
-    (e: any) => e.response.code === 'BSC_ACCESS_DENIED');
+  assert.equal(workflow.assertCanReviewPlan(manager, context({ planStatus: 'SUBMITTED' }), 'APPROVE_PLAN'), null);
   assert.equal(workflow.assertCanReviewPlan(director, context({ planStatus: 'SUBMITTED' }), 'APPROVE_PLAN'), null);
   assert.equal(workflow.assertCanReviewEvaluation(director, context({ planStatus: 'APPROVED', evaluationStatus: 'SUBMITTED' }), 'RETURN_EVALUATION', '  Cần bổ sung. '), 'Cần bổ sung.');
   assert.throws(() => workflow.assertCanReviewPlan(director, context({ planStatus: 'SUBMITTED' }), 'RETURN_PLAN', ' '), (e: any) => e.response.code === 'BSC_PLAN_RETURN_REASON_REQUIRED');
@@ -105,7 +108,7 @@ test('stage reviews require a global DIRECTOR, stage permission and stage-specif
 
 test('field locking keeps definition and evaluation result groups independent', async () => {
   const relationshipDb = { manager_relationships: { count: async () => 1 } } as unknown as PrismaService;
-  const policy = new BscAccessPolicy(relationshipDb);
+  const policy = new BscAccessPolicy(relationshipDb, new BscReviewerResolver());
   const manager = actor({ id: managerId, roles: [{ code: 'MANAGER', scopeType: 'DEPARTMENT', scopeId: departmentId,
     permissions: [BSC_PERMISSIONS.MANAGE_KPI] }], permissions: [BSC_PERMISSIONS.MANAGE_KPI] });
   const owner = actor({ roles: [{ code: 'EMPLOYEE', scopeType: 'SELF', scopeId: null,
@@ -122,8 +125,8 @@ test('field locking keeps definition and evaluation result groups independent', 
   assert.throws(() => policy.assertCanEditEvaluationResult(owner, { ...base, plan_status: 'APPROVED', evaluation_status: 'SUBMITTED' }), (e: any) => e.response.code === 'BSC_FIELD_NOT_EDITABLE_IN_CURRENT_STAGE');
 });
 
-test('a reset-only GLOBAL DIRECTOR may view reopen trace without gaining request-review permission', () => {
-  const policy = new BscAccessPolicy({} as PrismaService);
+test('reset reviewers may view reopen trace only in their assigned scope', () => {
+  const policy = new BscAccessPolicy({} as PrismaService, new BscReviewerResolver());
   const resetDirector = actor({
     id: managerId,
     roles: [{ code: 'DIRECTOR', scopeType: 'GLOBAL', scopeId: null, permissions: [BSC_PERMISSIONS.RESET_APPROVED] }],
@@ -137,5 +140,5 @@ test('a reset-only GLOBAL DIRECTOR may view reopen trace without gaining request
   const bsc = { employee_id: employeeId, department_id: departmentId } as any;
 
   assert.doesNotThrow(() => policy.assertCanViewReopenHistory(resetDirector, bsc));
-  assert.throws(() => policy.assertCanViewReopenHistory(staleManager, bsc), (e: any) => e.response.code === 'BSC_ACCESS_DENIED');
+  assert.doesNotThrow(() => policy.assertCanViewReopenHistory(staleManager, bsc));
 });

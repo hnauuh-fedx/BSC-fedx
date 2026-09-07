@@ -14,9 +14,10 @@ const auth = (permissions: string[]) => mockedUseAuth.mockReturnValue({
   isAuthenticated: true, isLoading: false, status: 'authenticated', login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(),
 });
 
-const managerAuth = (permissions: string[]) => mockedUseAuth.mockReturnValue({
+const managerAuth = (permissions: string[], isEmployeeBscDepartmentReviewer = true) => mockedUseAuth.mockReturnValue({
   user: {
     id: 'manager-1', employeeCode: 'M001', fullName: 'Manager', email: 'manager@example.test', departmentId: 'd1', status: 'ACTIVE',
+    isEmployeeBscDepartmentReviewer,
     roles: [{ code: 'MANAGER' as const, scopeType: 'DEPARTMENT' as const, scopeId: 'd1', permissions }], permissions,
   },
   isAuthenticated: true, isLoading: false, status: 'authenticated', login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(),
@@ -55,14 +56,21 @@ describe('MainLayout navigation permissions', () => {
       .toHaveAttribute('href', '/management/bsc-reopen-requests');
   });
 
-  it('hides review queues for the canonical MANAGER role even when stale permissions remain', () => {
+  it('shows scoped employee BSC review queues to a department MANAGER with permissions', () => {
     managerAuth(['bsc.plan.approve.subordinate', 'bsc.reopen.subordinate']);
+    render(<MemoryRouter><MainLayout><p>Content</p></MainLayout></MemoryRouter>);
+    expect(screen.getByRole('link', { name: /Ch.*duy/ })).toBeVisible();
+    expect(screen.getByRole('link', { name: /Y.*u c.*u m/ })).toBeVisible();
+  });
+
+  it('hides employee review queues from a MANAGER who is not an active routed department head', () => {
+    managerAuth(['bsc.plan.approve.subordinate', 'bsc.reopen.subordinate'], false);
     render(<MemoryRouter><MainLayout><p>Content</p></MainLayout></MemoryRouter>);
     expect(screen.queryByRole('link', { name: /Ch.*duy/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Y.*u c.*u m/ })).not.toBeInTheDocument();
   });
 
-  it('does not borrow stale MANAGER permissions for a GLOBAL DIRECTOR assignment', () => {
+  it('keeps a valid department MANAGER assignment effective alongside a GLOBAL DIRECTOR assignment', () => {
     const stalePermissions = ['bsc.plan.approve.subordinate', 'bsc.reopen.subordinate'];
     mockedUseAuth.mockReturnValue({
       user: {
@@ -71,15 +79,15 @@ describe('MainLayout navigation permissions', () => {
           { code: 'DIRECTOR' as const, scopeType: 'GLOBAL' as const, scopeId: null, permissions: [] },
           { code: 'MANAGER' as const, scopeType: 'DEPARTMENT' as const, scopeId: 'd1', permissions: stalePermissions },
         ],
-        permissions: stalePermissions,
+        permissions: stalePermissions, isEmployeeBscDepartmentReviewer: true,
       },
       isAuthenticated: true, isLoading: false, status: 'authenticated', login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(),
     });
 
     render(<MemoryRouter><MainLayout><p>Content</p></MainLayout></MemoryRouter>);
 
-    expect(screen.queryByRole('link', { name: /Ch.*duy/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /Y.*u c.*u m/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Ch.*duy/ })).toBeVisible();
+    expect(screen.getByRole('link', { name: /Y.*u c.*u m/ })).toBeVisible();
   });
 
   it('keeps personal BSC hidden for an unit-only dashboard user', () => {

@@ -15,6 +15,7 @@ import {
 import { UpdateBscActualDto } from '../src/modules/employee-bsc/dto/bsc-item.dto';
 import { QueryEmployeeBscDto } from '../src/modules/employee-bsc/dto/query-employee-bsc.dto';
 import { PrismaService } from '../src/database/prisma.service';
+import { BscReviewerResolver } from '../src/modules/bsc-reviewers/bsc-reviewer-resolver';
 
 const user = (overrides: Partial<AuthUser> = {}): AuthUser => ({
   id: '00000000-0000-4000-8000-000000000001',
@@ -45,7 +46,7 @@ test('BSC policy enforces owner, direct manager, scope, permission and DRAFT sta
       Number(where.manager_id === draft.direct_manager_id && where.employee_id === draft.employee_id) },
     users: { count: async () => 1 },
   } as unknown as PrismaService;
-  const policy = new BscAccessPolicy(relationshipDb);
+  const policy = new BscAccessPolicy(relationshipDb, new BscReviewerResolver());
   const employee = user();
   policy.assertCanCreateOwn(employee);
   await policy.assertCanView(employee, draft);
@@ -69,7 +70,7 @@ test('BSC policy enforces owner, direct manager, scope, permission and DRAFT sta
 });
 
 test('BSC policy rejects DIRECTOR and ADMIN personal BSC creation', () => {
-  const policy = new BscAccessPolicy({} as PrismaService);
+  const policy = new BscAccessPolicy({} as PrismaService, new BscReviewerResolver());
   for (const code of ['DIRECTOR', 'ADMIN']) {
     assert.throws(
       () => policy.assertCanCreateOwn(user({ roles: [{ code, scopeType: 'GLOBAL', scopeId: null,

@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Spinner } from '../../../components/ui/spinner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { PermissionGate } from '../../auth/components/permission-gate';
+import { employeeBscReviewerPermissions } from '../../auth/permissions';
 import { AccessibleDialog, EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SearchInput } from '../../organization/management-ui';
 import { BscStatusBadge } from '../components/bsc-status-badge';
 import { BSC_PERMISSIONS } from '../constants/employee-bsc.constants';
@@ -23,11 +24,9 @@ const evaluationStatuses = [{ value: 'NOT_STARTED', label: 'Chưa bắt đầu' 
 export const BscListPage: React.FC = () => {
   const navigate = useNavigate();
   const { state } = useAuthContext();
-  const globalDirectorPermissions = new Set(state.user?.roles
-    .filter(role => role.code === 'DIRECTOR' && role.scopeType === 'GLOBAL')
-    .flatMap(role => role.permissions ?? []) ?? []);
-  const canReview = REVIEW_PERMISSIONS.some(permission => globalDirectorPermissions.has(permission));
-  const canReviewReopen = globalDirectorPermissions.has(BSC_PERMISSIONS.REVIEW_REOPEN);
+  const reviewerPermissions = employeeBscReviewerPermissions(state.user);
+  const canReview = REVIEW_PERMISSIONS.some(permission => reviewerPermissions.has(permission));
+  const canReviewReopen = reviewerPermissions.has(BSC_PERMISSIONS.REVIEW_REOPEN);
   const [items, setItems] = useState<EmployeeBsc[]>([]), [search, setSearch] = useState('');
   const [planStatus, setPlanStatus] = useState('ALL'), [evaluationStatus, setEvaluationStatus] = useState('ALL');
   const [page, setPage] = useState(1), [total, setTotal] = useState(0), [loading, setLoading] = useState(true);

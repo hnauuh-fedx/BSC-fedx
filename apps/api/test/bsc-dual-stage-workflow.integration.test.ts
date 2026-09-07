@@ -265,11 +265,6 @@ test('Phase 3B.3 dual-stage BSC workflow integration', { skip: safeDatabase() ? 
       });
       assert.equal(pendingStep.status, 'PENDING');
       assert.equal(pendingStep.approver_id, null);
-      await prisma.bsc_approval_steps.update({
-        where: { id: pendingStep.id },
-        data: { approver_id: manager.id, approver_role: 'MANAGER' },
-      });
-
       const [firstQueue, secondQueue] = await Promise.all([
         request(server).get('/employee-bsc/pending-review?stage=PLAN&search=SHARED_QUEUE').set(auth(tokens.director)),
         request(server).get('/employee-bsc/pending-review?stage=PLAN&search=SHARED_QUEUE').set(auth(director2Token)),

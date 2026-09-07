@@ -12,7 +12,7 @@ import { BscScoringResult } from '../services/bsc-scoring.service';
 import { BscCycleBusinessAction, BscCyclePolicy, CycleTiming } from '../../bsc-cycles/bsc-cycle.policy';
 import { NotificationPublisher } from '../../notifications/notifications.publisher';
 import { NOTIFICATION_EVENT } from '../../notifications/notifications.types';
-import { BscReviewerResolver, DIRECTOR_REVIEW_PERMISSIONS } from '../../bsc-reviewers/bsc-reviewer-resolver';
+import { BscReviewerResolver, BscReviewAssignment, DIRECTOR_REVIEW_PERMISSIONS, hasGlobalDirectorPermission } from '../../bsc-reviewers/bsc-reviewer-resolver';
 
 const PLAN_APPROVAL_PERMISSION = 'bsc.plan.approve.subordinate';
 const EVALUATION_APPROVAL_PERMISSION = 'bsc.evaluation.approve.subordinate';
@@ -27,6 +27,9 @@ const bscAccessSelect = {
   status: true,
   plan_status: true,
   evaluation_status: true,
+  bsc_approval_steps: {
+    select: { stage: true, approver_id: true, approver_role: true, status: true },
+  },
 } satisfies Prisma.employee_bscSelect;
 
 const bscDetailSelect = {
@@ -192,6 +195,47 @@ export class EmployeeBscRepository {
     return this.prisma.employee_bsc_items.findUnique({ where: { id } });
   }
 
+  async reviewCapabilities(actor: AuthUser, bsc: {
+    id: string; employee_id: string; department_id: string; plan_status: string; evaluation_status: string;
+  }) {
+    const pending = async (stage: 'PLAN' | 'EVALUATION', permission: string) => {
+      if (!actor.permissions.includes(permission) || actor.id === bsc.employee_id) return false;
+      try {
+        return await this.prisma.$transaction(async (db) => {
+          await this.assertEligibleApprovalReviewer(db, actor, bsc.employee_id, bsc.department_id, bsc.id, stage, permission);
+          return true;
+        });
+      } catch (error) {
+        if (error instanceof BadRequestException || error instanceof ForbiddenException) return false;
+        throw error;
+      }
+    };
+    const reset = async (stage: 'PLAN' | 'EVALUATION') => {
+      if (!actor.permissions.includes(RESET_APPROVED_PERMISSION) || actor.id === bsc.employee_id) return false;
+      try {
+        return await this.prisma.$transaction(async (db) => {
+          const reviewers = await this.reviewerResolver.resolveRequiredReviewers(db, {
+            ownerId: bsc.employee_id, departmentId: bsc.department_id, stage, permission: RESET_APPROVED_PERMISSION,
+          });
+          this.assertActorInResolvedReviewers(actor, bsc.department_id, RESET_APPROVED_PERMISSION, reviewers);
+          return true;
+        });
+      } catch (error) {
+        if (error instanceof BadRequestException || error instanceof ForbiddenException) return false;
+        throw error;
+      }
+    };
+    const [canApprovePlan, canReturnPlan, canApproveEvaluation, canReturnEvaluation, canResetPlan, canResetEvaluation] = await Promise.all([
+      bsc.plan_status === 'SUBMITTED' ? pending('PLAN', PLAN_APPROVAL_PERMISSION) : false,
+      bsc.plan_status === 'SUBMITTED' ? pending('PLAN', 'bsc.plan.return.subordinate') : false,
+      bsc.evaluation_status === 'SUBMITTED' ? pending('EVALUATION', EVALUATION_APPROVAL_PERMISSION) : false,
+      bsc.evaluation_status === 'SUBMITTED' ? pending('EVALUATION', 'bsc.evaluation.return.subordinate') : false,
+      bsc.plan_status === 'APPROVED' ? reset('PLAN') : false,
+      bsc.plan_status === 'APPROVED' && bsc.evaluation_status === 'APPROVED' ? reset('EVALUATION') : false,
+    ]);
+    return { canApprovePlan, canReturnPlan, canApproveEvaluation, canReturnEvaluation, canResetPlan, canResetEvaluation };
+  }
+
   submitPlanWorkflow(
     actor: AuthUser,
     id: string,
@@ -201,10 +245,13 @@ export class EmployeeBscRepository {
     return this.serializable(async (db) => {
       const snapshot = await this.workflowSnapshot(db, id);
       if (!snapshot) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC.' });
-      await this.reviewerResolver.resolveRequiredDirectors(db, {
+      const reviewers = await this.reviewerResolver.resolveRequiredReviewers(db, {
         ownerId: snapshot.employee_id,
+        departmentId: snapshot.department_id,
+        stage: 'PLAN',
         permission: DIRECTOR_REVIEW_PERMISSIONS.PLAN,
       });
+      const assignment = this.toApprovalAssignment(reviewers);
       validate(snapshot);
       const now = new Date();
       const changed = await db.employee_bsc.updateMany({
@@ -218,12 +265,13 @@ export class EmployeeBscRepository {
       } });
       await db.bsc_approval_steps.upsert({
         where: { employee_bsc_id_stage_step_order: { employee_bsc_id: id, stage: 'PLAN', step_order: 1 } },
-        create: { employee_bsc_id: id, stage: 'PLAN', step_order: 1, approver_id: null, approver_role: 'DIRECTOR', status: 'PENDING' },
-        update: { approver_id: null, approver_role: 'DIRECTOR', status: 'PENDING', comment: null, acted_at: null },
+        create: { employee_bsc_id: id, stage: 'PLAN', step_order: 1, approver_id: assignment.approverId, approver_role: assignment.role, status: 'PENDING' },
+        update: { approver_id: assignment.approverId, approver_role: assignment.role, status: 'PENDING', comment: null, acted_at: null },
       });
       await this.audit(db, actor, 'BSC_PLAN_SUBMITTED', 'employee_bsc', id,
         { bscId: id, employeeId: snapshot.employee_id, stage: 'PLAN', status: snapshot.plan_status },
-        { bscId: id, employeeId: snapshot.employee_id, stage: 'PLAN', status: 'SUBMITTED' }, metadata);
+        { bscId: id, employeeId: snapshot.employee_id, stage: 'PLAN', status: 'SUBMITTED', approverId: assignment.approverId,
+          approverRole: assignment.role, reviewerPoolIds: reviewers.map(({ id: reviewerId }) => reviewerId) }, metadata);
       await this.notifications.publish(db, {
         type: NOTIFICATION_EVENT.EMPLOYEE_BSC_PLAN_SUBMITTED,
         resourceId: id,
@@ -245,7 +293,8 @@ export class EmployeeBscRepository {
       const snapshot = await this.workflowSnapshot(db, id);
       if (!snapshot) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC.' });
       const reviewPermission = action === 'APPROVE_PLAN' ? PLAN_APPROVAL_PERMISSION : 'bsc.plan.return.subordinate';
-      await this.assertEligibleDirector(db, actor, snapshot.employee_id, reviewPermission);
+      const reviewerRole = await this.assertEligibleApprovalReviewer(db, actor, snapshot.employee_id,
+        snapshot.department_id, id, 'PLAN', reviewPermission);
       const reason = validate(snapshot);
       const now = new Date();
       const targetStatus = action === 'APPROVE_PLAN' ? 'APPROVED' : 'RETURNED';
@@ -269,11 +318,11 @@ export class EmployeeBscRepository {
       } });
       await db.bsc_approval_steps.update({
         where: { employee_bsc_id_stage_step_order: { employee_bsc_id: id, stage: 'PLAN', step_order: 1 } },
-        data: { approver_id: actor.id, approver_role: 'DIRECTOR', status: targetStatus, comment: reason, acted_at: now },
+        data: { approver_id: actor.id, approver_role: reviewerRole, status: targetStatus, comment: reason, acted_at: now },
       });
       const review = await db.bsc_reviews.create({ data: {
         employee_bsc_id: id, stage: 'PLAN', reviewer_id: actor.id,
-        reviewer_role: 'DIRECTOR',
+        reviewer_role: reviewerRole,
         review_level: 1, action: action === 'APPROVE_PLAN' ? 'APPROVE' : 'RETURN', score_before: null, score_after: null,
         comment: reason, reviewed_at: now,
       } });
@@ -300,10 +349,13 @@ export class EmployeeBscRepository {
     return this.serializable(async (db) => {
       const snapshot = await this.workflowSnapshot(db, id);
       if (!snapshot) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC.' });
-      await this.reviewerResolver.resolveRequiredDirectors(db, {
+      const reviewers = await this.reviewerResolver.resolveRequiredReviewers(db, {
         ownerId: snapshot.employee_id,
+        departmentId: snapshot.department_id,
+        stage: 'EVALUATION',
         permission: DIRECTOR_REVIEW_PERMISSIONS.EVALUATION,
       });
+      const assignment = this.toApprovalAssignment(reviewers);
       const scoring = validate(snapshot);
       const now = new Date();
       const changed = await db.employee_bsc.updateMany({
@@ -316,12 +368,14 @@ export class EmployeeBscRepository {
         ip_address: metadata.ipAddress, user_agent: metadata.userAgent } });
       await db.bsc_approval_steps.upsert({
         where: { employee_bsc_id_stage_step_order: { employee_bsc_id: id, stage: 'EVALUATION', step_order: 1 } },
-        create: { employee_bsc_id: id, stage: 'EVALUATION', step_order: 1, approver_id: null, approver_role: 'DIRECTOR', status: 'PENDING' },
-        update: { approver_id: null, approver_role: 'DIRECTOR', status: 'PENDING', comment: null, acted_at: null },
+        create: { employee_bsc_id: id, stage: 'EVALUATION', step_order: 1, approver_id: assignment.approverId, approver_role: assignment.role, status: 'PENDING' },
+        update: { approver_id: assignment.approverId, approver_role: assignment.role, status: 'PENDING', comment: null, acted_at: null },
       });
       await this.audit(db, actor, 'BSC_EVALUATION_SUBMITTED', 'employee_bsc', id,
         { bscId: id, employeeId: snapshot.employee_id, stage: 'EVALUATION', status: snapshot.evaluation_status },
-        { bscId: id, employeeId: snapshot.employee_id, stage: 'EVALUATION', status: 'SUBMITTED', previewScore: scoring.totalWeightedScore }, metadata);
+        { bscId: id, employeeId: snapshot.employee_id, stage: 'EVALUATION', status: 'SUBMITTED', previewScore: scoring.totalWeightedScore,
+          approverId: assignment.approverId, approverRole: assignment.role,
+          reviewerPoolIds: reviewers.map(({ id: reviewerId }) => reviewerId) }, metadata);
       await this.notifications.publish(db, {
         type: NOTIFICATION_EVENT.EMPLOYEE_BSC_EVALUATION_SUBMITTED,
         resourceId: id,
@@ -338,7 +392,8 @@ export class EmployeeBscRepository {
       const snapshot = await this.workflowSnapshot(db, id);
       if (!snapshot) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC.' });
       const reviewPermission = action === 'APPROVE_EVALUATION' ? EVALUATION_APPROVAL_PERMISSION : 'bsc.evaluation.return.subordinate';
-      await this.assertEligibleDirector(db, actor, snapshot.employee_id, reviewPermission);
+      const reviewerRole = await this.assertEligibleApprovalReviewer(db, actor, snapshot.employee_id,
+        snapshot.department_id, id, 'EVALUATION', reviewPermission);
       const { scoring, reason } = validate(snapshot);
       const now = new Date();
       const approved = action === 'APPROVE_EVALUATION';
@@ -358,8 +413,8 @@ export class EmployeeBscRepository {
       const history = await db.bsc_status_histories.create({ data: { employee_bsc_id: id, stage: 'EVALUATION', from_status: 'SUBMITTED', to_status: targetStatus,
         action, comment: reason, changed_by: actor.id, changed_at: now, ip_address: metadata.ipAddress, user_agent: metadata.userAgent } });
       await db.bsc_approval_steps.update({ where: { employee_bsc_id_stage_step_order: { employee_bsc_id: id, stage: 'EVALUATION', step_order: 1 } },
-        data: { approver_id: actor.id, approver_role: 'DIRECTOR', status: targetStatus, comment: reason, acted_at: now } });
-      const review = await db.bsc_reviews.create({ data: { employee_bsc_id: id, stage: 'EVALUATION', reviewer_id: actor.id, reviewer_role: 'DIRECTOR',
+        data: { approver_id: actor.id, approver_role: reviewerRole, status: targetStatus, comment: reason, acted_at: now } });
+      const review = await db.bsc_reviews.create({ data: { employee_bsc_id: id, stage: 'EVALUATION', reviewer_id: actor.id, reviewer_role: reviewerRole,
         review_level: 1, action: approved ? 'APPROVE' : 'RETURN', score_before: snapshot.final_score,
         score_after: approved ? scoring.canonicalTotalWeightedScore : null, comment: reason, reviewed_at: now } });
       if (approved) {
@@ -430,10 +485,13 @@ export class EmployeeBscRepository {
       const snapshot = await this.workflowSnapshot(db, bscId);
       if (!snapshot) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC.' });
       validate(snapshot);
-      const reviewers = await this.reviewerResolver.resolveRequiredDirectors(db, {
+      const reviewers = await this.reviewerResolver.resolveRequiredReviewers(db, {
         ownerId: snapshot.employee_id,
+        departmentId: snapshot.department_id,
+        stage,
         permission: REOPEN_REVIEW_PERMISSION,
       });
+      const assignment = this.toApprovalAssignment(reviewers);
       const version = await db.bsc_versions.findFirst({
         where: { employee_bsc_id: bscId, version_type: stage === 'PLAN' ? 'PLAN_APPROVED' : 'EVALUATION_APPROVED' },
         orderBy: { version_number: 'desc' },
@@ -447,7 +505,7 @@ export class EmployeeBscRepository {
         employee_bsc_id: bscId,
         stage,
         requested_by: actor.id,
-        reviewer_id: null,
+        reviewer_id: assignment.approverId,
         request_reason: reason,
         status: 'PENDING',
         allowed_fields: (stage === 'PLAN'
@@ -461,6 +519,7 @@ export class EmployeeBscRepository {
           stage,
           reason,
           reviewerPoolIds: reviewers.map(({ id }) => id),
+          reviewerRole: assignment.role,
           sourceVersionId: version.id,
         }, metadata);
       await this.notifications.publish(db, {
@@ -511,7 +570,14 @@ export class EmployeeBscRepository {
     return this.serializable(async (db) => {
       const snapshot = await this.workflowSnapshot(db, bscId);
       if (!snapshot) throw new NotFoundException({ code: 'BSC_NOT_FOUND', message: 'Không tìm thấy BSC.' });
-      await this.assertEligibleDirector(db, actor, snapshot.employee_id, RESET_APPROVED_PERMISSION);
+      const reviewers = await this.reviewerResolver.resolveRequiredReviewers(db, {
+        ownerId: snapshot.employee_id,
+        departmentId: snapshot.department_id,
+        stage,
+        permission: RESET_APPROVED_PERMISSION,
+      });
+      const reviewerRole = this.assertActorInResolvedReviewers(actor, snapshot.department_id,
+        RESET_APPROVED_PERMISSION, reviewers);
       validate(snapshot);
       const sourceVersion = await db.bsc_versions.findFirst({
         where: { employee_bsc_id: bscId, version_type: stage === 'PLAN' ? 'PLAN_APPROVED' : 'EVALUATION_APPROVED' },
@@ -530,7 +596,7 @@ export class EmployeeBscRepository {
           requested_by: actor.id,
           reviewer_id: actor.id,
           request_reason: reason,
-          request_source: 'DIRECTOR_RESET',
+          request_source: reviewerRole === 'MANAGER' ? 'MANAGER_RESET' : 'DIRECTOR_RESET',
           status: 'APPROVED',
           reviewed_by: actor.id,
           reviewed_at: now,
@@ -561,7 +627,7 @@ export class EmployeeBscRepository {
           status: 'EXPIRED',
           reviewed_by: actor.id,
           reviewed_at: now,
-          review_comment: 'Yêu cầu hết hiệu lực do Giám đốc đã mở lại trực tiếp BSC.',
+          review_comment: 'Yêu cầu hết hiệu lực do người duyệt đã mở lại trực tiếp BSC.',
         },
       });
 
@@ -609,7 +675,7 @@ export class EmployeeBscRepository {
       await this.audit(
         db,
         actor,
-        stage === 'PLAN' ? 'BSC_PLAN_RESET_BY_DIRECTOR' : 'BSC_EVALUATION_RESET_BY_DIRECTOR',
+        stage === 'PLAN' ? `BSC_PLAN_RESET_BY_${reviewerRole}` : `BSC_EVALUATION_RESET_BY_${reviewerRole}`,
         'employee_bsc',
         bscId,
         {
@@ -622,7 +688,7 @@ export class EmployeeBscRepository {
           planStatus: stage === 'PLAN' ? 'REOPENED' : 'APPROVED',
           evaluationStatus: stage === 'PLAN' ? 'NOT_STARTED' : 'REOPENED',
           finalScore: null, reason, resetRecordId: resetRecord.id, resultingVersionId: version.id,
-          actorRole: 'DIRECTOR', actorScope: 'GLOBAL', ownerId: snapshot.employee_id,
+          actorRole: reviewerRole, actorScope: reviewerRole === 'DIRECTOR' ? 'GLOBAL' : 'DEPARTMENT', ownerId: snapshot.employee_id,
           departmentId: snapshot.department_id, ...resetEffects,
         },
         metadata,
@@ -646,7 +712,7 @@ export class EmployeeBscRepository {
     return this.serializable(async (db) => {
       const request = await this.reopenWorkflowSnapshot(db, requestId);
       if (!request) throw new NotFoundException({ code: 'BSC_REOPEN_REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu mở lại.' });
-      await this.assertEligibleDirector(db, actor, request.employee_id, REOPEN_REVIEW_PERMISSION);
+      await this.assertEligibleReopenReviewer(db, actor, request, REOPEN_REVIEW_PERMISSION);
       validate(request);
       const latestApprovedVersion = await db.bsc_versions.findFirst({
         where: {
@@ -749,7 +815,7 @@ export class EmployeeBscRepository {
     return this.serializable(async (db) => {
       const request = await this.reopenWorkflowSnapshot(db, requestId);
       if (!request) throw new NotFoundException({ code: 'BSC_REOPEN_REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu mở lại.' });
-      await this.assertEligibleDirector(db, actor, request.employee_id, REOPEN_REVIEW_PERMISSION);
+      await this.assertEligibleReopenReviewer(db, actor, request, REOPEN_REVIEW_PERMISSION);
       validate(request);
       const now = new Date();
       const changed = await db.bsc_unlock_requests.updateMany({ where: { id: request.id, status: 'PENDING' }, data: {
@@ -1223,20 +1289,95 @@ export class EmployeeBscRepository {
     throw new ConflictException({ code: 'BSC_WORKFLOW_CONFLICT', message: 'Trạng thái BSC vừa được thay đổi bởi yêu cầu khác.' });
   }
 
-  private async assertEligibleDirector(
+  private toApprovalAssignment(reviewers: BscReviewAssignment[]) {
+    const manager = reviewers.find((reviewer) => reviewer.role === 'MANAGER');
+    return manager
+      ? { approverId: manager.id, role: 'MANAGER' as const }
+      : { approverId: null, role: 'DIRECTOR' as const };
+  }
+
+  private async assertEligibleApprovalReviewer(
     db: Transaction,
     actor: AuthUser,
     ownerId: string,
+    departmentId: string,
+    bscId: string,
+    stage: 'PLAN' | 'EVALUATION',
+    permission: string,
+  ): Promise<'DIRECTOR' | 'MANAGER'> {
+    const step = await db.bsc_approval_steps.findUnique({
+      where: { employee_bsc_id_stage_step_order: { employee_bsc_id: bscId, stage, step_order: 1 } },
+      select: { approver_id: true, approver_role: true, status: true },
+    });
+    if (!step) this.reviewActorDenied();
+    if (step.status !== 'PENDING') this.workflowConflict();
+    if (step.approver_role === 'MANAGER') {
+      const currentReviewers = await this.reviewerResolver.resolveRequiredReviewers(db, {
+        ownerId, departmentId, stage, permission,
+      });
+      return this.assertActorInResolvedReviewers(actor, departmentId, permission, currentReviewers);
+    }
+    const directors = await this.reviewerResolver.resolveRequiredDirectors(db, { ownerId, permission });
+    this.assertActorInResolvedReviewers(actor, departmentId, permission, directors);
+    return 'DIRECTOR';
+  }
+
+  private async assertEligibleReopenReviewer(
+    db: Transaction,
+    actor: AuthUser,
+    request: { reviewer_id: string | null; employee_id: string; department_id: string; employee_bsc_id: string; stage: string },
     permission: string,
   ): Promise<void> {
-    const reviewers = await this.reviewerResolver.resolveRequiredDirectors(db, { ownerId, permission });
-    if (!reviewers.some(({ id }) => id === actor.id)) this.reviewActorDenied();
+    if (request.stage !== 'PLAN' && request.stage !== 'EVALUATION') this.reviewActorDenied();
+    const stage = request.stage as 'PLAN' | 'EVALUATION';
+    const currentReviewers = await this.reviewerResolver.resolveRequiredReviewers(db, {
+      ownerId: request.employee_id,
+      departmentId: request.department_id,
+      stage,
+      permission,
+    });
+    this.assertActorInResolvedReviewers(actor, request.department_id, permission, currentReviewers);
+  }
+
+  private assertActorInResolvedReviewers(
+    actor: AuthUser,
+    departmentId: string,
+    permission: string,
+    reviewers: BscReviewAssignment[],
+  ): 'DIRECTOR' | 'MANAGER' {
+    const assignment = reviewers.find(({ id }) => id === actor.id);
+    if (!assignment) this.reviewActorDenied();
+    const hasRolePermission = actor.roles.some((role) => role.code === assignment.role
+      && role.permissions?.includes(permission)
+      && (assignment.role === 'DIRECTOR'
+        ? role.scopeType === 'GLOBAL'
+        : role.scopeType === 'DEPARTMENT' && role.scopeId === departmentId));
+    if (!actor.permissions.includes(permission) || !hasRolePermission) this.reviewActorDenied();
+    return assignment.role;
+  }
+
+  private async assertActiveDepartmentManager(
+    db: Transaction,
+    actor: AuthUser,
+    departmentId: string,
+    permission: string,
+  ): Promise<void> {
+    this.assertActorInResolvedReviewers(actor, departmentId, permission, [{ id: actor.id, role: 'MANAGER' }]);
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const assignments = await db.department_manager_assignments.findMany({ where: {
+      department_id: departmentId,
+      is_primary: true,
+      start_date: { lte: today },
+      OR: [{ end_date: null }, { end_date: { gte: today } }],
+    }, select: { manager_id: true } });
+    if (assignments.length !== 1 || assignments[0].manager_id !== actor.id) this.reviewActorDenied();
   }
 
   private reviewActorDenied(): never {
     throw new ForbiddenException({
-      code: 'BSC_DIRECTOR_REVIEWER_MISMATCH',
-      message: 'Bạn không phải Giám đốc được giao duyệt BSC này.',
+      code: 'BSC_REVIEWER_MISMATCH',
+      message: 'Bạn không phải người được giao duyệt BSC này.',
     });
   }
 

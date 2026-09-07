@@ -4,6 +4,7 @@ import { AuthUser } from '../../../common/types/auth-user.type';
 import { BSC_PERMISSIONS } from '../policies/bsc-access.policy';
 import { BscScoringResult } from './bsc-scoring.service';
 import { BscCyclePolicy, CycleTiming } from '../../bsc-cycles/bsc-cycle.policy';
+import { hasBusinessReviewerPermission } from '../../bsc-reviewers/bsc-reviewer-resolver';
 
 export type PlanStatus = 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'REOPENED';
 export type EvaluationStatus = 'NOT_STARTED' | 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'REOPENED';
@@ -135,10 +136,8 @@ export class BscWorkflowService {
 
   private assertReviewer(actor: AuthUser, bsc: WorkflowBscContext, permission: string): void {
     if (actor.id === bsc.employeeId) throw new ForbiddenException({ code: 'BSC_SELF_APPROVAL_FORBIDDEN', message: 'Không thể tự duyệt hoặc trả lại BSC của chính mình.' });
-    const canReviewAsDirector = actor.roles.some((role) => role.code === 'DIRECTOR'
-      && role.permissions?.includes(permission)
-      && role.scopeType === 'GLOBAL');
-    if (!actor.permissions.includes(permission) || !canReviewAsDirector) this.deny();
+    const hasReviewerRole = hasBusinessReviewerPermission(actor, [permission], bsc.departmentId);
+    if (!actor.permissions.includes(permission) || !hasReviewerRole) this.deny();
     if (actor.status !== 'ACTIVE') this.badRequest('BSC_REVIEWER_INACTIVE', 'Người duyệt không còn hoạt động.');
     if (!bsc.ownerActive) this.badRequest('BSC_OWNER_INACTIVE', 'Chủ sở hữu BSC không còn hoạt động.');
     if (!bsc.ownerOrganizationActive) this.badRequest('BSC_OWNER_ORGANIZATION_INACTIVE', 'Đơn vị hoặc chức danh của chủ sở hữu không còn hoạt động.');

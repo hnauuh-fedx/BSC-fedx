@@ -324,6 +324,7 @@ export class AuthService implements OnModuleDestroy {
       appearanceTheme: user.appearance_theme,
       status: user.status,
       departmentId: user.department_id,
+      isEmployeeBscDepartmentReviewer: (user.department_manager_assignments_manager_idTousers?.length ?? 0) > 0,
       roles: user.user_roles_user_roles_user_idTousers.map((assignment) => ({
         code: assignment.roles.code,
         scopeType: assignment.scope_type,

@@ -11,6 +11,7 @@ import { Tabs, TabsList, TabsTrigger } from '../../../components/ui/tabs';
 import { Textarea } from '../../../components/ui/textarea';
 import { bscStageLabel } from '../../../lib/bsc-stage';
 import { useAuthContext } from '../../../app/store/auth-store';
+import { hasEmployeeBscReviewerPermission } from '../../auth/permissions';
 import { AccessibleDialog, EmptyState, ErrorState, LoadingState, PageHeader, Pagination } from '../../organization/management-ui';
 import { BscStatusBadge } from '../components/bsc-status-badge';
 import { BSC_PERMISSIONS } from '../constants/employee-bsc.constants';
@@ -25,9 +26,7 @@ const formatDate = (value?: string | null) => value
 
 export const BscReopenRequestsPage: React.FC = () => {
   const { state: authState } = useAuthContext();
-  const canReviewReopen = authState.user?.roles.some(role => role.code === 'DIRECTOR'
-    && role.scopeType === 'GLOBAL'
-    && role.permissions?.includes(BSC_PERMISSIONS.REVIEW_REOPEN)) ?? false;
+  const canReviewReopen = hasEmployeeBscReviewerPermission(authState.user, BSC_PERMISSIONS.REVIEW_REOPEN);
   const [searchParams, setSearchParams] = useSearchParams();
   const [stage, setStage] = useState<Stage>(searchParams.get('stage') === 'EVALUATION' ? 'EVALUATION' : 'PLAN');
   const [items, setItems] = useState<BscReopenRequest[]>([]);

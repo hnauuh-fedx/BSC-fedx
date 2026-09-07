@@ -33,6 +33,9 @@ test('publisher resolves a personal PLAN submission to an eligible director and 
         department_id: id.department,
       }),
     },
+    bsc_approval_steps: {
+      findUnique: async () => ({ approver_id: null, approver_role: 'DIRECTOR', status: 'PENDING' }),
+    },
     users: {
       findUnique: async () => ({ full_name: 'Nguyễn Văn An' }),
       findMany: async (args: unknown) => {
@@ -87,6 +90,9 @@ test('publisher notifies every eligible director in the shared review pool', asy
         department_id: id.department,
       }),
     },
+    bsc_approval_steps: {
+      findUnique: async () => ({ approver_id: null, approver_role: 'DIRECTOR', status: 'PENDING' }),
+    },
     users: {
       findUnique: async () => ({ full_name: 'Nhân viên' }),
       findMany: async () => [{ id: id.director }, { id: id.director2 }],
@@ -107,6 +113,47 @@ test('publisher notifies every eligible director in the shared review pool', asy
   });
 
   assert.deepEqual(recipients, [id.director, id.director2]);
+});
+
+test('publisher sends a routed employee submission only to the assigned department manager', async () => {
+  const recipients: string[] = [];
+  let directorLookupCalled = false;
+  const db = {
+    employee_bsc: {
+      findUnique: async () => ({
+        id: id.bsc,
+        bsc_code: 'BSC_NV001',
+        employee_id: id.employee,
+        department_id: id.department,
+      }),
+    },
+    bsc_approval_steps: {
+      findUnique: async () => ({ approver_id: id.manager, approver_role: 'MANAGER', status: 'PENDING' }),
+    },
+    users: {
+      findUnique: async () => ({ full_name: 'Nhân viên' }),
+      findMany: async () => {
+        directorLookupCalled = true;
+        return [{ id: id.director }];
+      },
+    },
+    notifications: {
+      upsert: async (args: { create: { recipient_id: string } }) => {
+        recipients.push(args.create.recipient_id);
+        return { id: 'notification-manager' };
+      },
+    },
+  } as unknown as Prisma.TransactionClient;
+
+  await createPublisher().publish(db, {
+    type: NOTIFICATION_EVENT.EMPLOYEE_BSC_PLAN_SUBMITTED,
+    resourceId: id.bsc,
+    sourceId: id.source,
+    actorId: id.employee,
+  });
+
+  assert.deepEqual(recipients, [id.manager]);
+  assert.equal(directorLookupCalled, false);
 });
 
 test('publisher sends a personal review result back to the BSC owner', async () => {
@@ -150,6 +197,9 @@ test('publisher sends a personal EVALUATION submission to the eligible DIRECTOR 
         employee_id: id.manager,
         department_id: id.department,
       }),
+    },
+    bsc_approval_steps: {
+      findUnique: async () => ({ approver_id: null, approver_role: 'DIRECTOR', status: 'PENDING' }),
     },
     users: {
       findUnique: async () => ({ full_name: 'Trưởng phòng' }),
@@ -238,6 +288,9 @@ test('publisher blocks submission notification when no eligible DIRECTOR exists'
         department_id: id.department,
       }),
     },
+    bsc_approval_steps: {
+      findUnique: async () => ({ approver_id: null, approver_role: 'DIRECTOR', status: 'PENDING' }),
+    },
     users: {
       findUnique: async () => ({ full_name: 'Nhân viên' }),
       findMany: async () => [],
@@ -275,7 +328,8 @@ test('reopen requests navigate each reviewer to the actionable queue', async () 
         employee_bsc_id: id.bsc,
         stage: 'EVALUATION',
         requested_by: id.employee,
-        reviewer_id: id.manager,
+        reviewer_id: null,
+        request_source: 'OWNER_REQUEST',
       }),
     },
     employee_bsc: {

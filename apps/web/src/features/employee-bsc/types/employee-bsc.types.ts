@@ -16,6 +16,11 @@ export type EmployeeBsc = {
   evaluation_submitted_at?: string | null; evaluation_approved_at?: string | null; evaluation_approved_by?: string | null;
   submitted_at?: string | null; approved_at?: string | null; approved_by?: string | null; locked_at?: string | null;
   final_score?: string | null; final_grade?: string | null;
+  review_capabilities?: {
+    canApprovePlan: boolean; canReturnPlan: boolean; canApproveEvaluation: boolean;
+    canReturnEvaluation: boolean; canResetPlan: boolean; canResetEvaluation: boolean;
+  };
+  bsc_approval_steps?: Array<{ stage: 'PLAN' | 'EVALUATION'; approver_id: string | null; approver_role: 'DIRECTOR' | 'MANAGER'; status: string }>;
   bsc_cycles: {
     id: string; code: string; name: string; year: number; month: number | null; status: string;
       start_date?: string; end_date?: string | null;
@@ -62,7 +67,7 @@ export type BscVersionDetail = Omit<BscVersionSummary, 'summary'> & { snapshot: 
 
 export type BscReopenRequest = {
   id: string; employee_bsc_id: string; stage: 'PLAN' | 'EVALUATION'; requested_by: string; reviewer_id: string | null;
-  request_source?: 'OWNER_REQUEST' | 'DIRECTOR_RESET';
+  request_source?: 'OWNER_REQUEST' | 'DIRECTOR_RESET' | 'MANAGER_RESET';
   request_reason: string; requested_at: string; status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
   reviewed_by: string | null; review_comment: string | null; reviewed_at: string | null;
   source_version_id: string | null; resulting_version_id: string | null;

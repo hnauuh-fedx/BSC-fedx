@@ -24,6 +24,7 @@ async function cleanup() {
   await prisma.bsc_cycles.deleteMany({ where: { code: { startsWith: marker } } });
   if (tracked.users.length) {
     await prisma.auth_refresh_tokens.deleteMany({ where: { user_id: { in: tracked.users } } });
+    await prisma.department_manager_assignments.deleteMany({ where: { OR: [{ manager_id: { in: tracked.users } }, { assigned_by: { in: tracked.users } }] } });
     await prisma.manager_relationships.deleteMany({ where: { OR: [{ employee_id: { in: tracked.users } }, { manager_id: { in: tracked.users } }] } });
     await prisma.user_roles.deleteMany({ where: { OR: [{ user_id: { in: tracked.users } }, { assigned_by: { in: tracked.users } }] } });
     await prisma.users.deleteMany({ where: { id: { in: tracked.users } } });
@@ -61,12 +62,21 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       await prisma.role_permissions.createMany({ data: rows.map(({ id }) => ({ role_id: created.id, permission_id: id })) });
       return created;
     };
-    const employeeRole = await role('EMPLOYEE', [BSC_PERMISSIONS.VIEW_OWN, BSC_PERMISSIONS.DUPLICATE_OWN, BSC_PERMISSIONS.REQUEST_REOPEN]);
+    const employeeRole = await role('EMPLOYEE', [BSC_PERMISSIONS.VIEW_OWN, BSC_PERMISSIONS.DUPLICATE_OWN,
+      BSC_PERMISSIONS.REQUEST_REOPEN, BSC_PERMISSIONS.SUBMIT_PLAN_OWN, BSC_PERMISSIONS.SUBMIT_EVALUATION_OWN]);
     const managerRole = await role('MANAGER', [BSC_PERMISSIONS.VIEW_SUBORDINATE, BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE,
       BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE, BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE,
       BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.VIEW_VERSION, BSC_PERMISSIONS.REVIEW_REOPEN,
       BSC_REPORT_PERMISSIONS.UNIT]);
     const canonicalManagerRole = await prisma.roles.findUniqueOrThrow({ where: { code: 'MANAGER' } });
+    const managerPermissionRows = await prisma.permissions.findMany({ where: { code: { in: [
+      BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
+      BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE,
+      BSC_PERMISSIONS.REVIEW_REOPEN, BSC_PERMISSIONS.RESET_APPROVED,
+    ] } }, select: { id: true } });
+    await prisma.role_permissions.createMany({ data: managerPermissionRows.map(({ id }) => ({
+      role_id: canonicalManagerRole.id, permission_id: id,
+    })), skipDuplicates: true });
     const directorRole = await prisma.roles.findUniqueOrThrow({ where: { code: 'DIRECTOR' } });
     const adminRole = await role('ADMIN', []);
     const selfApprovalRole = await role('ADMIN_SELF_BSC', [BSC_PERMISSIONS.VIEW_UNIT, BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE]);
@@ -94,6 +104,10 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
     const employeeB2 = await user('EMPLOYEE_B2', departmentB.id, employeeRole.id, 'SELF', managerB.id);
     const employeeViewOnly = await user('EMPLOYEE_VIEW_ONLY', departmentA.id, employeeRole.id, 'SELF', managerViewOnly.id);
     const employeeViewOnlyOtherDepartment = await user('EMP_VIEW_OTHER', departmentB.id, employeeRole.id, 'SELF', managerViewOnly.id);
+    const routedManager = await user('ROUTED_MANAGER', departmentA.id, canonicalManagerRole.id, 'DEPARTMENT', directorA.id);
+    const handoverManager = await user('HANDOVER_MANAGER', departmentA.id, canonicalManagerRole.id, 'DEPARTMENT', directorA.id);
+    const routedEmployee = await user('ROUTED_EMPLOYEE', departmentA.id, employeeRole.id, 'SELF', routedManager.id);
+    const handoverEmployee = await user('HANDOVER_EMPLOYEE', departmentA.id, employeeRole.id, 'SELF', routedManager.id);
     const admin = await user('ADMIN', departmentA.id, adminRole.id, 'GLOBAL');
     const adminSelf = await user('ADMIN_SELF', departmentA.id, selfApprovalRole.id, 'SELF');
     await prisma.user_roles.create({ data: { user_id: adminSelf.id, role_id: unrelatedGlobalRole.id, scope_type: 'GLOBAL' } });
@@ -109,6 +123,16 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
     await relationship(employeeB2.id, managerB.id, '2020-01-01');
     await relationship(employeeViewOnly.id, managerViewOnly.id, '2020-01-01');
     await relationship(employeeViewOnlyOtherDepartment.id, managerViewOnly.id, '2020-01-01');
+    await relationship(routedEmployee.id, routedManager.id, '2020-01-01');
+    await relationship(handoverEmployee.id, routedManager.id, '2020-01-01');
+    await prisma.department_manager_assignments.create({ data: {
+      department_id: departmentA.id, manager_id: routedManager.id, start_date: new Date('2020-01-01'),
+      is_primary: true, assigned_by: admin.id,
+    } });
+    await prisma.employee_bsc_approval_routes.createMany({ data: [
+      { department_id: departmentA.id, stage: 'PLAN', reviewer_type: 'DEPARTMENT_MANAGER' },
+      { department_id: departmentA.id, stage: 'EVALUATION', reviewer_type: 'DEPARTMENT_MANAGER' },
+    ] });
     const cycle = await prisma.bsc_cycles.create({ data: { code: `${marker}_CYCLE`, name: marker, cycle_type: 'MONTH', year: 2099, month: 1,
       start_date: new Date('2020-01-01'), end_date: new Date('2199-12-31'), submission_deadline: new Date('2199-12-31'), status: 'OPEN', created_by: admin.id } });
     let sequence = 0;
@@ -142,8 +166,11 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
 
     const created = await createApp(); app = created.app; await app.init(); const server = app.getHttpServer();
     const login = async (username: string) => (await request(server).post('/auth/login').send({ username, password }).expect(200)).body.accessToken as string;
-    const tokens = { directorA: await login(directorA.username), managerA: await login(managerA.username), managerA2: await login(managerA2.username), managerViewOnly: await login(managerViewOnly.username), employeeA: await login(employeeA.username),
-      admin: await login(admin.username), adminSelf: await login(adminSelf.username) };
+    const tokens = { directorA: await login(directorA.username), managerA: await login(managerA.username), managerA2: await login(managerA2.username), managerViewOnly: await login(managerViewOnly.username), employeeA: await login(employeeA.username), employeeA2: await login(employeeA2.username),
+      admin: await login(admin.username), adminSelf: await login(adminSelf.username),
+      routedManager: await login(routedManager.username), routedEmployee: await login(routedEmployee.username),
+      handoverManager: await login(handoverManager.username),
+      handoverEmployee: await login(handoverEmployee.username) };
     const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
     await t.test('permission and scope are bound to the same active assignment', async () => {
@@ -254,6 +281,106 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       assert.equal(approved.body.status, 'APPROVED');
       const reopened = await prisma.employee_bsc.findUniqueOrThrow({ where: { id: approvedEmployeeBBsc.id } });
       assert.equal(reopened.plan_status, 'REOPENED');
+    });
+
+    await t.test('configured department manager reviews and resets employee stages while own BSC stays with DIRECTOR', async () => {
+      const employeeRecord = await bsc(routedEmployee, routedManager.id, 'DRAFT', 'NOT_STARTED');
+      const submittedPlan = await request(server).post(`/employee-bsc/${employeeRecord.id}/plan/submit`)
+        .set(auth(tokens.routedEmployee)).send({}).expect(200);
+      assert.equal(submittedPlan.plan_status ?? submittedPlan.body?.plan_status, 'SUBMITTED');
+      const planStep = await prisma.bsc_approval_steps.findUniqueOrThrow({
+        where: { employee_bsc_id_stage_step_order: { employee_bsc_id: employeeRecord.id, stage: 'PLAN', step_order: 1 } },
+      });
+      assert.equal(planStep.approver_id, routedManager.id);
+      assert.equal(planStep.approver_role, 'MANAGER');
+      await request(server).post(`/employee-bsc/${employeeRecord.id}/plan/approve`).set(auth(tokens.directorA)).send({}).expect(403);
+      await request(server).post(`/employee-bsc/${employeeRecord.id}/plan/approve`).set(auth(tokens.routedManager)).send({}).expect(200);
+
+      await prisma.employee_bsc_items.updateMany({ where: { employee_bsc_id: employeeRecord.id }, data: { actual_value: 100 } });
+      await request(server).post(`/employee-bsc/${employeeRecord.id}/evaluation/submit`).set(auth(tokens.routedEmployee)).send({}).expect(200);
+      await request(server).post(`/employee-bsc/${employeeRecord.id}/evaluation/approve`).set(auth(tokens.routedManager)).send({}).expect(200);
+      await request(server).post(`/employee-bsc/${employeeRecord.id}/evaluation/reset-approved`).set(auth(tokens.directorA))
+        .send({ reason: 'Giám đốc không thuộc tuyến duyệt này' }).expect(403);
+      await request(server).post(`/employee-bsc/${employeeRecord.id}/evaluation/reset-approved`).set(auth(tokens.routedManager))
+        .send({ reason: 'Điều chỉnh kết quả trong phạm vi phòng ban' }).expect(200);
+      assert.equal((await prisma.employee_bsc.findUniqueOrThrow({ where: { id: employeeRecord.id } })).evaluation_status, 'REOPENED');
+
+      await request(server).post(`/employee-bsc/${employeeRecord.id}/evaluation/submit`).set(auth(tokens.routedEmployee)).send({}).expect(200);
+      await request(server).post(`/employee-bsc/${employeeRecord.id}/evaluation/approve`).set(auth(tokens.routedManager)).send({}).expect(200);
+      await request(server).post(`/employee-bsc/${employeeRecord.id}/plan/reset-approved`).set(auth(tokens.routedManager))
+        .send({ reason: 'Điều chỉnh kế hoạch trong phạm vi phòng ban' }).expect(200);
+      const resetPlan = await prisma.employee_bsc.findUniqueOrThrow({ where: { id: employeeRecord.id } });
+      assert.equal(resetPlan.plan_status, 'REOPENED');
+      assert.equal(resetPlan.evaluation_status, 'NOT_STARTED');
+
+      await request(server).post(`/employee-bsc/${employeeRecord.id}/plan/submit`).set(auth(tokens.routedEmployee)).send({}).expect(200);
+      const returned = await request(server).post(`/employee-bsc/${employeeRecord.id}/plan/return`).set(auth(tokens.routedManager))
+        .send({ reason: 'Trưởng phòng yêu cầu chỉnh kế hoạch' }).expect(200);
+      assert.equal(returned.body.plan_status, 'RETURNED');
+      await request(server).post(`/employee-bsc/${employeeRecord.id}/plan/submit`).set(auth(tokens.routedEmployee)).send({}).expect(200);
+      await request(server).post(`/employee-bsc/${employeeRecord.id}/plan/approve`).set(auth(tokens.routedManager)).send({}).expect(200);
+      await prisma.employee_bsc_items.updateMany({ where: { employee_bsc_id: employeeRecord.id }, data: { actual_value: 100 } });
+      await request(server).post(`/employee-bsc/${employeeRecord.id}/evaluation/submit`).set(auth(tokens.routedEmployee)).send({}).expect(200);
+      await request(server).post(`/employee-bsc/${employeeRecord.id}/evaluation/approve`).set(auth(tokens.routedManager)).send({}).expect(200);
+
+      // Simulate an approval made before department-manager routing was deployed.
+      await prisma.bsc_approval_steps.update({
+        where: { employee_bsc_id_stage_step_order: { employee_bsc_id: employeeRecord.id, stage: 'EVALUATION', step_order: 1 } },
+        data: { approver_id: directorA.id, approver_role: 'DIRECTOR' },
+      });
+
+      const reopenRequest = await request(server).post(`/employee-bsc/${employeeRecord.id}/reopen-requests`)
+        .set(auth(tokens.routedEmployee)).send({ stage: 'EVALUATION', reason: 'Cần cập nhật kết quả' }).expect(201);
+      assert.equal(reopenRequest.body.reviewer_id, routedManager.id);
+      const managerQueue = await request(server).get('/employee-bsc/reopen-requests/pending?stage=EVALUATION&limit=100')
+        .set(auth(tokens.routedManager)).expect(200);
+      assert.ok(managerQueue.body.items.some((item: { id: string }) => item.id === reopenRequest.body.id));
+      await request(server).post(`/employee-bsc/reopen-requests/${reopenRequest.body.id}/reject`)
+        .set(auth(tokens.routedManager)).send({ reason: 'Chưa đủ căn cứ' }).expect(200);
+      const approvedRequest = await request(server).post(`/employee-bsc/${employeeRecord.id}/reopen-requests`)
+        .set(auth(tokens.routedEmployee)).send({ stage: 'EVALUATION', reason: 'Đã bổ sung căn cứ' }).expect(201);
+      await request(server).post(`/employee-bsc/reopen-requests/${approvedRequest.body.id}/approve`)
+        .set(auth(tokens.routedManager)).send({}).expect(200);
+      assert.equal((await prisma.employee_bsc.findUniqueOrThrow({ where: { id: employeeRecord.id } })).evaluation_status, 'REOPENED');
+
+      await request(server).post(`/employee-bsc/${approvedEmployeeBBsc.id}/plan/reset-approved`).set(auth(tokens.routedManager))
+        .send({ reason: 'Ngoài phạm vi phòng ban' }).expect(403);
+
+      const managerRecord = await bsc(routedManager, directorA.id, 'DRAFT', 'NOT_STARTED');
+      await request(server).post(`/employee-bsc/${managerRecord.id}/plan/submit`).set(auth(tokens.routedManager)).send({}).expect(200);
+      const managerPlanStep = await prisma.bsc_approval_steps.findUniqueOrThrow({
+        where: { employee_bsc_id_stage_step_order: { employee_bsc_id: managerRecord.id, stage: 'PLAN', step_order: 1 } },
+      });
+      assert.equal(managerPlanStep.approver_id, null);
+      assert.equal(managerPlanStep.approver_role, 'DIRECTOR');
+      await request(server).post(`/employee-bsc/${managerRecord.id}/plan/approve`).set(auth(tokens.routedManager)).send({}).expect(403);
+      await request(server).post(`/employee-bsc/${managerRecord.id}/plan/approve`).set(auth(tokens.directorA)).send({}).expect(200);
+    });
+
+    await t.test('the current department head can take over a manager-routed pending submission', async () => {
+      const pendingRecord = await bsc(handoverEmployee, routedManager.id, 'DRAFT', 'NOT_STARTED');
+      await request(server).post(`/employee-bsc/${pendingRecord.id}/plan/submit`)
+        .set(auth(tokens.handoverEmployee)).send({}).expect(200);
+
+      await prisma.department_manager_assignments.updateMany({
+        where: { department_id: departmentA.id, manager_id: routedManager.id, is_primary: true },
+        data: { end_date: new Date('2026-09-06') },
+      });
+      await prisma.department_manager_assignments.create({ data: {
+        department_id: departmentA.id, manager_id: handoverManager.id, start_date: new Date('2026-09-07'),
+        is_primary: true, assigned_by: directorA.id,
+      } });
+
+      const queue = await request(server).get('/employee-bsc/pending-review?stage=PLAN&limit=100')
+        .set(auth(tokens.handoverManager)).expect(200);
+      assert.ok(queue.body.items.some((item: { id: string }) => item.id === pendingRecord.id));
+      await request(server).post(`/employee-bsc/${pendingRecord.id}/plan/approve`)
+        .set(auth(tokens.handoverManager)).send({}).expect(200);
+      const step = await prisma.bsc_approval_steps.findUniqueOrThrow({
+        where: { employee_bsc_id_stage_step_order: { employee_bsc_id: pendingRecord.id, stage: 'PLAN', step_order: 1 } },
+      });
+      assert.equal(step.approver_id, handoverManager.id);
+      assert.equal(step.status, 'APPROVED');
     });
 
     await t.test('reports and aggregates exclude the other department', async () => {

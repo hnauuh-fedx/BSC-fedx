@@ -14,6 +14,7 @@ export interface AuthUser {
   email: string;
   departmentId: string;
   status: string;
+  isEmployeeBscDepartmentReviewer?: boolean;
   roles: AuthRoleScope[];
   permissions: string[];
 }

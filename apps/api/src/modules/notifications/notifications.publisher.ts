@@ -81,7 +81,7 @@ export class NotificationPublisher {
     const owner = await db.users.findUnique({ where: { id: bsc.employee_id }, select: { full_name: true } });
     const { stage, action } = this.stageAction(event.type);
     const recipientIds = submitted
-      ? await this.directorRecipientIds(db, bsc.department_id, bsc.employee_id, this.stagePermissions(stage))
+      ? await this.employeeBscReviewerRecipientIds(db, bsc.id, stage, bsc.employee_id, this.stagePermissions(stage))
       : [bsc.employee_id];
     return recipientIds.map((recipientId) => ({
       recipientId,
@@ -107,10 +107,25 @@ export class NotificationPublisher {
     return reviewers.map(({ id }) => id);
   }
 
+  private async employeeBscReviewerRecipientIds(
+    db: Prisma.TransactionClient,
+    bscId: string,
+    stage: NotificationStage,
+    ownerId: string,
+    permission: string | readonly string[],
+  ): Promise<string[]> {
+    const step = await db.bsc_approval_steps.findUnique({
+      where: { employee_bsc_id_stage_step_order: { employee_bsc_id: bscId, stage, step_order: 1 } },
+      select: { approver_id: true, approver_role: true, status: true },
+    });
+    if (step?.status === 'PENDING' && step.approver_role === 'MANAGER' && step.approver_id) return [step.approver_id];
+    return this.directorRecipientIds(db, '', ownerId, permission);
+  }
+
   private async employeeReopenDrafts(db: Prisma.TransactionClient, event: NotificationEvent): Promise<NotificationDraft[]> {
     const request = await db.bsc_unlock_requests.findUnique({
       where: { id: event.resourceId },
-      select: { id: true, employee_bsc_id: true, stage: true, requested_by: true, request_source: true },
+      select: { id: true, employee_bsc_id: true, stage: true, requested_by: true, reviewer_id: true, request_source: true },
     });
     if (!request) this.sourceNotFound();
     const bsc = await db.employee_bsc.findUnique({
@@ -120,15 +135,17 @@ export class NotificationPublisher {
     if (!bsc) this.sourceNotFound();
     const requested = event.type.endsWith('_REQUESTED');
     const recipientIds = requested
-      ? await this.directorRecipientIds(db, bsc.department_id, bsc.employee_id, 'bsc.reopen.subordinate')
-      : [request.request_source === 'DIRECTOR_RESET' ? bsc.employee_id : request.requested_by];
+      ? request.reviewer_id ? [request.reviewer_id]
+        : await this.directorRecipientIds(db, bsc.department_id, bsc.employee_id, 'bsc.reopen.subordinate')
+      : [request.request_source !== 'OWNER_REQUEST' ? bsc.employee_id : request.requested_by];
     const owner = await db.users.findUnique({ where: { id: bsc.employee_id }, select: { full_name: true } });
-    const directReset = request.request_source === 'DIRECTOR_RESET';
-    const action = directReset ? 'DIRECTOR_RESET' : requested ? 'REQUESTED' : event.type.endsWith('_APPROVED') ? 'APPROVED' : 'REJECTED';
+    const directReset = request.request_source !== 'OWNER_REQUEST';
+    const action = directReset ? request.request_source : requested ? 'REQUESTED' : event.type.endsWith('_APPROVED') ? 'APPROVED' : 'REJECTED';
     return recipientIds.map((recipientId) => ({
       recipientId,
       ...(directReset
-        ? this.directResetCopy(request.stage as NotificationStage, owner?.full_name ?? bsc.bsc_code)
+        ? this.directResetCopy(request.stage as NotificationStage, owner?.full_name ?? bsc.bsc_code,
+          request.request_source === 'MANAGER_RESET' ? 'Trưởng phòng' : 'Giám đốc')
         : this.reopenCopy(request.stage as NotificationStage, action, 'cá nhân', owner?.full_name ?? bsc.bsc_code)),
       entityType: 'employee_bsc',
       entityId: bsc.id,
@@ -222,11 +239,11 @@ export class NotificationPublisher {
     };
   }
 
-  private directResetCopy(stage: NotificationStage, subject: string) {
+  private directResetCopy(stage: NotificationStage, subject: string, reviewerLabel: string) {
     const stageLabel = this.stageLabel(stage);
     return {
-      title: `Giám đốc đã mở lại ${stageLabel} BSC`,
-      message: `${stageLabel[0].toUpperCase()}${stageLabel.slice(1)} BSC của ${subject} đã được Giám đốc mở lại trực tiếp.`,
+      title: `${reviewerLabel} đã mở lại ${stageLabel} BSC`,
+      message: `${stageLabel[0].toUpperCase()}${stageLabel.slice(1)} BSC của ${subject} đã được ${reviewerLabel} mở lại trực tiếp.`,
     };
   }
 

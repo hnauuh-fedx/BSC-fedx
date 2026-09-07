@@ -116,7 +116,7 @@ describe('BscPendingReviewPage', () => {
     ).toBeVisible();
   });
 
-  it('does not borrow review permissions from a MANAGER assignment', async () => {
+  it('loads the scoped review queue for a MANAGER assignment', async () => {
     const stalePermissions = [BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE];
     vi.mocked(useAuthContext).mockReturnValue({
       state: {
@@ -128,6 +128,7 @@ describe('BscPendingReviewPage', () => {
             { code: 'MANAGER', scopeType: 'DEPARTMENT', scopeId: 'department-1', permissions: stalePermissions },
           ],
           permissions: stalePermissions,
+          isEmployeeBscDepartmentReviewer: true,
         },
         accessToken: 'token', expiresAt: Date.now() + 60_000,
       },
@@ -136,7 +137,7 @@ describe('BscPendingReviewPage', () => {
 
     render(<MemoryRouter><BscPendingReviewPage /></MemoryRouter>);
 
-    expect(await screen.findByText('Bạn không có quyền xử lý giai đoạn này.')).toBeVisible();
-    expect(employeeBscApi.pendingReview).not.toHaveBeenCalled();
+    expect(await screen.findByRole('columnheader', { name: 'Hồ sơ BSC' })).toBeVisible();
+    expect(employeeBscApi.pendingReview).toHaveBeenCalled();
   });
 });

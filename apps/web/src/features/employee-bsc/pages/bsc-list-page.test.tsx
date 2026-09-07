@@ -42,6 +42,7 @@ describe('BscListPage', () => {
             { code: 'MANAGER', scopeType: 'DEPARTMENT', scopeId: 'department-1', permissions: [BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.REVIEW_REOPEN] },
           ],
           permissions: [BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.REVIEW_REOPEN],
+          isEmployeeBscDepartmentReviewer: true,
         },
         accessToken: 'token', expiresAt: Date.now() + 60_000,
       },
@@ -69,8 +70,8 @@ describe('BscListPage', () => {
     expect(screen.getByRole('button', { name: 'Xuất Excel' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'In BSC' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Sao chép BSC' })).toBeVisible();
-    expect(screen.queryByRole('link', { name: 'BSC chờ duyệt' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Yêu cầu mở lại' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'BSC chờ duyệt' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Yêu cầu mở lại' })).toBeVisible();
   });
 
   it('downloads the selected personal BSC as Excel', async () => {

@@ -42,6 +42,7 @@ export class AuthRepository {
    */
   async findAuthUserById(id: string) {
     const now = new Date();
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
     return this.prisma.users.findUnique({
       where: { id },
       select: {
@@ -53,6 +54,15 @@ export class AuthRepository {
         status: true,
         department_id: true,
         deleted_at: true,
+        department_manager_assignments_manager_idTousers: {
+          where: {
+            is_primary: true,
+            start_date: { lte: today },
+            OR: [{ end_date: null }, { end_date: { gte: today } }],
+            departments: { employee_bsc_approval_routes: { some: { reviewer_type: 'DEPARTMENT_MANAGER' } } },
+          },
+          select: { id: true },
+        },
         user_roles_user_roles_user_idTousers: {
           where: { AND: [{ OR: [{ expires_at: null }, { expires_at: { gt: now } }] }, { roles: { status: 'ACTIVE' } }] },
           select: { scope_type: true, scope_id: true, roles: { select: { code: true, role_permissions: { select: { permissions: { select: { code: true } } } } } } },

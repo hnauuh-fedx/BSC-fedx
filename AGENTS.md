@@ -107,15 +107,15 @@ DIRECTOR được phép:
 - Xem BSC cá nhân toàn hệ thống.
 - Xem BSC của MANAGER và EMPLOYEE.
 - Duyệt hoặc trả lại BSC của MANAGER ở cả giai đoạn PLAN và EVALUATION.
-- Duyệt hoặc trả lại BSC của EMPLOYEE ở cả giai đoạn PLAN và EVALUATION toàn hệ thống, kể cả khi nhân viên có MANAGER trực tiếp.
+- Duyệt hoặc trả lại BSC của EMPLOYEE ở cả giai đoạn PLAN và EVALUATION, trừ các phòng ban được cấu hình giao cho Trưởng phòng duyệt.
 - Xem danh sách chưa nộp.
 - Xem danh sách chờ duyệt.
 - Xem danh sách bị trả lại.
 - Xem danh sách đã duyệt.
 - Xem thống kê cá nhân, phòng ban và đơn vị.
 - Xem lịch sử nộp, trả lại, duyệt và mở lại.
-- Xử lý yêu cầu mở lại BSC cá nhân đã duyệt toàn hệ thống.
-- Chủ động mở lại PLAN hoặc EVALUATION đã duyệt khi có permission `bsc.reset.approved`, không cần chủ sở hữu gửi yêu cầu trước.
+- Xử lý yêu cầu mở lại BSC cá nhân đã duyệt theo tuyến duyệt được cấu hình.
+- Chủ động mở lại PLAN hoặc EVALUATION đã duyệt thuộc tuyến DIRECTOR khi có permission `bsc.reset.approved`, không cần chủ sở hữu gửi yêu cầu trước.
 - Xem biên bản họp đánh giá BSC.
 - In và xuất báo cáo.
 - Chốt hoặc xác nhận dữ liệu phục vụ bảng lương nếu được cấp quyền.
@@ -134,10 +134,11 @@ DIRECTOR không được:
 
 ## 6. Quyền của MANAGER
 
-MANAGER có hai vai trò nghiệp vụ:
+MANAGER có ba vai trò nghiệp vụ:
 
 1. Tạo và nộp BSC cá nhân.
 2. Xem BSC của EMPLOYEE trực thuộc để quản lý và theo dõi.
+3. Nếu là Trưởng phòng đang có hiệu lực của phòng ban được cấu hình tuyến `DEPARTMENT_MANAGER`, duyệt BSC cá nhân của EMPLOYEE trong chính phòng ban đó.
 
 MANAGER được phép đối với BSC cá nhân:
 
@@ -165,12 +166,16 @@ MANAGER được phép đối với nhân viên trực thuộc:
 - Xem kết quả từng KPI.
 - Xem lịch sử các lần nộp.
 - Xem thống kê phòng ban.
+- Duyệt hoặc trả lại PLAN và EVALUATION của nhân viên trong phòng ban được cấu hình.
+- Duyệt hoặc từ chối yêu cầu mở lại của các BSC này.
+- Chủ động mở lại/reset PLAN hoặc EVALUATION đã duyệt của các BSC này khi có permission `bsc.reset.approved` và kỳ chưa khóa.
 
 MANAGER không được:
 
 - Duyệt BSC của chính mình.
 - Duyệt BSC ngoài phạm vi.
-- Duyệt, trả lại hoặc xử lý yêu cầu mở lại BSC của nhân viên trực thuộc.
+- Duyệt, trả lại, xử lý yêu cầu mở lại hoặc reset BSC ngoài phòng ban/tuyến duyệt được cấu hình.
+- Duyệt hoặc reset BSC phòng ban.
 - Sửa trực tiếp BSC của nhân viên sau khi nhân viên đã nộp.
 - Thay đổi thang xếp loại toàn hệ thống.
 - Sửa dữ liệu đã khóa cho bảng lương.
@@ -197,7 +202,7 @@ EMPLOYEE được phép:
 - Đính kèm minh chứng nếu có.
 - Lưu nháp.
 - Xem điểm tạm tính.
-- Nộp BSC cho DIRECTOR toàn hệ thống.
+- Nộp BSC cho người duyệt được xác định theo cấu hình phòng ban và stage.
 - Sửa BSC khi bị trả lại.
 - Nộp lại sau khi sửa.
 - Gửi yêu cầu mở lại BSC đã duyệt.
@@ -225,31 +230,33 @@ EMPLOYEE tạo BSC
 → Lưu nháp
 → Hoàn thiện định nghĩa KPI đủ 100% trọng số
 → Nộp PLAN
-→ DIRECTOR duyệt hoặc trả lại PLAN
+→ Người duyệt theo tuyến phòng ban duyệt hoặc trả lại PLAN
 → PLAN được duyệt
 → Nhập kết quả và TM KQTH
 → Xem điểm tạm tính
 → Nộp EVALUATION
-→ DIRECTOR duyệt hoặc trả lại EVALUATION
+→ Người duyệt theo tuyến phòng ban duyệt hoặc trả lại EVALUATION
 
-DIRECTOR có hai lựa chọn:
+Người duyệt có hai lựa chọn:
 
 - Duyệt.
 - Trả lại để sửa.
 
-MANAGER trực tiếp chỉ xem và theo dõi BSC của EMPLOYEE; quan hệ quản lý không được dùng để xác định người duyệt.
+Mặc định DIRECTOR duyệt BSC EMPLOYEE. Riêng Marketing và Chăm sóc khách hàng được cấu hình `DEPARTMENT_MANAGER` cho PLAN và EVALUATION; hệ thống dùng Trưởng phòng chính đang có hiệu lực của đúng phòng ban làm người duyệt.
 
-Nếu có nhiều DIRECTOR đang hoạt động, có phạm vi GLOBAL và đủ permission của stage thì tất cả cùng thấy một hàng đợi chờ duyệt. BSC đang chờ không gắn cứng cho một DIRECTOR; người duyệt hoặc trả lại thành công đầu tiên trong transaction được ghi nhận làm người xử lý trong approval step, review, status history và audit log. Các thao tác đồng thời còn lại phải nhận conflict và không tạo side effect trùng.
+BSC cá nhân của chính Trưởng phòng luôn chuyển về hàng đợi DIRECTOR. BSC phòng ban luôn do DIRECTOR duyệt và không thuộc tuyến này.
+
+Nếu tuyến là DIRECTOR và có nhiều DIRECTOR đang hoạt động, có phạm vi GLOBAL và đủ permission của stage thì tất cả cùng thấy một hàng đợi chờ duyệt. Nếu tuyến là DEPARTMENT_MANAGER, approval step và yêu cầu mở lại phải gắn chính xác `reviewer_id` của Trưởng phòng tại thời điểm nộp. Khi thay Trưởng phòng trong lúc hồ sơ đang chờ, duy nhất Trưởng phòng chính đang có hiệu lực được tiếp quản; transaction xử lý phải cập nhật `reviewer_id` sang người mới và ghi người xử lý thực tế vào review, status history và audit log. Người xử lý thành công đầu tiên thắng; các thao tác đồng thời còn lại phải nhận conflict và không tạo side effect trùng.
 
 Nếu trả lại:
 
-DIRECTOR trả lại đúng stage
+Người duyệt trả lại đúng stage
 → EMPLOYEE chỉ sửa nhóm trường được mở của stage đó
 → EMPLOYEE lưu
 → EMPLOYEE nộp lại đúng stage
-→ DIRECTOR duyệt lại
+→ Người duyệt duyệt lại
 
-EMPLOYEE có hoặc không có MANAGER trực tiếp đều nộp từng stage vào hàng đợi chung của các DIRECTOR đủ quyền toàn hệ thống.
+Tuyến duyệt được resolve lại khi nộp từng stage. Nếu không cấu hình `DEPARTMENT_MANAGER`, hệ thống dùng hàng đợi chung của các DIRECTOR đủ quyền toàn hệ thống.
 
 Không được để BSC ở trạng thái chờ duyệt mà không có người duyệt.
 
@@ -1059,6 +1066,13 @@ bsc.view.subordinate
 bsc.approve.subordinate
 bsc.return.subordinate
 bsc.reopen.subordinate
+bsc.plan.approve.subordinate
+bsc.plan.return.subordinate
+bsc.evaluation.approve.subordinate
+bsc.evaluation.return.subordinate
+bsc.reset.approved
+
+Các permission duyệt không tự mở rộng phạm vi. MANAGER chỉ dùng chúng khi có role MANAGER phạm vi DEPARTMENT đúng phòng ban, là Trưởng phòng chính đang có hiệu lực và tuyến stage được cấu hình `DEPARTMENT_MANAGER`.
 
 ## Giám sát đơn vị
 
@@ -1236,8 +1250,9 @@ Việc ẩn nút ở frontend không thay thế kiểm tra quyền ở backend.
 - Không tự duyệt BSC cá nhân.
 - Xem được BSC nhân viên trực thuộc.
 - Không xem được nhân viên ngoài phạm vi.
-- Không duyệt hoặc trả lại được BSC của nhân viên, kể cả khi còn permission cũ.
-- Không xử lý được yêu cầu mở lại BSC của nhân viên.
+- Trưởng phòng Marketing và Chăm sóc khách hàng duyệt/trả lại được PLAN và EVALUATION của nhân viên đúng phòng mình.
+- Trưởng phòng xử lý được yêu cầu mở lại và chủ động reset BSC nhân viên đúng phòng mình.
+- Không duyệt/reset được BSC của chính mình, ngoài phòng ban hoặc BSC phòng ban.
 
 ## DIRECTOR
 
@@ -1245,8 +1260,8 @@ Việc ẩn nút ở frontend không thay thế kiểm tra quyền ở backend.
 - Không duplicate được BSC cá nhân.
 - Không có điểm BSC cá nhân.
 - Xem được BSC trong phạm vi.
-- Duyệt được BSC của MANAGER và EMPLOYEE toàn hệ thống.
-- Duyệt và trả lại được PLAN/EVALUATION của EMPLOYEE, kể cả khi có MANAGER trực tiếp.
+- Duyệt được BSC của MANAGER, BSC phòng ban và BSC EMPLOYEE thuộc tuyến DIRECTOR.
+- Không duyệt thay Trưởng phòng đối với PLAN/EVALUATION mới đã được gắn tuyến DEPARTMENT_MANAGER.
 - Mở lại được BSC đã duyệt khi có quyền.
 - Chủ động mở lại được từng stage đã duyệt với lý do, snapshot và audit; thao tác đồng thời chỉ một người thành công.
 

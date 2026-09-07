@@ -9,6 +9,7 @@ import { Textarea } from '../../../components/ui/textarea';
 import { personalBscTitle } from '../../../lib/bsc-display';
 import { bscStageLabel } from '../../../lib/bsc-stage';
 import { PermissionGate } from '../../auth/components/permission-gate';
+import { hasEmployeeBscReviewerPermission, hasGlobalDirectorReviewPermission } from '../../auth/permissions';
 import { AccessibleDialog, EmptyState, ErrorState, FormField, LoadingState, PageHeader } from '../../organization/management-ui';
 import { BscItemTable } from '../components/bsc-item-table';
 import { BscScoreSummary } from '../components/bsc-score-summary';
@@ -51,10 +52,8 @@ export const BscDetailPage: React.FC = () => {
   const confirm = useSystemConfirm();
   const printRequested = searchParams.get('print') === '1', hasPrinted = useRef(false);
   const permissions = state.user?.permissions ?? [];
-  const canViewReopenHistoryAsDirector = state.user?.roles.some(role => role.code === 'DIRECTOR'
-    && role.scopeType === 'GLOBAL'
-    && (role.permissions?.includes(BSC_PERMISSIONS.REVIEW_REOPEN)
-      || role.permissions?.includes(BSC_PERMISSIONS.RESET_APPROVED))) ?? false;
+  const canViewReopenHistoryAsReviewer = hasEmployeeBscReviewerPermission(state.user, BSC_PERMISSIONS.REVIEW_REOPEN)
+    || hasEmployeeBscReviewerPermission(state.user, BSC_PERMISSIONS.RESET_APPROVED);
   const [bsc, setBsc] = useState<EmployeeBsc | null>(null), [loading, setLoading] = useState(true), [error, setError] = useState('');
   const [scoring, setScoring] = useState<BscScoringPreview | null>(null), [scoringLoading, setScoringLoading] = useState(true), [scoringError, setScoringError] = useState('');
   const [versions, setVersions] = useState<BscVersionSummary[]>([]), [versionsLoading, setVersionsLoading] = useState(false), [versionsError, setVersionsError] = useState('');
@@ -104,11 +103,11 @@ export const BscDetailPage: React.FC = () => {
   }, [id, permissions]);
   const loadReopenRequests = useCallback(async (ownerId?: string) => {
     const canLoadAsOwner = state.user?.id === ownerId && permissions.includes(BSC_PERMISSIONS.REQUEST_REOPEN);
-    if (!canLoadAsOwner && !canViewReopenHistoryAsDirector) { setReopenRequests([]); return; }
+    if (!canLoadAsOwner && !canViewReopenHistoryAsReviewer) { setReopenRequests([]); return; }
     setReopenError('');
     try { setReopenRequests(await employeeBscApi.reopenRequests(id)); }
     catch (cause) { setReopenRequests([]); setReopenError(cause instanceof Error ? cause.message : 'Không thể tải yêu cầu mở lại.'); }
-  }, [canViewReopenHistoryAsDirector, id, permissions, state.user?.id]);
+  }, [canViewReopenHistoryAsReviewer, id, permissions, state.user?.id]);
   const reloadAll = useCallback(async (initial = false) => {
     const [loadedBsc] = await Promise.all([load(initial), loadScoring(initial), loadVersions()]);
     await loadReopenRequests(loadedBsc?.employee_id);
@@ -209,10 +208,6 @@ export const BscDetailPage: React.FC = () => {
   if (!bsc) return <main><EmptyState message="Không tìm thấy BSC."/></main>;
 
   const isOwner = state.user?.id === bsc.employee_id;
-  const hasReviewPermission = (permission: string) => !isOwner
-    && (state.user?.roles.some(role => role.code === 'DIRECTOR'
-      && role.scopeType === 'GLOBAL'
-      && role.permissions?.includes(permission)) ?? false);
   const cycleOpen = bsc.bsc_cycles.status === 'OPEN';
   const cycleBlockReason = bsc.bsc_cycles.status === 'LOCKED' ? 'Kỳ BSC đang bị khóa. Chủ sở hữu tạm thời không thể tạo, sửa hoặc nộp BSC.'
     : bsc.bsc_cycles.status === 'CLOSED' ? 'Kỳ BSC đang ở trạng thái CLOSED lịch sử.'
@@ -225,18 +220,20 @@ export const BscDetailPage: React.FC = () => {
   const canSubmitPlan = cycleOpen && planEditable && isOwner && permissions.includes(BSC_PERMISSIONS.SUBMIT_PLAN_OWN);
   const canSubmitEvaluation = cycleOpen && evaluationEditable && isOwner && permissions.includes(BSC_PERMISSIONS.SUBMIT_EVALUATION_OWN);
   const reviewCycleAllowed = ['OPEN', 'LOCKED'].includes(bsc.bsc_cycles.status);
-  const canApprovePlan = reviewCycleAllowed && bsc.plan_status === 'SUBMITTED' && hasReviewPermission(BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE);
-  const canReturnPlan = reviewCycleAllowed && bsc.plan_status === 'SUBMITTED' && hasReviewPermission(BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE);
-  const canApproveEvaluation = reviewCycleAllowed && bsc.evaluation_status === 'SUBMITTED' && hasReviewPermission(BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE);
-  const canReturnEvaluation = reviewCycleAllowed && bsc.evaluation_status === 'SUBMITTED' && hasReviewPermission(BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE);
+  const canApprovePlan = reviewCycleAllowed && Boolean(bsc.review_capabilities?.canApprovePlan);
+  const canReturnPlan = reviewCycleAllowed && Boolean(bsc.review_capabilities?.canReturnPlan);
+  const canApproveEvaluation = reviewCycleAllowed && Boolean(bsc.review_capabilities?.canApproveEvaluation);
+  const canReturnEvaluation = reviewCycleAllowed && Boolean(bsc.review_capabilities?.canReturnEvaluation);
   const planPending = reopenRequests.some(value => value.stage === 'PLAN' && value.status === 'PENDING');
   const evaluationPending = reopenRequests.some(value => value.stage === 'EVALUATION' && value.status === 'PENDING');
   const canRequestPlan = isOwner && bsc.plan_status === 'APPROVED' && !planPending && permissions.includes(BSC_PERMISSIONS.REQUEST_REOPEN);
   const canRequestEvaluation = isOwner && bsc.evaluation_status === 'APPROVED' && !evaluationPending && permissions.includes(BSC_PERMISSIONS.REQUEST_REOPEN);
-  const canReviewReopen = hasReviewPermission(BSC_PERMISSIONS.REVIEW_REOPEN);
-  const canResetApproved = cycleOpen && hasReviewPermission(BSC_PERMISSIONS.RESET_APPROVED);
-  const canResetPlan = canResetApproved && bsc.plan_status === 'APPROVED';
-  const canResetEvaluation = canResetApproved && bsc.plan_status === 'APPROVED' && bsc.evaluation_status === 'APPROVED';
+  const canReviewReopenRequest = (request: BscReopenRequest) => !isOwner && request.status === 'PENDING'
+    && (request.reviewer_id === state.user?.id
+      ? hasEmployeeBscReviewerPermission(state.user, BSC_PERMISSIONS.REVIEW_REOPEN, bsc.department_id)
+      : request.reviewer_id === null && hasGlobalDirectorReviewPermission(state.user, BSC_PERMISSIONS.REVIEW_REOPEN));
+  const canResetPlan = cycleOpen && Boolean(bsc.review_capabilities?.canResetPlan);
+  const canResetEvaluation = cycleOpen && Boolean(bsc.review_capabilities?.canResetEvaluation);
   const canDuplicate = isOwner && permissions.includes(BSC_PERMISSIONS.DUPLICATE_OWN) && versions.some(value => value.versionType === 'PLAN_APPROVED');
   const planReturn = [...(bsc.bsc_status_histories ?? [])].reverse().find(value => value.stage === 'PLAN' && value.action === 'RETURN_PLAN');
   const evaluationReturn = [...(bsc.bsc_status_histories ?? [])].reverse().find(value => value.stage === 'EVALUATION' && value.action === 'RETURN_EVALUATION');
@@ -309,7 +306,7 @@ export const BscDetailPage: React.FC = () => {
     <BscItemTable bscId={bsc.id} goalGroups={bsc.goal_groups ?? []} items={items} scoring={scoring} canManage={canManage} canUpdateActual={canActual} isOfficial={bsc.evaluation_status === 'APPROVED'} onChange={refreshBscAndScoring}/>
     {permissions.includes(BSC_PERMISSIONS.VIEW_VERSION) && <section><h2>Lịch sử phiên bản</h2>{versionsLoading ? <LoadingState/> : versionsError ? <ErrorState error={versionsError} onRetry={() => void loadVersions()}/> : versions.length === 0 ? <EmptyState message="Chưa có phiên bản đã duyệt."/> : <ol>{versions.map(version => <li key={version.id}>Phiên bản {version.versionNumber} — {bscStageLabel(version.stage)} — {versionTypeLabel(version.versionType)} — {version.createdBy.full_name}, {formatDate(version.createdAt)} {version.summary.finalGrade ? `— ${String(version.summary.totalScore)} / ${String(version.summary.finalGrade)}` : ''} <Button variant="outline" size="sm" onClick={() => void showVersion(version.id)}>Xem chi tiết</Button></li>)}</ol>}{versionDetailLoading && <LoadingState/>}</section>}
     <AccessibleDialog open={Boolean(versionDetail)} title={`Phiên bản ${versionDetail?.versionNumber ?? ''}`} description={versionDetail ? `${bscStageLabel(versionDetail.stage)} · ${versionTypeLabel(versionDetail.versionType)}` : 'Chi tiết phiên bản BSC'} onClose={() => setVersionDetail(null)}>{versionDetail && <><pre>{JSON.stringify(versionDetail.snapshot, null, 2)}</pre><div className="dialog-actions"><Button variant="outline" onClick={() => setVersionDetail(null)}>Đóng</Button></div></>}</AccessibleDialog>
-    <section><h2>Lịch sử yêu cầu mở lại</h2>{reopenError ? <ErrorState error={reopenError}/> : reopenRequests.length === 0 ? <EmptyState message="Chưa có yêu cầu mở lại."/> : <ol>{reopenRequests.map(request => <li key={request.id}><strong>{bscStageLabel(request.stage)}</strong> — <BscStatusBadge status={request.status}/> — {request.request_source === 'DIRECTOR_RESET' ? 'mở lại trực tiếp bởi' : 'yêu cầu bởi'} {request.users_bsc_unlock_requests_requested_byTousers.full_name}, {formatDate(request.requested_at)}<br/>Lý do: {request.request_reason}{request.reviewed_at && <><br/>Xử lý bởi {request.users_bsc_unlock_requests_reviewer_idTousers?.full_name ?? '—'}, {formatDate(request.reviewed_at)}{request.review_comment ? `: ${request.review_comment}` : ''}</>}{request.status === 'PENDING' && canReviewReopen && <div className="dialog-actions"><Button disabled={Boolean(reopenActionId)} onClick={() => void approveReopen(request)}>{reopenActionId === request.id && <Spinner/>}{reopenActionId === request.id ? 'Đang xử lý…' : 'Duyệt mở lại'}</Button><Button variant="outline" disabled={Boolean(reopenActionId)} onClick={() => { setRejectingReopen(request); setReopenRejectReason(''); }}>Từ chối mở lại</Button></div>}</li>)}</ol>}</section>
+    <section><h2>Lịch sử yêu cầu mở lại</h2>{reopenError ? <ErrorState error={reopenError}/> : reopenRequests.length === 0 ? <EmptyState message="Chưa có yêu cầu mở lại."/> : <ol>{reopenRequests.map(request => <li key={request.id}><strong>{bscStageLabel(request.stage)}</strong> — <BscStatusBadge status={request.status}/> — {request.request_source !== 'OWNER_REQUEST' ? 'mở lại trực tiếp bởi' : 'yêu cầu bởi'} {request.users_bsc_unlock_requests_requested_byTousers.full_name}, {formatDate(request.requested_at)}<br/>Lý do: {request.request_reason}{request.reviewed_at && <><br/>Xử lý bởi {request.users_bsc_unlock_requests_reviewer_idTousers?.full_name ?? '—'}, {formatDate(request.reviewed_at)}{request.review_comment ? `: ${request.review_comment}` : ''}</>}{canReviewReopenRequest(request) && <div className="dialog-actions"><Button disabled={Boolean(reopenActionId)} onClick={() => void approveReopen(request)}>{reopenActionId === request.id && <Spinner/>}{reopenActionId === request.id ? 'Đang xử lý…' : 'Duyệt mở lại'}</Button><Button variant="outline" disabled={Boolean(reopenActionId)} onClick={() => { setRejectingReopen(request); setReopenRejectReason(''); }}>Từ chối mở lại</Button></div>}</li>)}</ol>}</section>
     {(permissions.includes(BSC_PERMISSIONS.VIEW_PLAN_HISTORY) || permissions.includes(BSC_PERMISSIONS.VIEW_EVALUATION_HISTORY)) && <section><h2>Lịch sử trạng thái</h2>{visibleHistory.length === 0 ? <EmptyState message="Chưa có thay đổi trạng thái."/> : <ol>{visibleHistory.map(history => <li key={history.id}><strong>{bscStageLabel(history.stage)}:</strong> <BscStatusBadge status={history.to_status}/> — {history.users.full_name}, {formatDate(history.changed_at)}{history.comment ? `: ${history.comment}` : ''}</li>)}</ol>}</section>}
   </main>;
 };

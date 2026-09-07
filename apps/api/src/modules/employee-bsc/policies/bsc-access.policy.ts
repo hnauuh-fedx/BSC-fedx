@@ -1,8 +1,8 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuthUser } from '../../../common/types/auth-user.type';
 import { PrismaService } from '../../../database/prisma.service';
-import { hasGlobalDirectorPermission } from '../../bsc-reviewers/bsc-reviewer-resolver';
+import { BscReviewerResolver, BscReviewStage, hasDepartmentManagerPermission, hasGlobalDirectorPermission } from '../../bsc-reviewers/bsc-reviewer-resolver';
 
 export const BSC_PERMISSIONS = {
   CREATE_OWN: 'bsc.create.own',
@@ -35,11 +35,20 @@ export interface BscAccessResource {
   status?: string;
   plan_status: string;
   evaluation_status: string;
+  bsc_approval_steps?: Array<{
+    stage: string;
+    approver_id: string | null;
+    approver_role: string;
+    status: string;
+  }>;
 }
 
 @Injectable()
 export class BscAccessPolicy {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reviewerResolver: BscReviewerResolver,
+  ) {}
 
   listWhere(actor: AuthUser, now = new Date()): Prisma.employee_bscWhereInput {
     const clauses: Prisma.employee_bscWhereInput[] = [];
@@ -54,21 +63,52 @@ export class BscAccessPolicy {
     return { AND: [{ OR: clauses }, this.activeOwnerOrganizationWhere()] };
   }
 
-  pendingReviewWhere(actor: AuthUser, stage: 'PLAN' | 'EVALUATION'): Prisma.employee_bscWhereInput {
+  pendingReviewWhere(actor: AuthUser, stage: 'PLAN' | 'EVALUATION', now = new Date()): Prisma.employee_bscWhereInput {
     const permissions = stage === 'PLAN'
       ? [BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE]
       : [BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE];
-    if (!permissions.some((permission) => this.canReviewAsDirector(actor, permission))) this.deny();
+    const reviewerClauses: Prisma.employee_bscWhereInput[] = [];
+    if (permissions.some((permission) => this.canReviewAsDirector(actor, permission))) {
+      reviewerClauses.push({ OR: [
+        { bsc_approval_steps: { some: { stage, status: 'PENDING', approver_role: 'DIRECTOR' } } },
+        { AND: [
+          { bsc_approval_steps: { some: { stage, status: 'PENDING', approver_role: 'MANAGER' } } },
+          this.ownerIsActiveDepartmentHeadWhere(now),
+        ] },
+      ] });
+    }
+    if (permissions.some((permission) => this.hasDepartmentManagerRolePermission(actor, permission))) {
+      reviewerClauses.push({ AND: [
+        { department_id: actor.departmentId },
+        this.activeDepartmentHeadWhere(actor.id, now),
+        { bsc_approval_steps: { some: { stage, status: 'PENDING', approver_role: 'MANAGER' } } },
+      ] });
+    }
+    if (!reviewerClauses.length) this.deny();
     return { AND: [
-      { bsc_approval_steps: { some: { stage, status: 'PENDING' } } },
+      { OR: reviewerClauses },
       { employee_id: { not: actor.id } }, this.activeOwnerOrganizationWhere(), stage === 'PLAN'
       ? { plan_status: 'SUBMITTED' }
       : { plan_status: 'APPROVED', evaluation_status: 'SUBMITTED' }] };
   }
 
-  pendingReopenWhere(actor: AuthUser): Prisma.bsc_unlock_requestsWhereInput {
-    if (!this.canReviewAsDirector(actor, BSC_PERMISSIONS.REVIEW_REOPEN)) this.deny();
+  pendingReopenWhere(actor: AuthUser, now = new Date()): Prisma.bsc_unlock_requestsWhereInput {
+    const reviewerClauses: Prisma.bsc_unlock_requestsWhereInput[] = [];
+    if (this.canReviewAsDirector(actor, BSC_PERMISSIONS.REVIEW_REOPEN)) {
+      reviewerClauses.push({ OR: [
+        this.currentDirectorReopenRouteWhere('PLAN', now),
+        this.currentDirectorReopenRouteWhere('EVALUATION', now),
+      ] });
+    }
+    if (this.hasDepartmentManagerRolePermission(actor, BSC_PERMISSIONS.REVIEW_REOPEN)) {
+      reviewerClauses.push({ OR: [
+        this.currentManagerReopenRouteWhere(actor, 'PLAN', now),
+        this.currentManagerReopenRouteWhere(actor, 'EVALUATION', now),
+      ] });
+    }
+    if (!reviewerClauses.length) this.deny();
     return { AND: [{ requested_by: { not: actor.id } },
+      { OR: reviewerClauses },
       { employee_bsc: { is: this.activeOwnerOrganizationWhere() } }] };
   }
 
@@ -126,31 +166,61 @@ export class BscAccessPolicy {
       || !this.hasScopedPermission(actor, BSC_PERMISSIONS.REQUEST_REOPEN, bsc.employee_id, bsc.department_id)) this.deny();
   }
 
-  async assertCanReviewReopen(
-    actor: AuthUser,
-    bsc: BscAccessResource,
-  ): Promise<void> {
+  async assertCanReviewReopen(actor: AuthUser, request: { stage: string; status: string; reviewer_id: string | null; employee_bsc: BscAccessResource }): Promise<void> {
+    const bsc = request.employee_bsc;
+    if (request.stage !== 'PLAN' && request.stage !== 'EVALUATION') this.deny();
+    if (request.status !== 'PENDING') {
+      throw new ConflictException({ code: 'BSC_REOPEN_REQUEST_NOT_PENDING', message: 'YÃªu cáº§u má»Ÿ láº¡i khÃ´ng cÃ²n chá» xá»­ lÃ½.' });
+    }
     await this.assertActiveResource(bsc);
-    if (actor.id === bsc.employee_id
-      || !this.canReviewAsDirector(actor, BSC_PERMISSIONS.REVIEW_REOPEN)) this.deny();
-    return;
+    if (actor.id === bsc.employee_id) this.deny();
+    const reviewers = await this.reviewerResolver.resolveRequiredReviewers(this.prisma, {
+      ownerId: bsc.employee_id,
+      departmentId: bsc.department_id,
+      stage: request.stage,
+      permission: BSC_PERMISSIONS.REVIEW_REOPEN,
+    });
+    const assignment = reviewers.find(({ id }) => id === actor.id);
+    if (assignment?.role === 'MANAGER'
+      && this.hasDepartmentManagerRolePermission(actor, BSC_PERMISSIONS.REVIEW_REOPEN, bsc.department_id)) return;
+    if (assignment?.role === 'DIRECTOR'
+      && this.canReviewAsDirector(actor, BSC_PERMISSIONS.REVIEW_REOPEN)) return;
+    this.deny();
   }
 
   async assertCanResetApproved(actor: AuthUser, bsc: BscAccessResource): Promise<void> {
     await this.assertActiveResource(bsc);
-    if (actor.id === bsc.employee_id || !this.canReviewAsDirector(actor, BSC_PERMISSIONS.RESET_APPROVED)) this.deny();
+    if (actor.id === bsc.employee_id) this.deny();
+    if (this.canReviewAsDirector(actor, BSC_PERMISSIONS.RESET_APPROVED)) return;
+    if (this.hasDepartmentManagerRolePermission(actor, BSC_PERMISSIONS.RESET_APPROVED, bsc.department_id)) return;
+    this.deny();
   }
 
   assertCanViewReopenHistory(actor: AuthUser, bsc: BscAccessResource): void {
-    if (actor.id === bsc.employee_id || (!this.canReviewAsDirector(actor, BSC_PERMISSIONS.REVIEW_REOPEN)
-      && !this.canReviewAsDirector(actor, BSC_PERMISSIONS.RESET_APPROVED))) this.deny();
+    if (actor.id === bsc.employee_id) this.deny();
+    if (this.canReviewAsDirector(actor, BSC_PERMISSIONS.REVIEW_REOPEN)
+      || this.canReviewAsDirector(actor, BSC_PERMISSIONS.RESET_APPROVED)
+      || this.hasDepartmentManagerRolePermission(actor, BSC_PERMISSIONS.REVIEW_REOPEN, bsc.department_id)
+      || this.hasDepartmentManagerRolePermission(actor, BSC_PERMISSIONS.RESET_APPROVED, bsc.department_id)) return;
+    this.deny();
   }
 
-  async assertCanReview(actor: AuthUser, bsc: BscAccessResource, permission: string): Promise<void> {
+  async assertCanReview(actor: AuthUser, bsc: BscAccessResource, stage: BscReviewStage, permission: string): Promise<void> {
     if (actor.id === bsc.employee_id) {
       throw new ForbiddenException({ code: 'BSC_SELF_APPROVAL_FORBIDDEN', message: 'Không thể tự duyệt hoặc trả lại BSC của chính mình.' });
     }
-    if (!this.canReviewAsDirector(actor, permission)) this.deny();
+    const step = bsc.bsc_approval_steps?.find((candidate) => candidate.stage === stage);
+    if (!step) this.deny();
+    if (step.status !== 'PENDING') {
+      throw new ConflictException({ code: 'BSC_WORKFLOW_CONFLICT', message: 'Trạng thái BSC vừa được thay đổi bởi yêu cầu khác.' });
+    }
+    if (step.approver_role === 'MANAGER'
+      && this.hasDepartmentManagerRolePermission(actor, permission, bsc.department_id)
+      && await this.hasActiveDepartmentHead(actor.id, bsc.department_id)) return;
+    if (step.approver_role === 'MANAGER' && this.canReviewAsDirector(actor, permission)
+      && await this.hasActiveDepartmentHead(bsc.employee_id, bsc.department_id)) return;
+    if (step.approver_role === 'DIRECTOR' && this.canReviewAsDirector(actor, permission)) return;
+    this.deny();
   }
 
   assertCanDuplicateOwn(actor: AuthUser, bsc: BscAccessResource): void {
@@ -207,12 +277,55 @@ export class BscAccessPolicy {
     return departmentIds.length ? { department_id: { in: [...new Set(departmentIds)] } } : null;
   }
 
+  private currentManagerReopenRouteWhere(
+    actor: AuthUser,
+    stage: BscReviewStage,
+    now: Date,
+  ): Prisma.bsc_unlock_requestsWhereInput {
+    return {
+      stage,
+      employee_bsc: { is: {
+        AND: [
+          { department_id: actor.departmentId },
+          this.activeDepartmentHeadWhere(actor.id, now),
+          { departments: { employee_bsc_approval_routes: { some: { stage, reviewer_type: 'DEPARTMENT_MANAGER' } } } },
+          { NOT: this.ownerIsActiveDepartmentHeadWhere(now) },
+        ],
+      } },
+    };
+  }
+
+  private currentDirectorReopenRouteWhere(stage: BscReviewStage, now: Date): Prisma.bsc_unlock_requestsWhereInput {
+    return {
+      stage,
+      employee_bsc: { is: { OR: [
+        { departments: { employee_bsc_approval_routes: { none: { stage, reviewer_type: 'DEPARTMENT_MANAGER' } } } },
+        this.ownerIsActiveDepartmentHeadWhere(now),
+      ] } },
+    };
+  }
+
   private activeManagerWhere(managerId: string, now: Date): Prisma.employee_bscWhereInput {
     const date = this.dateOnly(now);
     return { users_employee_bsc_employee_idTousers: { manager_relationships_manager_relationships_employee_idTousers: { some: {
       manager_id: managerId, is_primary: true, start_date: { lte: date }, OR: [{ end_date: null }, { end_date: { gte: date } }],
       users_manager_relationships_employee_idTousers: { direct_manager_id: managerId },
       users_manager_relationships_manager_idTousers: { status: 'ACTIVE', deleted_at: null, departments: { status: 'ACTIVE' }, positions: { status: 'ACTIVE' } },
+    } } } };
+  }
+
+  private activeDepartmentHeadWhere(managerId: string, now: Date): Prisma.employee_bscWhereInput {
+    const date = this.dateOnly(now);
+    return { departments: { department_manager_assignments: { some: {
+      manager_id: managerId, is_primary: true, start_date: { lte: date },
+      OR: [{ end_date: null }, { end_date: { gte: date } }],
+    } } } };
+  }
+
+  private ownerIsActiveDepartmentHeadWhere(now: Date): Prisma.employee_bscWhereInput {
+    const date = this.dateOnly(now);
+    return { users_employee_bsc_employee_idTousers: { department_manager_assignments_manager_idTousers: { some: {
+      is_primary: true, start_date: { lte: date }, OR: [{ end_date: null }, { end_date: { gte: date } }],
     } } } };
   }
 
@@ -241,6 +354,15 @@ export class BscAccessPolicy {
     } })) > 0;
   }
 
+  private async hasActiveDepartmentHead(managerId: string, departmentId: string, now = new Date()): Promise<boolean> {
+    const date = this.dateOnly(now);
+    const assignments = await this.prisma.department_manager_assignments.findMany({ where: {
+      department_id: departmentId, is_primary: true, start_date: { lte: date },
+      OR: [{ end_date: null }, { end_date: { gte: date } }],
+    }, select: { manager_id: true } });
+    return assignments.length === 1 && assignments[0].manager_id === managerId;
+  }
+
   private hasBusinessPermission(actor: AuthUser, permission: string, departmentId: string): boolean {
     return actor.roles.some((role) => this.roleGrants(role, permission)
       && (role.scopeType === 'GLOBAL' || (role.scopeType === 'DEPARTMENT' && role.scopeId === departmentId)));
@@ -248,6 +370,10 @@ export class BscAccessPolicy {
 
   canReviewAsDirector(actor: AuthUser, permission: string, _departmentId?: string): boolean {
     return hasGlobalDirectorPermission(actor, [permission]);
+  }
+
+  private hasDepartmentManagerRolePermission(actor: AuthUser, permission: string, departmentId = actor.departmentId): boolean {
+    return hasDepartmentManagerPermission(actor, [permission], departmentId);
   }
 
   private hasScopedPermission(actor: AuthUser, permission: string, ownerId: string, departmentId: string): boolean {
