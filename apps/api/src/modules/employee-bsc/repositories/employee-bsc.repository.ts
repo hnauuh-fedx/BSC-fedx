@@ -1311,15 +1311,13 @@ export class EmployeeBscRepository {
     });
     if (!step) this.reviewActorDenied();
     if (step.status !== 'PENDING') this.workflowConflict();
-    if (step.approver_role === 'MANAGER') {
-      const currentReviewers = await this.reviewerResolver.resolveRequiredReviewers(db, {
-        ownerId, departmentId, stage, permission,
-      });
-      return this.assertActorInResolvedReviewers(actor, departmentId, permission, currentReviewers);
-    }
-    const directors = await this.reviewerResolver.resolveRequiredDirectors(db, { ownerId, permission });
-    this.assertActorInResolvedReviewers(actor, departmentId, permission, directors);
-    return 'DIRECTOR';
+    const currentReviewers = await this.reviewerResolver.resolveRequiredReviewers(db, {
+      ownerId,
+      departmentId,
+      stage,
+      permission,
+    });
+    return this.assertActorInResolvedReviewers(actor, departmentId, permission, currentReviewers);
   }
 
   private async assertEligibleReopenReviewer(

@@ -105,8 +105,11 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
     const employeeViewOnly = await user('EMPLOYEE_VIEW_ONLY', departmentA.id, employeeRole.id, 'SELF', managerViewOnly.id);
     const employeeViewOnlyOtherDepartment = await user('EMP_VIEW_OTHER', departmentB.id, employeeRole.id, 'SELF', managerViewOnly.id);
     const routedManager = await user('ROUTED_MANAGER', departmentA.id, canonicalManagerRole.id, 'DEPARTMENT', directorA.id);
+    const managerBscOwner = await user('MANAGER_BSC_OWNER', departmentA.id, canonicalManagerRole.id, 'DEPARTMENT', directorA.id);
+    const managerEvalOwner = await user('MANAGER_EVAL_OWNER', departmentA.id, canonicalManagerRole.id, 'DEPARTMENT', directorA.id);
     const handoverManager = await user('HANDOVER_MANAGER', departmentA.id, canonicalManagerRole.id, 'DEPARTMENT', directorA.id);
     const routedEmployee = await user('ROUTED_EMPLOYEE', departmentA.id, employeeRole.id, 'SELF', routedManager.id);
+    const legacyRoutedEmployee = await user('LEGACY_EMP', departmentA.id, employeeRole.id, 'SELF', routedManager.id);
     const handoverEmployee = await user('HANDOVER_EMPLOYEE', departmentA.id, employeeRole.id, 'SELF', routedManager.id);
     const admin = await user('ADMIN', departmentA.id, adminRole.id, 'GLOBAL');
     const adminSelf = await user('ADMIN_SELF', departmentA.id, selfApprovalRole.id, 'SELF');
@@ -124,6 +127,9 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
     await relationship(employeeViewOnly.id, managerViewOnly.id, '2020-01-01');
     await relationship(employeeViewOnlyOtherDepartment.id, managerViewOnly.id, '2020-01-01');
     await relationship(routedEmployee.id, routedManager.id, '2020-01-01');
+    await relationship(managerBscOwner.id, directorA.id, '2020-01-01');
+    await relationship(managerEvalOwner.id, directorA.id, '2020-01-01');
+    await relationship(legacyRoutedEmployee.id, routedManager.id, '2020-01-01');
     await relationship(handoverEmployee.id, routedManager.id, '2020-01-01');
     await prisma.department_manager_assignments.create({ data: {
       department_id: departmentA.id, manager_id: routedManager.id, start_date: new Date('2020-01-01'),
@@ -154,10 +160,11 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
     };
     const employeeABsc = await bsc(employeeA, managerA.id);
     const employeeBBsc = await bsc(employeeB, managerB.id);
-    const managerABsc = await bsc(managerA, directorA.id);
+    const managerABsc = await bsc(managerBscOwner, directorA.id);
     const managerBBsc = await bsc(managerB, directorB.id);
     const directorABsc = await bsc(directorA, directorA.id);
     const approvedEmployeeBBsc = await bsc(employeeB2, managerB.id, 'APPROVED', 'APPROVED');
+    const legacyRoutedEvaluationBsc = await bsc(legacyRoutedEmployee, routedManager.id, 'APPROVED', 'SUBMITTED');
     const employeeViewOnlyBsc = await bsc(employeeViewOnly, managerViewOnly.id);
     const employeeViewOnlyOtherDepartmentBsc = await bsc(employeeViewOnlyOtherDepartment, managerViewOnly.id);
     const approvedEmployeeBPlanVersion = await prisma.bsc_versions.create({ data: { employee_bsc_id: approvedEmployeeBBsc.id, version_number: 1, stage: 'PLAN', version_type: 'PLAN_APPROVED', snapshot: {}, created_by: managerB.id } });
@@ -169,6 +176,7 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
     const tokens = { directorA: await login(directorA.username), managerA: await login(managerA.username), managerA2: await login(managerA2.username), managerViewOnly: await login(managerViewOnly.username), employeeA: await login(employeeA.username), employeeA2: await login(employeeA2.username),
       admin: await login(admin.username), adminSelf: await login(adminSelf.username),
       routedManager: await login(routedManager.username), routedEmployee: await login(routedEmployee.username),
+      legacyRoutedEmployee: await login(legacyRoutedEmployee.username),
       handoverManager: await login(handoverManager.username),
       handoverEmployee: await login(handoverEmployee.username) };
     const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -238,8 +246,7 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
     });
 
     await t.test('DIRECTOR can approve and return PLAN and EVALUATION across visible Manager and Employee BSCs', async () => {
-      const evaluationEmployeeBsc = await bsc(employeeA2, managerA.id, 'APPROVED', 'SUBMITTED');
-      const evaluationManagerBsc = await bsc(managerA2, directorA.id, 'APPROVED', 'SUBMITTED');
+      const evaluationManagerBsc = await bsc(managerEvalOwner, directorA.id, 'APPROVED', 'SUBMITTED');
       const visible = await request(server).get('/employee-bsc?limit=100').set(auth(tokens.directorA)).expect(200);
       const visibleIds = new Set(visible.body.items.map((row: { id: string }) => row.id));
       assert.ok(visibleIds.has(managerABsc.id)); assert.ok(visibleIds.has(employeeABsc.id));
@@ -260,11 +267,7 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
 
       const pendingEvaluation = await request(server).get('/employee-bsc/pending-review?stage=EVALUATION&limit=100').set(auth(tokens.directorA)).expect(200);
       const pendingEvaluationIds = new Set(pendingEvaluation.body.items.map((row: { id: string }) => row.id));
-      assert.ok(pendingEvaluationIds.has(evaluationEmployeeBsc.id)); assert.ok(pendingEvaluationIds.has(evaluationManagerBsc.id));
-      const approvedEvaluation = await request(server).post(`/employee-bsc/${evaluationEmployeeBsc.id}/evaluation/approve`).set(auth(tokens.directorA)).send({}).expect(200);
-      assert.equal(approvedEvaluation.body.evaluation_status, 'APPROVED');
-      assert.equal(approvedEvaluation.body.evaluation_approved_by, directorA.id);
-      assert.equal(approvedEvaluation.body.direct_manager_id, managerA.id);
+      assert.ok(pendingEvaluationIds.has(evaluationManagerBsc.id));
       const returnedEvaluation = await request(server).post(`/employee-bsc/${evaluationManagerBsc.id}/evaluation/return`).set(auth(tokens.directorA)).send({ reason: 'Cần bổ sung kết quả' }).expect(200);
       assert.equal(returnedEvaluation.body.evaluation_status, 'RETURNED');
       assert.equal(returnedEvaluation.body.direct_manager_id, directorA.id);
@@ -355,6 +358,15 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       assert.equal(managerPlanStep.approver_role, 'DIRECTOR');
       await request(server).post(`/employee-bsc/${managerRecord.id}/plan/approve`).set(auth(tokens.routedManager)).send({}).expect(403);
       await request(server).post(`/employee-bsc/${managerRecord.id}/plan/approve`).set(auth(tokens.directorA)).send({}).expect(200);
+    });
+
+    await t.test('configured department manager can return a legacy evaluation submitted to DIRECTOR', async () => {
+      const detail = await request(server).get(`/employee-bsc/${legacyRoutedEvaluationBsc.id}`)
+        .set(auth(tokens.routedManager)).expect(200);
+      assert.equal(detail.body.review_capabilities.canApproveEvaluation, true);
+      assert.equal(detail.body.review_capabilities.canReturnEvaluation, true);
+      await request(server).post(`/employee-bsc/${legacyRoutedEvaluationBsc.id}/evaluation/return`)
+        .set(auth(tokens.routedManager)).send({ reason: 'Bổ sung kết quả đánh giá' }).expect(200);
     });
 
     await t.test('the current department head can take over a manager-routed pending submission', async () => {

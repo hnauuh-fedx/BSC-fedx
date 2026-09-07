@@ -76,6 +76,9 @@ export class BscReviewerResolver {
       return this.resolveRequiredDirectors(db, input);
     }
 
+    if (await this.ownerHasActiveManagerRole(db, input.ownerId)) {
+      return this.resolveRequiredDirectors(db, input);
+    }
     const activeManagers = await this.resolveActiveDepartmentManagers(db, input.departmentId);
     if (activeManagers.some(({ manager_id }) => manager_id === input.ownerId)) {
       return this.resolveRequiredDirectors(db, input);
@@ -94,6 +97,15 @@ export class BscReviewerResolver {
       });
     }
     return [{ id: managers[0].manager_id, role: 'MANAGER' }];
+  }
+
+  private async ownerHasActiveManagerRole(db: Prisma.TransactionClient, ownerId: string): Promise<boolean> {
+    const now = new Date();
+    return (await db.user_roles.count({ where: {
+      user_id: ownerId,
+      OR: [{ expires_at: null }, { expires_at: { gt: now } }],
+      roles: { code: 'MANAGER', status: 'ACTIVE' },
+    } })) > 0;
   }
 
   private resolveActiveDepartmentManagers(db: Prisma.TransactionClient, departmentId: string) {

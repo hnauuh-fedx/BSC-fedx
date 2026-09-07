@@ -90,6 +90,9 @@ function databaseWithDepartmentRoute(input: { managerId: string; ownerIsManager?
     department_manager_assignments: {
       findMany: async () => [{ manager_id: input.managerId }],
     },
+    user_roles: {
+      count: async () => Number(input.ownerIsManager),
+    },
     users: {
       findMany: async () => [{ id: directorId }],
     },
@@ -115,6 +118,18 @@ test('routes the department manager own BSC to the shared DIRECTOR pool', async 
     departmentId,
     stage: 'EVALUATION',
     permission: 'bsc.evaluation.approve.subordinate',
+  });
+
+  assert.deepEqual(result, [{ id: directorId, role: 'DIRECTOR' }]);
+});
+
+test('routes any MANAGER personal BSC to the shared DIRECTOR pool', async () => {
+  const db = databaseWithDepartmentRoute({ managerId: departmentManagerId, ownerIsManager: true });
+  const result = await new BscReviewerResolver().resolveRequiredReviewers(db as never, {
+    ownerId,
+    departmentId,
+    stage: 'PLAN',
+    permission: 'bsc.plan.approve.subordinate',
   });
 
   assert.deepEqual(result, [{ id: directorId, role: 'DIRECTOR' }]);

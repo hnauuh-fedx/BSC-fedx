@@ -30,10 +30,11 @@ RUN groupadd --system app && useradd --system --gid app app
 COPY --from=production-dependencies --chown=app:app /app/node_modules ./node_modules
 COPY --from=build --chown=app:app /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build --chown=app:app /app/apps/api/dist ./apps/api/dist
+COPY --from=build --chown=app:app /app/apps/api/dist-seed ./apps/api/dist-seed
 COPY --from=build --chown=app:app /app/apps/api/prisma ./apps/api/prisma
 COPY --from=build --chown=app:app /app/apps/api/package.json ./apps/api/package.json
 USER app
 WORKDIR /app/apps/api
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 CMD node -e "fetch('http://127.0.0.1:3000/health/live').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
-CMD ["node", "dist/main.js"]
+CMD ["npm", "run", "start:render"]

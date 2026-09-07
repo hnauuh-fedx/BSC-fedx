@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2021",
+    "rootDir": ".",
+    "outDir": "./dist-seed",
+    "declaration": false,
+    "sourceMap": false,
+    "incremental": false,
+    "types": ["node"]
+  },
+  "include": ["prisma/seed.ts", "src/common/username.ts"]
+}
