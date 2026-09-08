@@ -12,6 +12,7 @@ import { UsersService } from './users.service';
 export class UsersController {
   constructor(private readonly service: UsersService) {}
   @Get() @RequirePermissions('user.view') findAll(@CurrentUser() u: AuthUser, @Query() q: UserQueryDto) { return this.service.findAll(u, q); }
+  @Get('filter-options') @RequirePermissions('user.view') filterOptions(@CurrentUser() u: AuthUser) { return this.service.filterOptions(u); }
   @Get(':id') @RequirePermissions('user.view') one(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.service.findOne(u, id); }
   @Post() @RequirePermissions('user.create', 'permission.assign') create(@CurrentUser() u: AuthUser, @Body() d: CreateUserDto) { return this.service.create(u, d); }
   @Patch(':id') @RequirePermissions('user.update') update(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: UpdateUserDto) { return this.service.update(u, id, d); }
