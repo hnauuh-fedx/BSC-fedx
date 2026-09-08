@@ -202,6 +202,7 @@ export async function backfillTransferredEmployeeBsc(
   client: PrismaClient,
   rawEmployeeIds: string | undefined,
   mode: 'DRY_RUN' | 'APPLY' = 'APPLY',
+  actorId?: string,
 ): Promise<EmployeeBscTransferBackfillResult> {
   const employeeIds = transferBackfillEmployeeIds(rawEmployeeIds);
   if (employeeIds.length === 0) {
@@ -209,6 +210,9 @@ export async function backfillTransferredEmployeeBsc(
   }
   const invalidId = employeeIds.find((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id));
   if (invalidId) throw new Error(`BSC_TRANSFER_BACKFILL_USER_IDS contains an invalid UUID: ${invalidId}`);
+  if (!actorId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(actorId)) {
+    throw new Error('BSC_TRANSFER_BACKFILL_ACTOR_ID must be a valid operator UUID');
+  }
 
   const reviewerResolver = new BscReviewerResolver();
   try {
@@ -221,6 +225,11 @@ export async function backfillTransferredEmployeeBsc(
       const foundIds = new Set(users.map((user) => user.id));
       const missing = employeeIds.filter((id) => !foundIds.has(id));
       if (missing.length) throw new Error(`BSC transfer backfill users were not found or inactive: ${missing.join(', ')}`);
+      const actor = await tx.users.findFirst({
+        where: { id: actorId, status: 'ACTIVE', deleted_at: null },
+        select: { id: true },
+      });
+      if (!actor) throw new Error('BSC transfer backfill operator was not found or inactive');
 
       const transferredEmployeeIds: string[] = [];
       let transferredBscCount = 0;
@@ -230,7 +239,7 @@ export async function backfillTransferredEmployeeBsc(
           departmentId: user.department_id,
           positionId: user.position_id,
           directManagerId: user.direct_manager_id,
-          actorId: null,
+          actorId: actor.id,
           reason: 'Đồng bộ BSC kỳ mở sau khi nhân sự đã được điều chuyển',
           source: 'RELEASE_BACKFILL',
         });
@@ -269,6 +278,7 @@ export async function seedReleaseData(client: PrismaClient = prisma, env: NodeJS
     client,
     env.BSC_TRANSFER_BACKFILL_USER_IDS,
     requestedMode === 'APPLY' ? 'APPLY' : 'DRY_RUN',
+    env.BSC_TRANSFER_BACKFILL_ACTOR_ID?.trim(),
   );
   return { admin, bscTransferBackfill };
 }

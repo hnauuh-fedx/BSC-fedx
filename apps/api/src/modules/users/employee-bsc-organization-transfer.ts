@@ -93,6 +93,22 @@ export async function transferOpenEmployeeBsc(
 
   const transferredBscIds: string[] = [];
   for (const bsc of bscs) {
+    // Lock the cycle row so it cannot become LOCKED/CLOSED while this BSC is
+    // being rebound. Organization/routing metadata may move; approved KPI,
+    // score and stage data remain untouched.
+    const openCycle = await db.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id
+      FROM bsc_cycles
+      WHERE id = ${bsc.cycle_id}::uuid AND status = 'OPEN'
+      FOR SHARE
+    `);
+    if (openCycle.length !== 1) {
+      throw new ConflictException({
+        code: 'BSC_ORGANIZATION_TRANSFER_CONFLICT',
+        message: 'Kỳ BSC đã thay đổi trạng thái trong lúc điều chuyển.',
+      });
+    }
+
     const stageAssignments = new Map<BscReviewStage, Awaited<ReturnType<typeof resolveAssignment>>>();
     const stages = new Set<BscReviewStage>();
     for (const step of bsc.bsc_approval_steps) {
@@ -117,6 +133,7 @@ export async function transferOpenEmployeeBsc(
     const changed = await db.employee_bsc.updateMany({
       where: {
         id: bsc.id,
+        bsc_cycles: { status: 'OPEN' },
         department_id: bsc.department_id,
         position_id: bsc.position_id,
         direct_manager_id: bsc.direct_manager_id,
@@ -139,24 +156,63 @@ export async function transferOpenEmployeeBsc(
       if (step.stage !== 'PLAN' && step.stage !== 'EVALUATION') continue;
       const assignment = stageAssignments.get(step.stage);
       if (!assignment) continue;
-      await db.bsc_approval_steps.update({
-        where: { id: step.id },
+      const reassigned = await db.bsc_approval_steps.updateMany({
+        where: {
+          id: step.id,
+          status: 'PENDING',
+          approver_id: step.approver_id,
+          approver_role: step.approver_role,
+        },
         data: {
           approver_id: assignment.approverId,
           approver_role: assignment.approverRole,
           decision_source: 'PRIMARY_ROUTE',
         },
       });
+      if (reassigned.count !== 1) {
+        throw new ConflictException({
+          code: 'BSC_ORGANIZATION_TRANSFER_CONFLICT',
+          message: 'Bước duyệt vừa được xử lý trong lúc điều chuyển.',
+        });
+      }
     }
     for (const request of bsc.bsc_unlock_requests) {
       if (request.stage !== 'PLAN' && request.stage !== 'EVALUATION') continue;
       const assignment = stageAssignments.get(request.stage);
       if (!assignment) continue;
-      await db.bsc_unlock_requests.update({
-        where: { id: request.id },
+      const reassigned = await db.bsc_unlock_requests.updateMany({
+        where: {
+          id: request.id,
+          status: 'PENDING',
+          reviewer_id: request.reviewer_id,
+        },
         data: { reviewer_id: assignment.approverId, decision_source: 'PRIMARY_ROUTE' },
       });
+      if (reassigned.count !== 1) {
+        throw new ConflictException({
+          code: 'BSC_ORGANIZATION_TRANSFER_CONFLICT',
+          message: 'Yêu cầu mở lại vừa được xử lý trong lúc điều chuyển.',
+        });
+      }
     }
+
+    const newApprovalSteps = bsc.bsc_approval_steps.map((step) => {
+      const assignment = stageAssignments.get(step.stage as BscReviewStage);
+      return assignment ? {
+        ...step,
+        approver_id: assignment.approverId,
+        approver_role: assignment.approverRole,
+        decision_source: 'PRIMARY_ROUTE',
+      } : step;
+    });
+    const newReopenRequests = bsc.bsc_unlock_requests.map((request) => {
+      const assignment = stageAssignments.get(request.stage as BscReviewStage);
+      return assignment ? {
+        ...request,
+        reviewer_id: assignment.approverId,
+        decision_source: 'PRIMARY_ROUTE',
+      } : request;
+    });
 
     await db.audit_logs.create({ data: {
       user_id: input.actorId,
@@ -179,6 +235,8 @@ export async function transferOpenEmployeeBsc(
         departmentId: input.departmentId,
         positionId: input.positionId,
         directManagerId: input.directManagerId,
+        pendingApprovalSteps: newApprovalSteps,
+        pendingReopenRequests: newReopenRequests,
         reason: input.reason,
         source: input.source,
         transferredAt: now.toISOString(),
