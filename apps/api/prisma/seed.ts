@@ -226,10 +226,24 @@ export async function backfillTransferredEmployeeBsc(
       const missing = employeeIds.filter((id) => !foundIds.has(id));
       if (missing.length) throw new Error(`BSC transfer backfill users were not found or inactive: ${missing.join(', ')}`);
       const actor = await tx.users.findFirst({
-        where: { id: actorId, status: 'ACTIVE', deleted_at: null },
+        where: {
+          id: actorId,
+          status: 'ACTIVE',
+          deleted_at: null,
+          user_roles_user_roles_user_idTousers: {
+            some: {
+              scope_type: 'GLOBAL',
+              roles: {
+                status: 'ACTIVE',
+                role_permissions: { some: { permissions: { code: 'user.update' } } },
+              },
+              OR: [{ expires_at: null }, { expires_at: { gt: new Date() } }],
+            },
+          },
+        },
         select: { id: true },
       });
-      if (!actor) throw new Error('BSC transfer backfill operator was not found or inactive');
+      if (!actor) throw new Error('BSC transfer backfill operator must have active GLOBAL user.update authority');
 
       const transferredEmployeeIds: string[] = [];
       let transferredBscCount = 0;

@@ -17,7 +17,7 @@ export interface EmployeeOrganizationTarget {
 
 export interface EmployeeBscTransferInput extends EmployeeOrganizationTarget {
   employeeId: string;
-  actorId: string | null;
+  actorId: string;
   reason: string;
   source: 'USER_UPDATE' | 'RELEASE_BACKFILL';
 }
