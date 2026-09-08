@@ -6,13 +6,19 @@ import { AuthUser } from '../../common/types/auth-user.type';
 import { ResourceScopePolicy } from '../../common/policies/resource-scope.policy';
 import { normalizeUsername } from '../../common/username';
 import { CreateUserDto, ResetPasswordDto, UpdateUserDto, UserQueryDto } from './users.dto';
+import { BscReviewerResolver } from '../bsc-reviewers/bsc-reviewer-resolver';
+import { transferOpenEmployeeBsc } from './employee-bsc-organization-transfer';
 
 type Db = PrismaService | Prisma.TransactionClient;
 const safeUser = { id: true, employee_code: true, username: true, full_name: true, email: true, department_id: true, position_id: true, direct_manager_id: true, status: true, last_login_at: true, created_at: true, updated_at: true, deleted_at: true, departments: { select: { id: true, code: true, name: true } }, positions: { select: { id: true, code: true, name: true, level: true } }, users: { select: { id: true, employee_code: true, full_name: true, email: true, status: true } } } as const;
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService, private readonly scope: ResourceScopePolicy) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly scope: ResourceScopePolicy,
+    private readonly reviewerResolver: BscReviewerResolver,
+  ) {}
   private async audit(db: Db, actor: AuthUser, action: string, id: string, oldData: unknown, newData: unknown) { await db.audit_logs.create({ data: { user_id: actor.id, module: 'users', entity_type: 'user', entity_id: id, action, old_data: oldData as Prisma.InputJsonValue, new_data: newData as Prisma.InputJsonValue } }); }
   private whereForScope(actor: AuthUser): Prisma.usersWhereInput {
     if (this.scope.canAccessGlobal(actor)) return {};
@@ -67,7 +73,61 @@ export class UsersService {
   }
   async findOne(actor: AuthUser, id: string) { return this.userInScope(actor, id); }
   async create(actor: AuthUser, dto: CreateUserDto) { if (!this.scope.canAccessGlobal(actor) && !this.scope.canAccessDepartment(actor, dto.departmentId)) throw new ForbiddenException({ code: 'AUTH_SCOPE_DENIED', message: 'Bạn không có quyền tạo người dùng trong đơn vị này.' }); const password_hash = await argon2.hash(dto.password); try { return await this.prisma.$transaction(async db => { await this.ensureActiveReferences(db, dto.departmentId, dto.positionId); const assignment = await this.validateRoleAssignment(db, actor, dto.roleId, dto.roleScopeType, dto.departmentId); const id = crypto.randomUUID(); await this.validateManager(db, actor, id, dto.directManagerId); const user = await db.users.create({ data: { id, employee_code: dto.employeeCode.trim(), username: normalizeUsername(dto.username), full_name: dto.fullName.trim(), email: dto.email.trim().toLowerCase(), password_hash, department_id: dto.departmentId, position_id: dto.positionId, direct_manager_id: dto.directManagerId ?? null }, select: safeUser }); await db.user_roles.create({ data: { user_id: user.id, role_id: assignment.role.id, scope_type: dto.roleScopeType, scope_id: assignment.scopeId, assigned_by: actor.id } }); if (dto.directManagerId) await db.manager_relationships.create({ data: { employee_id: user.id, manager_id: dto.directManagerId, start_date: new Date(), is_primary: true } }); await this.audit(db, actor, 'USER_CREATED', user.id, null, { employeeCode: user.employee_code, username: user.username, departmentId: user.department_id, positionId: user.position_id, directManagerId: user.direct_manager_id, roleCode: assignment.role.code, roleScopeType: dto.roleScopeType, roleScopeId: assignment.scopeId }); return user; }); } catch (e) { if ((e as { code?: string }).code === 'P2002') throw new ConflictException('Tên đăng nhập, mã nhân viên hoặc email đã tồn tại.'); throw e; } }
-  async update(actor: AuthUser, id: string, dto: UpdateUserDto) { const old = await this.userInScope(actor, id); const targetDepartment = dto.departmentId ?? old.department_id; if (!this.scope.canAccessGlobal(actor) && (!this.scope.canAccessDepartment(actor, old.department_id) || !this.scope.canAccessDepartment(actor, targetDepartment))) throw new ForbiddenException({ code: 'AUTH_SCOPE_DENIED', message: 'Bạn không có quyền thay đổi phạm vi đơn vị này.' }); try { return await this.prisma.$transaction(async db => { await this.ensureActiveReferences(db, targetDepartment, dto.positionId ?? old.position_id); await this.validateManager(db, actor, id, dto.directManagerId === undefined ? old.direct_manager_id : dto.directManagerId); const user = await db.users.update({ where: { id }, data: { ...(dto.employeeCode !== undefined ? { employee_code: dto.employeeCode.trim() } : {}), ...(dto.username !== undefined ? { username: normalizeUsername(dto.username) } : {}), ...(dto.fullName !== undefined ? { full_name: dto.fullName.trim() } : {}), ...(dto.email !== undefined ? { email: dto.email.trim().toLowerCase() } : {}), ...(dto.departmentId !== undefined ? { department_id: dto.departmentId } : {}), ...(dto.positionId !== undefined ? { position_id: dto.positionId } : {}), ...(dto.directManagerId !== undefined ? { direct_manager_id: dto.directManagerId } : {}), updated_at: new Date() }, select: safeUser }); await this.updateManagerHistory(db, actor, id, old.direct_manager_id, dto.directManagerId === undefined ? old.direct_manager_id : dto.directManagerId); await this.audit(db, actor, 'USER_UPDATED', id, { employeeCode: old.employee_code, username: old.username, departmentId: old.department_id, positionId: old.position_id }, { employeeCode: user.employee_code, username: user.username, departmentId: user.department_id, positionId: user.position_id }); return user; }); } catch (e) { if ((e as { code?: string }).code === 'P2002') throw new ConflictException('Tên đăng nhập, mã nhân viên hoặc email đã tồn tại.'); throw e; } }
+  async update(actor: AuthUser, id: string, dto: UpdateUserDto) {
+    const old = await this.userInScope(actor, id);
+    const target = {
+      departmentId: dto.departmentId ?? old.department_id,
+      positionId: dto.positionId ?? old.position_id,
+      directManagerId: dto.directManagerId === undefined ? old.direct_manager_id : dto.directManagerId,
+    };
+    if (!this.scope.canAccessGlobal(actor)
+      && (!this.scope.canAccessDepartment(actor, old.department_id) || !this.scope.canAccessDepartment(actor, target.departmentId))) {
+      throw new ForbiddenException({ code: 'AUTH_SCOPE_DENIED', message: 'Bạn không có quyền thay đổi phạm vi đơn vị này.' });
+    }
+    const organizationChanged = old.department_id !== target.departmentId
+      || old.position_id !== target.positionId
+      || old.direct_manager_id !== target.directManagerId;
+    const transferReason = dto.transferReason?.trim();
+    if (organizationChanged && !transferReason) {
+      throw new BadRequestException({
+        code: 'USER_TRANSFER_REASON_REQUIRED',
+        message: 'Phải nhập lý do khi thay đổi đơn vị, chức danh hoặc quản lý trực tiếp.',
+      });
+    }
+    try {
+      return await this.prisma.$transaction(async db => {
+        await this.ensureActiveReferences(db, target.departmentId, target.positionId);
+        await this.validateManager(db, actor, id, target.directManagerId);
+        const user = await db.users.update({ where: { id }, data: {
+          ...(dto.employeeCode !== undefined ? { employee_code: dto.employeeCode.trim() } : {}),
+          ...(dto.username !== undefined ? { username: normalizeUsername(dto.username) } : {}),
+          ...(dto.fullName !== undefined ? { full_name: dto.fullName.trim() } : {}),
+          ...(dto.email !== undefined ? { email: dto.email.trim().toLowerCase() } : {}),
+          ...(dto.departmentId !== undefined ? { department_id: dto.departmentId } : {}),
+          ...(dto.positionId !== undefined ? { position_id: dto.positionId } : {}),
+          ...(dto.directManagerId !== undefined ? { direct_manager_id: dto.directManagerId } : {}),
+          updated_at: new Date(),
+        }, select: safeUser });
+        await this.updateManagerHistory(db, actor, id, old.direct_manager_id, target.directManagerId);
+        if (organizationChanged) {
+          await transferOpenEmployeeBsc(db, this.reviewerResolver, {
+            employeeId: id,
+            ...target,
+            actorId: actor.id,
+            reason: transferReason!,
+            source: 'USER_UPDATE',
+          });
+        }
+        await this.audit(db, actor, 'USER_UPDATED', id,
+          { employeeCode: old.employee_code, username: old.username, departmentId: old.department_id, positionId: old.position_id, directManagerId: old.direct_manager_id },
+          { employeeCode: user.employee_code, username: user.username, departmentId: user.department_id, positionId: user.position_id, directManagerId: user.direct_manager_id, transferReason: transferReason ?? null });
+        return user;
+      });
+    } catch (e) {
+      if ((e as { code?: string }).code === 'P2002') throw new ConflictException('Tên đăng nhập, mã nhân viên hoặc email đã tồn tại.');
+      throw e;
+    }
+  }
   private async isLastActiveAdmin(id: string) { const targetAdmin = await this.prisma.user_roles.count({ where: { user_id: id, scope_type: 'GLOBAL', roles: { code: 'ADMIN', status: 'ACTIVE' }, OR: [{ expires_at: null }, { expires_at: { gt: new Date() } }] } }); if (!targetAdmin) return false; const activeAdmins = await this.prisma.users.count({ where: { status: 'ACTIVE', deleted_at: null, user_roles_user_roles_user_idTousers: { some: { scope_type: 'GLOBAL', roles: { code: 'ADMIN', status: 'ACTIVE' }, OR: [{ expires_at: null }, { expires_at: { gt: new Date() } }] } } } }); return activeAdmins <= 1; }
   async setStatus(actor: AuthUser, id: string, status: 'ACTIVE'|'INACTIVE'|'LOCKED') { const old = await this.userInScope(actor, id); if (!this.scope.canAccessGlobal(actor) && !this.scope.canAccessDepartment(actor, old.department_id)) throw new ForbiddenException(); if (status !== 'ACTIVE' && await this.isLastActiveAdmin(id)) throw new BadRequestException({ code: 'USER_LAST_ACTIVE_ADMIN', message: 'Không thể khóa hoặc ngừng hoạt động ADMIN cuối cùng.' }); return this.prisma.$transaction(async db => { const user = await db.users.update({ where: { id }, data: { status, updated_at: new Date() }, select: safeUser }); if (status !== 'ACTIVE') await db.auth_refresh_tokens.updateMany({ where: { user_id: id, revoked_at: null }, data: { revoked_at: new Date() } }); await this.audit(db, actor, status === 'LOCKED' ? 'USER_LOCKED' : status === 'ACTIVE' ? 'USER_ACTIVATED' : 'USER_DEACTIVATED', id, { status: old.status }, { status }); return user; }); }
   async resetPassword(actor: AuthUser, id: string, dto: ResetPasswordDto) { const old = await this.userInScope(actor, id); if (!this.scope.canAccessGlobal(actor) && !this.scope.canAccessDepartment(actor, old.department_id)) throw new ForbiddenException(); const password_hash = await argon2.hash(dto.password); await this.prisma.$transaction(async db => { await db.users.update({ where: { id }, data: { password_hash, updated_at: new Date() } }); await db.auth_refresh_tokens.updateMany({ where: { user_id: id, revoked_at: null }, data: { revoked_at: new Date() } }); await this.audit(db, actor, 'USER_PASSWORD_RESET', id, null, { sessionsRevoked: true }); }); return { success: true }; }

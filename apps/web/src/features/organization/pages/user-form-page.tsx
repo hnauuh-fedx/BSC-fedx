@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../..
 import { Input } from '../../../components/ui/input';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
 import { Spinner } from '../../../components/ui/spinner';
+import { Textarea } from '../../../components/ui/textarea';
 import { rolesApi } from '../../roles/services/roles.service';
 import type { RoleDetail, RoleSummary } from '../../roles/types/roles.types';
 import { Department, organizationApi, Position, User } from '../organization-api';
@@ -13,8 +14,10 @@ import { ErrorState, FormField, LoadingState, PageHeader } from '../management-u
 type RoleScopeType = 'GLOBAL' | 'DEPARTMENT' | 'SELF';
 
 const EMPTY_FORM = {
-  employeeCode: '', username: '', fullName: '', email: '', password: '', departmentId: '', positionId: '', directManagerId: '', roleId: '', roleScopeType: 'SELF' as RoleScopeType,
+  employeeCode: '', username: '', fullName: '', email: '', password: '', departmentId: '', positionId: '', directManagerId: '', transferReason: '', roleId: '', roleScopeType: 'SELF' as RoleScopeType,
 };
+
+type OrganizationSnapshot = Pick<typeof EMPTY_FORM, 'departmentId' | 'positionId' | 'directManagerId'>;
 
 function SelectField({ label, value, placeholder, disabled, helper, onChange, children }: React.PropsWithChildren<{
   label: string;
@@ -42,6 +45,7 @@ export const UserFormPage: React.FC = () => {
   const [form, setForm] = useState(EMPTY_FORM);
   const [departments, setDepartments] = useState<Department[]>([]), [positions, setPositions] = useState<Position[]>([]), [managers, setManagers] = useState<User[]>([]), [roles, setRoles] = useState<RoleSummary[]>([]);
   const [roleDetail, setRoleDetail] = useState<RoleDetail | null>(null);
+  const [originalOrganization, setOriginalOrganization] = useState<OrganizationSnapshot | null>(null);
   const [error, setError] = useState(''), [loading, setLoading] = useState(true), [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -61,7 +65,9 @@ export const UserFormPage: React.FC = () => {
       if (!edit && roleResult.status === 'fulfilled' && roleResult.value) setRoles(roleResult.value.filter(role => role.status === 'ACTIVE'));
       if (edit && userResult.status === 'fulfilled' && userResult.value) {
         const user = userResult.value;
-        setForm(current => ({ ...current, employeeCode: user.employee_code, username: user.username, fullName: user.full_name, email: user.email, departmentId: user.department_id, positionId: user.position_id, directManagerId: user.direct_manager_id ?? '' }));
+        const organization = { departmentId: user.department_id, positionId: user.position_id, directManagerId: user.direct_manager_id ?? '' };
+        setOriginalOrganization(organization);
+        setForm(current => ({ ...current, employeeCode: user.employee_code, username: user.username, fullName: user.full_name, email: user.email, ...organization }));
       }
       const rejected = [departmentResult, positionResult, managerResult, roleResult, userResult].find(result => result.status === 'rejected');
       if (rejected?.status === 'rejected') setError(rejected.reason instanceof Error ? rejected.reason.message : 'Không thể tải đầy đủ dữ liệu biểu mẫu.');
@@ -82,17 +88,26 @@ export const UserFormPage: React.FC = () => {
   }, [edit, form.roleId]);
 
   const selectedRole = roles.find(role => role.id === form.roleId);
+  const organizationChanged = Boolean(edit && originalOrganization && (
+    form.departmentId !== originalOrganization.departmentId
+    || form.positionId !== originalOrganization.positionId
+    || form.directManagerId !== originalOrganization.directManagerId
+  ));
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!/^[a-zA-Z0-9._-]{3,50}$/.test(form.username) || !form.fullName.trim() || !/^\S+@\S+\.\S+$/.test(form.email) || (!edit && (!form.employeeCode.trim() || form.password.length < 12 || !form.roleId)) || !form.departmentId || !form.positionId) {
       setError('Vui lòng nhập đầy đủ dữ liệu hợp lệ; mật khẩu tối thiểu 12 ký tự và phải chọn vai trò.');
       return;
     }
+    if (organizationChanged && !form.transferReason.trim()) {
+      setError('Phải nhập lý do khi thay đổi đơn vị, chức danh hoặc quản lý trực tiếp.');
+      return;
+    }
     setSubmitting(true);
     setError('');
     try {
       const common = { username: form.username, fullName: form.fullName, email: form.email, departmentId: form.departmentId, positionId: form.positionId, directManagerId: form.directManagerId || null };
-      if (edit) await organizationApi.updateUser(id!, common);
+      if (edit) await organizationApi.updateUser(id!, { ...common, ...(organizationChanged ? { transferReason: form.transferReason.trim() } : {}) });
       else await organizationApi.createUser({ ...common, employeeCode: form.employeeCode, password: form.password, roleId: form.roleId, roleScopeType: form.roleScopeType });
       navigate('/management/users');
     } catch (cause) {
@@ -127,6 +142,9 @@ export const UserFormPage: React.FC = () => {
             <SelectItem value="NONE">Không có</SelectItem>
             {managers.map(item => <SelectItem key={item.id} value={item.id}>{item.full_name}</SelectItem>)}
           </SelectField>
+          {organizationChanged && <FormField label="Lý do điều chuyển">
+            <Textarea value={form.transferReason} onChange={event => setForm({ ...form, transferReason: event.target.value })} required disabled={submitting} placeholder="Nhập lý do để lưu audit và chuyển BSC kỳ đang mở" />
+          </FormField>}
         </CardContent>
       </Card>
 

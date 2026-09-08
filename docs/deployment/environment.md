@@ -7,3 +7,16 @@ Build with `docker compose -f docker-compose.staging.yml build`. Run migration a
 Secrets must come from the deployment secret store. Do not print env, URLs, cookies or auth headers. Rotate JWT secrets through a planned session-revocation window. Restrict DB credentials to the staging DB. Validate `GET /health/live`, `GET /health/ready`, login and a scoped BSC read after deployment.
 
 See [pilot-runbook.md](pilot-runbook.md) for backup, deploy and rollback procedures and `docs/uat/staging-pilot-checklist.md` for role-based sign-off.
+
+## One-time BSC organization transfer backfill
+
+When a user was moved before the organization-transfer workflow was deployed, set
+`BSC_TRANSFER_BACKFILL_USER_IDS` to the comma-separated user UUIDs and set
+`BSC_TRANSFER_BACKFILL_MODE=DRY_RUN` for the first release. The release seed runs
+the complete transaction and rolls it back, so the log reports `candidateBscCount`
+without changing production data. After checking the candidates, change the mode to
+`APPLY` and deploy again. The idempotent release seed reconciles only BSCs whose cycles are `OPEN`, including
+pending approval steps and reopen requests. BSCs in `LOCKED` or `CLOSED` cycles are
+preserved as historical snapshots. Check `bscTransferBackfill.transferredBscCount`
+in the seed log, verify the new department manager's queue, and then remove the
+environment variable. Re-running the same IDs after reconciliation is a no-op.

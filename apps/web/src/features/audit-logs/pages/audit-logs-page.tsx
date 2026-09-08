@@ -14,6 +14,7 @@ const MODULE_LABELS: Record<string, string> = {
   bsc: 'BSC',
   'bsc-cycles': 'Kỳ BSC',
   reports: 'Báo cáo',
+  'employee-bsc': 'BSC cá nhân',
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -28,6 +29,7 @@ const ACTION_LABELS: Record<string, string> = {
   USER_LOCKED: 'Khóa tài khoản',
   USER_PASSWORD_RESET: 'Đặt lại mật khẩu',
   USER_MANAGER_CHANGED: 'Thay đổi quản lý trực tiếp',
+  BSC_ORGANIZATION_TRANSFERRED: 'Chuyển tiếp BSC sang cơ cấu mới',
   ROLE_PERMISSIONS_UPDATED: 'Cập nhật quyền vai trò',
 };
 

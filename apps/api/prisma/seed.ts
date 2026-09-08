@@ -1,6 +1,8 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { isValidUsername, normalizeUsername } from '../src/common/username';
+import { BscReviewerResolver } from '../src/modules/bsc-reviewers/bsc-reviewer-resolver';
+import { transferOpenEmployeeBsc } from '../src/modules/users/employee-bsc-organization-transfer';
 
 export const CANONICAL_ADMIN_PERMISSIONS = [
   'user.view', 'user.create', 'user.update', 'user.lock', 'user.password.reset',
@@ -178,17 +180,102 @@ export async function ensureBootstrapAdmin(client: PrismaClient, env: NodeJS.Pro
   return 'created';
 }
 
+export interface EmployeeBscTransferBackfillResult {
+  mode: 'DRY_RUN' | 'APPLY';
+  requestedEmployeeIds: string[];
+  transferredEmployeeIds: string[];
+  candidateBscCount: number;
+  transferredBscCount: number;
+}
+
+class BscTransferDryRunRollback extends Error {
+  constructor(readonly result: EmployeeBscTransferBackfillResult) {
+    super('Rollback BSC transfer dry run');
+  }
+}
+
+function transferBackfillEmployeeIds(raw: string | undefined): string[] {
+  return [...new Set((raw ?? '').split(',').map((value) => value.trim()).filter(Boolean))];
+}
+
+export async function backfillTransferredEmployeeBsc(
+  client: PrismaClient,
+  rawEmployeeIds: string | undefined,
+  mode: 'DRY_RUN' | 'APPLY' = 'APPLY',
+): Promise<EmployeeBscTransferBackfillResult> {
+  const employeeIds = transferBackfillEmployeeIds(rawEmployeeIds);
+  if (employeeIds.length === 0) {
+    return { mode, requestedEmployeeIds: [], transferredEmployeeIds: [], candidateBscCount: 0, transferredBscCount: 0 };
+  }
+  const invalidId = employeeIds.find((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id));
+  if (invalidId) throw new Error(`BSC_TRANSFER_BACKFILL_USER_IDS contains an invalid UUID: ${invalidId}`);
+
+  const reviewerResolver = new BscReviewerResolver();
+  try {
+    return await client.$transaction(async (tx) => {
+      const users = await tx.users.findMany({
+        where: { id: { in: employeeIds }, status: 'ACTIVE', deleted_at: null },
+        select: { id: true, department_id: true, position_id: true, direct_manager_id: true },
+        orderBy: { id: 'asc' },
+      });
+      const foundIds = new Set(users.map((user) => user.id));
+      const missing = employeeIds.filter((id) => !foundIds.has(id));
+      if (missing.length) throw new Error(`BSC transfer backfill users were not found or inactive: ${missing.join(', ')}`);
+
+      const transferredEmployeeIds: string[] = [];
+      let transferredBscCount = 0;
+      for (const user of users) {
+        const result = await transferOpenEmployeeBsc(tx, reviewerResolver, {
+          employeeId: user.id,
+          departmentId: user.department_id,
+          positionId: user.position_id,
+          directManagerId: user.direct_manager_id,
+          actorId: null,
+          reason: 'Đồng bộ BSC kỳ mở sau khi nhân sự đã được điều chuyển',
+          source: 'RELEASE_BACKFILL',
+        });
+        if (result.transferredBscIds.length) {
+          transferredEmployeeIds.push(user.id);
+          transferredBscCount += result.transferredBscIds.length;
+        }
+      }
+      const result = {
+        mode,
+        requestedEmployeeIds: employeeIds,
+        transferredEmployeeIds,
+        candidateBscCount: transferredBscCount,
+        transferredBscCount: mode === 'APPLY' ? transferredBscCount : 0,
+      };
+      if (mode === 'DRY_RUN') throw new BscTransferDryRunRollback(result);
+      return result;
+    });
+  } catch (error) {
+    if (error instanceof BscTransferDryRunRollback) return error.result;
+    throw error;
+  }
+}
+
 export async function seedReleaseData(client: PrismaClient = prisma, env: NodeJS.ProcessEnv = process.env) {
   await client.$transaction(async (tx) => {
     await seedPermissions(tx);
     await seedEmployeeBscApprovalRoutes(tx);
   });
-  return { admin: await ensureBootstrapAdmin(client, env) };
+  const admin = await ensureBootstrapAdmin(client, env);
+  const requestedMode = env.BSC_TRANSFER_BACKFILL_MODE?.trim().toUpperCase();
+  if (requestedMode && requestedMode !== 'DRY_RUN' && requestedMode !== 'APPLY') {
+    throw new Error('BSC_TRANSFER_BACKFILL_MODE must be DRY_RUN or APPLY');
+  }
+  const bscTransferBackfill = await backfillTransferredEmployeeBsc(
+    client,
+    env.BSC_TRANSFER_BACKFILL_USER_IDS,
+    requestedMode === 'APPLY' ? 'APPLY' : 'DRY_RUN',
+  );
+  return { admin, bscTransferBackfill };
 }
 
 async function main() {
   const result = await seedReleaseData();
-  console.log(JSON.stringify({ status: 'ok', bootstrapAdmin: result.admin }));
+  console.log(JSON.stringify({ status: 'ok', bootstrapAdmin: result.admin, bscTransferBackfill: result.bscTransferBackfill }));
 }
 
 if (require.main === module) main().catch((error) => { console.error(error instanceof Error ? error.message : 'Release seed failed'); process.exitCode = 1; }).finally(() => prisma.$disconnect());

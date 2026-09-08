@@ -7,6 +7,7 @@ import request from 'supertest';
 import { createApp } from '../src/main';
 import { BSC_PERMISSIONS } from '../src/modules/employee-bsc/policies/bsc-access.policy';
 import { BSC_REPORT_PERMISSIONS } from '../src/modules/reports/reports.constants';
+import { backfillTransferredEmployeeBsc } from '../prisma/seed';
 
 const prisma = new PrismaClient();
 const marker = `BSCAUTH_${Date.now()}_${randomUUID().replaceAll('-', '').slice(0, 8)}`.toUpperCase();
@@ -49,7 +50,7 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       prisma.departments.create({ data: { code: `${marker}_B`, name: `${marker} Department B` } }),
       prisma.positions.create({ data: { code: `${marker}_POS`, name: `${marker} Position`, level: 1 } }),
     ]);
-    const permissionCodes = [...new Set([...Object.values(BSC_PERMISSIONS), ...Object.values(BSC_REPORT_PERMISSIONS)])];
+    const permissionCodes = [...new Set([...Object.values(BSC_PERMISSIONS), ...Object.values(BSC_REPORT_PERMISSIONS), 'user.update'])];
     for (const code of permissionCodes) {
       const existing = await prisma.permissions.findUnique({ where: { code } });
       const permission = await prisma.permissions.upsert({ where: { code }, create: { code, name: code, module: 'bsc' }, update: {} });
@@ -92,7 +93,7 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       data: directorPermissionRows.map(({ id }) => ({ role_id: directorRole.id, permission_id: id })),
       skipDuplicates: true,
     });
-    const adminRole = await role('ADMIN', []);
+    const adminRole = await role('ADMIN', ['user.update']);
     const selfApprovalRole = await role('ADMIN_SELF_BSC', [BSC_PERMISSIONS.VIEW_UNIT, BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE]);
     const unrelatedGlobalRole = await role('UNRELATED_GLOBAL', []);
     const hash = await argon2.hash(password);
@@ -507,6 +508,119 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       const summary = await request(server).get('/bsc-reports/summary').set(auth(tokens.managerA)).expect(200);
       assert.equal(summary.body.totalBsc, report.body.total);
       await request(server).get(`/bsc-reports?departmentId=${departmentB.id}`).set(auth(tokens.managerA)).expect(403);
+    });
+
+    await t.test('transferring an employee moves open-cycle BSC ownership and pending review to the new department', async () => {
+      await prisma.department_manager_assignments.updateMany({
+        where: { department_id: departmentA.id, manager_id: routedManager.id, is_primary: true },
+        data: { end_date: null },
+      });
+      const transferRoute = await prisma.employee_bsc_approval_routes.findUniqueOrThrow({
+        where: { department_id_stage: { department_id: departmentA.id, stage: 'PLAN' } },
+      });
+      assert.equal(transferRoute.reviewer_type, 'DEPARTMENT_MANAGER');
+      assert.equal(await prisma.user_roles.count({ where: { user_id: employeeB.id, roles: { code: 'MANAGER' } } }), 0);
+      const closedCycle = await prisma.bsc_cycles.create({ data: {
+        code: `${marker}_CLOSED_TRANSFER`, name: `${marker} Closed transfer`, cycle_type: 'MONTH', year: 2098, month: 12,
+        start_date: new Date('2098-12-01'), end_date: new Date('2098-12-31'), status: 'CLOSED', created_by: admin.id,
+      } });
+      const historicalBsc = await prisma.employee_bsc.create({ data: {
+        bsc_code: `${marker}_BSC_CLOSED_TRANSFER`, cycle_id: closedCycle.id, employee_id: employeeB.id,
+        department_id: departmentB.id, position_id: position.id, direct_manager_id: managerB.id, created_by: employeeB.id,
+        plan_status: 'APPROVED', evaluation_status: 'APPROVED', status: 'APPROVED', locked_at: new Date(),
+      } });
+      await prisma.employee_bsc.update({ where: { id: employeeBBsc.id }, data: { plan_status: 'SUBMITTED' } });
+      await prisma.bsc_approval_steps.update({ where: {
+        employee_bsc_id_stage_step_order: { employee_bsc_id: employeeBBsc.id, stage: 'PLAN', step_order: 1 },
+      }, data: { status: 'PENDING', comment: null, acted_at: null, acted_by: null, acted_as_role: null } });
+
+      const missingReason = await request(server).patch(`/users/${employeeB.id}`).set(auth(tokens.admin)).send({
+        departmentId: departmentA.id,
+        directManagerId: routedManager.id,
+      }).expect(400);
+      assert.equal(missingReason.body.code, 'USER_TRANSFER_REASON_REQUIRED');
+      assert.equal((await prisma.users.findUniqueOrThrow({ where: { id: employeeB.id } })).department_id, departmentB.id);
+
+      await request(server).patch(`/users/${employeeB.id}`).set(auth(tokens.admin)).send({
+        departmentId: departmentA.id,
+        directManagerId: routedManager.id,
+        transferReason: 'Điều chuyển nhân sự sang Marketing',
+      }).expect(200);
+
+      const [openBsc, closedBsc, pendingStep] = await Promise.all([
+        prisma.employee_bsc.findUniqueOrThrow({ where: { id: employeeBBsc.id } }),
+        prisma.employee_bsc.findUniqueOrThrow({ where: { id: historicalBsc.id } }),
+        prisma.bsc_approval_steps.findUniqueOrThrow({ where: {
+          employee_bsc_id_stage_step_order: { employee_bsc_id: employeeBBsc.id, stage: 'PLAN', step_order: 1 },
+        } }),
+      ]);
+      assert.equal(openBsc.department_id, departmentA.id);
+      assert.equal(openBsc.direct_manager_id, routedManager.id);
+      assert.equal(pendingStep.approver_id, routedManager.id);
+      assert.equal(pendingStep.approver_role, 'MANAGER');
+      assert.equal(closedBsc.department_id, departmentB.id);
+      assert.equal(closedBsc.direct_manager_id, managerB.id);
+
+      const visible = await request(server).get('/employee-bsc?limit=100').set(auth(tokens.routedManager)).expect(200);
+      assert.ok(visible.body.items.some((item: { id: string }) => item.id === employeeBBsc.id));
+      assert.ok(await prisma.audit_logs.count({ where: { entity_id: employeeBBsc.id, action: 'BSC_ORGANIZATION_TRANSFERRED' } }));
+    });
+
+    await t.test('release backfill reconciles two transferred employees once', async () => {
+      const first = await user('BACKFILL_FIRST', departmentB.id, employeeRole.id, 'SELF', managerB.id);
+      const second = await user('BACKFILL_SECOND', departmentB.id, employeeRole.id, 'SELF', managerB.id);
+      await relationship(first.id, managerB.id, '2020-01-01');
+      await relationship(second.id, managerB.id, '2020-01-01');
+      const firstBsc = await bsc(first, managerB.id, 'SUBMITTED', 'NOT_STARTED');
+      const secondBsc = await bsc(second, managerB.id, 'APPROVED', 'APPROVED');
+      const secondVersion = await prisma.bsc_versions.create({ data: {
+        employee_bsc_id: secondBsc.id, version_number: 1, stage: 'EVALUATION',
+        version_type: 'EVALUATION_APPROVED', snapshot: {}, created_by: managerB.id,
+      } });
+      const secondReopen = await prisma.bsc_unlock_requests.create({ data: {
+        employee_bsc_id: secondBsc.id, stage: 'EVALUATION', requested_by: second.id,
+        reviewer_id: directorA.id, request_reason: 'Cần cập nhật kết quả', status: 'PENDING', source_version_id: secondVersion.id,
+      } });
+      await prisma.users.updateMany({
+        where: { id: { in: [first.id, second.id] } },
+        data: { department_id: departmentA.id, direct_manager_id: routedManager.id },
+      });
+      await prisma.manager_relationships.updateMany({
+        where: { employee_id: { in: [first.id, second.id] }, is_primary: true, end_date: null },
+        data: { end_date: new Date() },
+      });
+      await prisma.manager_relationships.createMany({ data: [
+        { employee_id: first.id, manager_id: routedManager.id, start_date: new Date(), is_primary: true },
+        { employee_id: second.id, manager_id: routedManager.id, start_date: new Date(), is_primary: true },
+      ] });
+
+      const dryRun = await backfillTransferredEmployeeBsc(prisma, `${first.id}, ${second.id}`, 'DRY_RUN');
+      assert.equal(dryRun.candidateBscCount, 2);
+      assert.equal(dryRun.transferredBscCount, 0);
+      assert.equal((await prisma.employee_bsc.findUniqueOrThrow({ where: { id: firstBsc.id } })).department_id, departmentB.id);
+      assert.equal(await prisma.audit_logs.count({ where: {
+        entity_id: { in: [firstBsc.id, secondBsc.id] }, action: 'BSC_ORGANIZATION_TRANSFERRED',
+      } }), 0);
+
+      const firstRun = await backfillTransferredEmployeeBsc(prisma, `${first.id}, ${second.id}`, 'APPLY');
+      assert.deepEqual(firstRun.transferredEmployeeIds.sort(), [first.id, second.id].sort());
+      assert.equal(firstRun.transferredBscCount, 2);
+      const transferred = await prisma.employee_bsc.findMany({ where: { id: { in: [firstBsc.id, secondBsc.id] } } });
+      assert.ok(transferred.every((item) => item.department_id === departmentA.id && item.direct_manager_id === routedManager.id));
+      const firstStep = await prisma.bsc_approval_steps.findUniqueOrThrow({ where: {
+        employee_bsc_id_stage_step_order: { employee_bsc_id: firstBsc.id, stage: 'PLAN', step_order: 1 },
+      } });
+      assert.equal(firstStep.approver_id, routedManager.id);
+      assert.equal((await prisma.bsc_unlock_requests.findUniqueOrThrow({ where: { id: secondReopen.id } })).reviewer_id, routedManager.id);
+      const auditCount = await prisma.audit_logs.count({ where: {
+        entity_id: { in: [firstBsc.id, secondBsc.id] }, action: 'BSC_ORGANIZATION_TRANSFERRED',
+      } });
+
+      const secondRun = await backfillTransferredEmployeeBsc(prisma, `${first.id},${second.id}`);
+      assert.equal(secondRun.transferredBscCount, 0);
+      assert.equal(await prisma.audit_logs.count({ where: {
+        entity_id: { in: [firstBsc.id, secondBsc.id] }, action: 'BSC_ORGANIZATION_TRANSFERRED',
+      } }), auditCount);
     });
 
     await t.test('owner-only duplicate cannot use an out-of-scope source id', async () => {

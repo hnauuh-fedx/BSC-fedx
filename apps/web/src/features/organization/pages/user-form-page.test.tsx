@@ -12,7 +12,9 @@ vi.mock('../organization-api', () => ({
     departmentTree: vi.fn(),
     positions: vi.fn(),
     users: vi.fn(),
+    user: vi.fn(),
     createUser: vi.fn(),
+    updateUser: vi.fn(),
   },
 }));
 vi.mock('../../roles/services/roles.service', () => ({ rolesApi: { list: vi.fn(), detail: vi.fn() } }));
@@ -114,5 +116,45 @@ describe('UserFormPage', () => {
 
     expect(screen.getByRole('combobox', { name: 'Phạm vi quyền' })).toHaveTextContent('Toàn hệ thống');
     expect(screen.getByRole('combobox', { name: 'Phạm vi quyền' })).toBeDisabled();
+  });
+
+  it('requires and submits a reason when transferring an existing user', async () => {
+    const user = userEvent.setup();
+    vi.mocked(organizationApi.departmentTree).mockResolvedValue([
+      { id: 'department-1', code: 'SALE', name: 'Sale', parent_id: null, status: 'ACTIVE' },
+      { id: 'department-2', code: 'MKT', name: 'Marketing', parent_id: null, status: 'ACTIVE' },
+    ]);
+    vi.mocked(organizationApi.users).mockResolvedValue({
+      items: [{ id: 'manager-2', employee_code: 'M02', username: 'manager2', full_name: 'Trưởng phòng Marketing', email: 'm2@example.test', department_id: 'department-2', position_id: 'position-1', direct_manager_id: null, status: 'ACTIVE' }],
+      page: 1, limit: 100, total: 1,
+    });
+    vi.mocked(organizationApi.user).mockResolvedValue({
+      id: 'user-1', employee_code: 'NV001', username: 'nguyenvana', full_name: 'Nguyễn Văn A', email: 'a@example.test',
+      department_id: 'department-1', position_id: 'position-1', direct_manager_id: null, status: 'ACTIVE',
+    });
+    vi.mocked(organizationApi.updateUser).mockResolvedValue({
+      id: 'user-1', employee_code: 'NV001', username: 'nguyenvana', full_name: 'Nguyễn Văn A', email: 'a@example.test',
+      department_id: 'department-2', position_id: 'position-1', direct_manager_id: 'manager-2', status: 'ACTIVE',
+    });
+    render(
+      <MemoryRouter initialEntries={['/management/users/user-1/edit']}>
+        <Routes><Route path="/management/users/:id/edit" element={<UserFormPage />} /></Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByDisplayValue('Nguyễn Văn A');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Đơn vị' }), 'department-2');
+    const managerSelect = screen.getByRole('combobox', { name: 'Quản lý trực tiếp' });
+    managerSelect.focus();
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+    expect(screen.getByRole('textbox', { name: 'Lý do điều chuyển' })).toBeRequired();
+    await user.type(screen.getByRole('textbox', { name: 'Lý do điều chuyển' }), 'Điều chuyển sang Marketing');
+    await user.click(screen.getByRole('button', { name: 'Lưu người dùng' }));
+
+    expect(organizationApi.updateUser).toHaveBeenCalledWith('user-1', expect.objectContaining({
+      departmentId: 'department-2',
+      directManagerId: 'manager-2',
+      transferReason: 'Điều chuyển sang Marketing',
+    }));
   });
 });
