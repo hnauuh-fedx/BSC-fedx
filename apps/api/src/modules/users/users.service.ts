@@ -98,7 +98,7 @@ export class UsersService {
       return await this.prisma.$transaction(async db => {
         await this.ensureActiveReferences(db, target.departmentId, target.positionId);
         await this.validateManager(db, actor, id, target.directManagerId);
-        const user = await db.users.update({ where: { id }, data: {
+        const changed = await db.users.updateMany({ where: { id, updated_at: old.updated_at }, data: {
           ...(dto.employeeCode !== undefined ? { employee_code: dto.employeeCode.trim() } : {}),
           ...(dto.username !== undefined ? { username: normalizeUsername(dto.username) } : {}),
           ...(dto.fullName !== undefined ? { full_name: dto.fullName.trim() } : {}),
@@ -107,7 +107,11 @@ export class UsersService {
           ...(dto.positionId !== undefined ? { position_id: dto.positionId } : {}),
           ...(dto.directManagerId !== undefined ? { direct_manager_id: dto.directManagerId } : {}),
           updated_at: new Date(),
-        }, select: safeUser });
+        } });
+        if (changed.count !== 1) {
+          throw new ConflictException({ code: 'USER_UPDATE_CONFLICT', message: 'Người dùng vừa được cập nhật bởi một yêu cầu khác.' });
+        }
+        const user = await db.users.findUniqueOrThrow({ where: { id }, select: safeUser });
         await this.updateManagerHistory(db, actor, id, old.direct_manager_id, target.directManagerId);
         if (organizationChanged) {
           await transferOpenEmployeeBsc(db, this.reviewerResolver, {

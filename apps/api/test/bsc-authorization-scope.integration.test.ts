@@ -191,7 +191,7 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
 
     const created = await createApp(); app = created.app; await app.init(); const server = app.getHttpServer();
     const login = async (username: string) => (await request(server).post('/auth/login').send({ username, password }).expect(200)).body.accessToken as string;
-    const tokens = { directorA: await login(directorA.username), managerA: await login(managerA.username), managerA2: await login(managerA2.username), managerViewOnly: await login(managerViewOnly.username), employeeA: await login(employeeA.username), employeeA2: await login(employeeA2.username),
+    const tokens = { directorA: await login(directorA.username), managerA: await login(managerA.username), managerA2: await login(managerA2.username), managerB: await login(managerB.username), managerViewOnly: await login(managerViewOnly.username), employeeA: await login(employeeA.username), employeeA2: await login(employeeA2.username),
       admin: await login(admin.username), adminSelf: await login(adminSelf.username),
       routedManager: await login(routedManager.username), routedEmployee: await login(routedEmployee.username),
       legacyRoutedEmployee: await login(legacyRoutedEmployee.username),
@@ -563,6 +563,8 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
 
       const visible = await request(server).get('/employee-bsc?limit=100').set(auth(tokens.routedManager)).expect(200);
       assert.ok(visible.body.items.some((item: { id: string }) => item.id === employeeBBsc.id));
+      const previousManagerVisible = await request(server).get('/employee-bsc?limit=100').set(auth(tokens.managerB)).expect(200);
+      assert.ok(!previousManagerVisible.body.items.some((item: { id: string }) => item.id === employeeBBsc.id));
       assert.ok(await prisma.audit_logs.count({ where: { entity_id: employeeBBsc.id, action: 'BSC_ORGANIZATION_TRANSFERRED' } }));
     });
 

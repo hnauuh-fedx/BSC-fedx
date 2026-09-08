@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   BscReviewerResolver,
@@ -113,8 +114,13 @@ export async function transferOpenEmployeeBsc(
     }
 
     const now = new Date();
-    await db.employee_bsc.update({
-      where: { id: bsc.id },
+    const changed = await db.employee_bsc.updateMany({
+      where: {
+        id: bsc.id,
+        department_id: bsc.department_id,
+        position_id: bsc.position_id,
+        direct_manager_id: bsc.direct_manager_id,
+      },
       data: {
         department_id: input.departmentId,
         position_id: input.positionId,
@@ -122,6 +128,12 @@ export async function transferOpenEmployeeBsc(
         updated_at: now,
       },
     });
+    if (changed.count !== 1) {
+      throw new ConflictException({
+        code: 'BSC_ORGANIZATION_TRANSFER_CONFLICT',
+        message: 'BSC vừa được điều chuyển bởi một yêu cầu khác.',
+      });
+    }
 
     for (const step of bsc.bsc_approval_steps) {
       if (step.stage !== 'PLAN' && step.stage !== 'EVALUATION') continue;
