@@ -8,10 +8,18 @@ export const DIRECTOR_REVIEW_PERMISSIONS = {
   REOPEN: ['bsc.reopen.subordinate'],
 } as const;
 
+export const BSC_REVIEW_OVERRIDE_PERMISSION = 'bsc.review.override';
+
 export function hasGlobalDirectorPermission(actor: AuthUser, permissions: readonly string[]): boolean {
   return actor.roles.some((role) => role.code === 'DIRECTOR'
     && role.scopeType === 'GLOBAL'
     && permissions.some((permission) => role.permissions?.includes(permission)));
+}
+
+export function hasGlobalDirectorPermissions(actor: AuthUser, permissions: readonly string[]): boolean {
+  return actor.roles.some((role) => role.code === 'DIRECTOR'
+    && role.scopeType === 'GLOBAL'
+    && permissions.every((permission) => role.permissions?.includes(permission)));
 }
 
 export function hasDepartmentManagerPermission(
@@ -46,6 +54,49 @@ export interface DepartmentManagerReviewAssignment {
 
 export type BscReviewAssignment = DirectorReviewAssignment | DepartmentManagerReviewAssignment;
 export type BscReviewStage = 'PLAN' | 'EVALUATION';
+export type BscReviewDecisionSource = 'PRIMARY_ROUTE' | 'DIRECTOR_OVERRIDE';
+
+export interface BscReviewAuthority {
+  reviewerRole: 'DIRECTOR' | 'MANAGER';
+  decisionSource: BscReviewDecisionSource;
+  primaryReviewerId: string | null;
+  primaryReviewerRole: 'DIRECTOR' | 'MANAGER';
+}
+
+export function resolveActorReviewAuthority(
+  actor: AuthUser,
+  departmentId: string,
+  permission: string,
+  reviewers: BscReviewAssignment[],
+): BscReviewAuthority | null {
+  const primary = reviewers.find(({ id }) => id === actor.id);
+  if (primary) {
+    const hasPrimaryPermission = actor.roles.some((role) => role.code === primary.role
+      && role.permissions?.includes(permission)
+      && (primary.role === 'DIRECTOR'
+        ? role.scopeType === 'GLOBAL'
+        : role.scopeType === 'DEPARTMENT' && role.scopeId === departmentId));
+    if (actor.permissions.includes(permission) && hasPrimaryPermission) {
+      return {
+        reviewerRole: primary.role,
+        decisionSource: 'PRIMARY_ROUTE',
+        primaryReviewerId: primary.id,
+        primaryReviewerRole: primary.role,
+      };
+    }
+  }
+
+  if (hasGlobalDirectorPermissions(actor, [permission, BSC_REVIEW_OVERRIDE_PERMISSION])) {
+    const primaryManager = reviewers.find((reviewer) => reviewer.role === 'MANAGER');
+    return {
+      reviewerRole: 'DIRECTOR',
+      decisionSource: 'DIRECTOR_OVERRIDE',
+      primaryReviewerId: primaryManager?.id ?? null,
+      primaryReviewerRole: primaryManager ? 'MANAGER' : 'DIRECTOR',
+    };
+  }
+  return null;
+}
 
 export interface ResolveDirectorReviewInput {
   ownerId: string;
@@ -59,6 +110,30 @@ export interface ResolveReviewInput extends ResolveDirectorReviewInput {
 
 @Injectable()
 export class BscReviewerResolver {
+  async resolveReviewersForDecision(
+    db: Prisma.TransactionClient,
+    input: ResolveReviewInput,
+    actor: AuthUser,
+  ): Promise<BscReviewAssignment[]> {
+    try {
+      return await this.resolveRequiredReviewers(db, input);
+    } catch (error) {
+      const response = error instanceof BadRequestException ? error.getResponse() : null;
+      const code = typeof response === 'object' && response && 'code' in response
+        ? String(response.code)
+        : null;
+      const managerRouteUnavailable = code === 'BSC_DEPARTMENT_MANAGER_REVIEWER_REQUIRED'
+        || code === 'BSC_DEPARTMENT_MANAGER_REVIEWER_AMBIGUOUS';
+      const permission = typeof input.permission === 'string' ? input.permission : null;
+      if (managerRouteUnavailable
+        && permission
+        && hasGlobalDirectorPermissions(actor, [permission, BSC_REVIEW_OVERRIDE_PERMISSION])) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
   async resolveRequiredReviewers(
     db: Prisma.TransactionClient,
     input: ResolveReviewInput,

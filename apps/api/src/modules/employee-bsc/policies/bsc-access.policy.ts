@@ -2,7 +2,8 @@ import { ConflictException, ForbiddenException, Injectable } from '@nestjs/commo
 import { Prisma } from '@prisma/client';
 import { AuthUser } from '../../../common/types/auth-user.type';
 import { PrismaService } from '../../../database/prisma.service';
-import { BscReviewerResolver, BscReviewStage, hasDepartmentManagerPermission, hasGlobalDirectorPermission } from '../../bsc-reviewers/bsc-reviewer-resolver';
+import { BSC_REVIEW_OVERRIDE_PERMISSION, BscReviewAuthority, BscReviewerResolver, BscReviewStage, hasDepartmentManagerPermission,
+  hasGlobalDirectorPermission, resolveActorReviewAuthority } from '../../bsc-reviewers/bsc-reviewer-resolver';
 
 export const BSC_PERMISSIONS = {
   CREATE_OWN: 'bsc.create.own',
@@ -24,6 +25,7 @@ export const BSC_PERMISSIONS = {
   REQUEST_REOPEN: 'bsc.reopen.request',
   REVIEW_REOPEN: 'bsc.reopen.subordinate',
   RESET_APPROVED: 'bsc.reset.approved',
+  REVIEW_OVERRIDE: BSC_REVIEW_OVERRIDE_PERMISSION,
   VIEW_VERSION: 'bsc.version.view',
   DUPLICATE_OWN: 'bsc.duplicate.own',
 } as const;
@@ -70,7 +72,7 @@ export class BscAccessPolicy {
     const reviewerClauses: Prisma.employee_bscWhereInput[] = [];
     if (permissions.some((permission) => this.canReviewAsDirector(actor, permission))) {
       reviewerClauses.push({ AND: [
-        this.currentDirectorEmployeeRouteWhere(stage, now),
+        ...(this.canOverrideAsDirector(actor, permissions) ? [] : [this.currentDirectorEmployeeRouteWhere(stage, now)]),
         { bsc_approval_steps: { some: { stage, status: 'PENDING' } } },
       ] });
     }
@@ -91,10 +93,9 @@ export class BscAccessPolicy {
   pendingReopenWhere(actor: AuthUser, now = new Date()): Prisma.bsc_unlock_requestsWhereInput {
     const reviewerClauses: Prisma.bsc_unlock_requestsWhereInput[] = [];
     if (this.canReviewAsDirector(actor, BSC_PERMISSIONS.REVIEW_REOPEN)) {
-      reviewerClauses.push({ OR: [
-        this.currentDirectorReopenRouteWhere('PLAN', now),
-        this.currentDirectorReopenRouteWhere('EVALUATION', now),
-      ] });
+      reviewerClauses.push(this.canOverrideAsDirector(actor, [BSC_PERMISSIONS.REVIEW_REOPEN])
+        ? {}
+        : { OR: [this.currentDirectorReopenRouteWhere('PLAN', now), this.currentDirectorReopenRouteWhere('EVALUATION', now)] });
     }
     if (this.hasDepartmentManagerRolePermission(actor, BSC_PERMISSIONS.REVIEW_REOPEN)) {
       reviewerClauses.push({ OR: [
@@ -162,7 +163,7 @@ export class BscAccessPolicy {
       || !this.hasScopedPermission(actor, BSC_PERMISSIONS.REQUEST_REOPEN, bsc.employee_id, bsc.department_id)) this.deny();
   }
 
-  async assertCanReviewReopen(actor: AuthUser, request: { stage: string; status: string; reviewer_id: string | null; employee_bsc: BscAccessResource }): Promise<void> {
+  async assertCanReviewReopen(actor: AuthUser, request: { stage: string; status: string; reviewer_id: string | null; employee_bsc: BscAccessResource }): Promise<BscReviewAuthority> {
     const bsc = request.employee_bsc;
     if (request.stage !== 'PLAN' && request.stage !== 'EVALUATION') this.deny();
     if (request.status !== 'PENDING') {
@@ -170,17 +171,14 @@ export class BscAccessPolicy {
     }
     await this.assertActiveResource(bsc);
     if (actor.id === bsc.employee_id) this.deny();
-    const reviewers = await this.reviewerResolver.resolveRequiredReviewers(this.prisma, {
+    const reviewers = await this.reviewerResolver.resolveReviewersForDecision(this.prisma, {
       ownerId: bsc.employee_id,
       departmentId: bsc.department_id,
       stage: request.stage,
       permission: BSC_PERMISSIONS.REVIEW_REOPEN,
-    });
-    const assignment = reviewers.find(({ id }) => id === actor.id);
-    if (assignment?.role === 'MANAGER'
-      && this.hasDepartmentManagerRolePermission(actor, BSC_PERMISSIONS.REVIEW_REOPEN, bsc.department_id)) return;
-    if (assignment?.role === 'DIRECTOR'
-      && this.canReviewAsDirector(actor, BSC_PERMISSIONS.REVIEW_REOPEN)) return;
+    }, actor);
+    const authority = resolveActorReviewAuthority(actor, bsc.department_id, BSC_PERMISSIONS.REVIEW_REOPEN, reviewers);
+    if (authority) return authority;
     this.deny();
   }
 
@@ -210,16 +208,13 @@ export class BscAccessPolicy {
     if (step.status !== 'PENDING') {
       throw new ConflictException({ code: 'BSC_WORKFLOW_CONFLICT', message: 'Trạng thái BSC vừa được thay đổi bởi yêu cầu khác.' });
     }
-    const reviewers = await this.reviewerResolver.resolveRequiredReviewers(this.prisma, {
+    const reviewers = await this.reviewerResolver.resolveReviewersForDecision(this.prisma, {
       ownerId: bsc.employee_id,
       departmentId: bsc.department_id,
       stage,
       permission,
-    });
-    const assignment = reviewers.find(({ id }) => id === actor.id);
-    if (assignment?.role === 'MANAGER'
-      && this.hasDepartmentManagerRolePermission(actor, permission, bsc.department_id)) return;
-    if (assignment?.role === 'DIRECTOR' && this.canReviewAsDirector(actor, permission)) return;
+    }, actor);
+    if (resolveActorReviewAuthority(actor, bsc.department_id, permission, reviewers)) return;
     this.deny();
   }
 
@@ -364,10 +359,9 @@ export class BscAccessPolicy {
     } })) > 0;
   }
 
-  private async hasActiveOwnerOrganization(employeeId: string, departmentId: string): Promise<boolean> {
+  private async hasActiveOwnerOrganization(employeeId: string, _departmentId: string): Promise<boolean> {
     return (await this.prisma.users.count({ where: {
       id: employeeId,
-      department_id: departmentId,
       status: 'ACTIVE',
       deleted_at: null,
       departments: { status: 'ACTIVE' },
@@ -391,6 +385,13 @@ export class BscAccessPolicy {
 
   canReviewAsDirector(actor: AuthUser, permission: string, _departmentId?: string): boolean {
     return hasGlobalDirectorPermission(actor, [permission]);
+  }
+
+  private canOverrideAsDirector(actor: AuthUser, permissions: readonly string[]): boolean {
+    return actor.roles.some((role) => role.code === 'DIRECTOR'
+      && role.scopeType === 'GLOBAL'
+      && role.permissions?.includes(BSC_PERMISSIONS.REVIEW_OVERRIDE)
+      && permissions.some((permission) => role.permissions?.includes(permission)));
   }
 
   private hasDepartmentManagerRolePermission(actor: AuthUser, permission: string, departmentId = actor.departmentId): boolean {

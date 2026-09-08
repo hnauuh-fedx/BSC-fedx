@@ -9,7 +9,7 @@ import { CreateBscItemDto, UpdateBscActualDto, UpdateBscItemDto } from '../dto/b
 import { CreateEmployeeBscDto } from '../dto/create-employee-bsc.dto';
 import { QueryEmployeeBscDto } from '../dto/query-employee-bsc.dto';
 import { UpdateEmployeeBscDto } from '../dto/update-employee-bsc.dto';
-import { SubmitBscDto } from '../dto/submit-bsc.dto';
+import { ReviewBscDto, SubmitBscDto } from '../dto/submit-bsc.dto';
 import { ReturnBscDto } from '../dto/return-bsc.dto';
 import { CreateReopenRequestDto, DuplicateBscDto, QueryReopenRequestDto, RejectReopenRequestDto, ResetApprovedBscDto } from '../dto/reopen-bsc.dto';
 import { AuditRequestMetadata } from '../employee-bsc.types';
@@ -55,8 +55,9 @@ export class EmployeeBscController {
   @Post('reopen-requests/:requestId/approve')
   @HttpCode(200)
   @RequirePermissions(BSC_PERMISSIONS.REVIEW_REOPEN)
-  approveReopenRequest(@CurrentUser() actor: AuthUser, @Param('requestId') requestId: string, @Req() request: Request) {
-    return this.service.approveReopenRequest(actor, requestId, metadata(request));
+  approveReopenRequest(@CurrentUser() actor: AuthUser, @Param('requestId') requestId: string,
+    @Body() dto: ReviewBscDto, @Req() request: Request) {
+    return this.service.approveReopenRequest(actor, requestId, dto.reason, metadata(request));
   }
 
   @Post('reopen-requests/:requestId/reject')
@@ -127,8 +128,8 @@ export class EmployeeBscController {
   @Post(':id/plan/approve')
   @HttpCode(200)
   @RequirePermissions(BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE)
-  approvePlan(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() _dto: SubmitBscDto, @Req() request: Request) {
-    return this.service.approvePlan(actor, id, metadata(request));
+  approvePlan(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() dto: ReviewBscDto, @Req() request: Request) {
+    return this.service.approvePlan(actor, id, dto.reason, metadata(request));
   }
 
   @Post(':id/plan/return')
@@ -156,8 +157,8 @@ export class EmployeeBscController {
   @Post(':id/evaluation/approve')
   @HttpCode(200)
   @RequirePermissions(BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE)
-  approveEvaluation(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() _dto: SubmitBscDto, @Req() request: Request) {
-    return this.service.approveEvaluation(actor, id, metadata(request));
+  approveEvaluation(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() dto: ReviewBscDto, @Req() request: Request) {
+    return this.service.approveEvaluation(actor, id, dto.reason, metadata(request));
   }
 
   @Post(':id/evaluation/return')

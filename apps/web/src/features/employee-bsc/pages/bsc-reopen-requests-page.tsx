@@ -89,13 +89,16 @@ export const BscReopenRequestsPage: React.FC = () => {
 
   const approve = async (item: BscReopenRequest) => {
     if (mutationPending.current) return;
+    if (item.review_decision_source === 'DIRECTOR_OVERRIDE' && !reason.trim()) return;
     mutationPending.current = true;
     setActingId(item.id);
     setError('');
     try {
-      await employeeBscApi.approveReopen(item.id);
+      await (item.review_decision_source === 'DIRECTOR_OVERRIDE'
+        ? employeeBscApi.approveReopen(item.id, reason.trim()) : employeeBscApi.approveReopen(item.id));
       setSelected(null);
       setApproving(null);
+      setReason('');
       setReload(value => value + 1);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể duyệt yêu cầu.');
@@ -173,7 +176,7 @@ export const BscReopenRequestsPage: React.FC = () => {
             <div className="flex flex-col gap-2">
               <Button className="min-h-11 w-full" variant="outline" disabled={Boolean(actingId)} onClick={() => void openDetail(item.id)}><EyeIcon data-icon="inline-start"/>Chi tiết</Button>
               <Button className="min-h-11 w-full" variant="outline" disabled={Boolean(actingId)} onClick={() => { setRejecting(item); setReason(''); }}><XIcon data-icon="inline-start"/>Từ chối</Button>
-              <Button className="min-h-11 w-full" disabled={Boolean(actingId)} onClick={() => setApproving(item)}><CheckIcon data-icon="inline-start"/>Duyệt mở lại</Button>
+              <Button className="min-h-11 w-full" disabled={Boolean(actingId)} onClick={() => { setApproving(item); setReason(''); }}><CheckIcon data-icon="inline-start"/>{item.review_decision_source === 'DIRECTOR_OVERRIDE' ? 'Giám đốc duyệt can thiệp' : 'Duyệt mở lại'}</Button>
             </div>
           </CardContent>
         </Card>)}</div>
@@ -205,8 +208,8 @@ export const BscReopenRequestsPage: React.FC = () => {
                   <Button className="min-h-11 md:min-h-0" variant="outline" size="sm" disabled={Boolean(actingId)} onClick={() => { setRejecting(item); setReason(''); }}>
                     <XIcon data-icon="inline-start"/>Từ chối
                   </Button>
-                  <Button className="min-h-11 md:min-h-0" variant="outline" size="sm" disabled={Boolean(actingId)} onClick={() => setApproving(item)}>
-                    <CheckIcon data-icon="inline-start"/>{actingId === item.id ? 'Đang xử lý…' : 'Duyệt mở lại'}
+                  <Button className="min-h-11 md:min-h-0" variant="outline" size="sm" disabled={Boolean(actingId)} onClick={() => { setApproving(item); setReason(''); }}>
+                    <CheckIcon data-icon="inline-start"/>{actingId === item.id ? 'Đang xử lý…' : item.review_decision_source === 'DIRECTOR_OVERRIDE' ? 'Duyệt can thiệp' : 'Duyệt mở lại'}
                   </Button>
                 </div></TableCell>
               </TableRow>)}</TableBody>
@@ -239,7 +242,7 @@ export const BscReopenRequestsPage: React.FC = () => {
             <Button variant="outline" asChild><Link to={`/employee-bsc/${selected.employee_bsc_id}`}>Xem BSC hiện tại</Link></Button>
             {selected.source_version_id && <Button variant="outline" onClick={() => void openSourceVersion(selected)}>Xem phiên bản nguồn</Button>}
             <Button variant="outline" disabled={Boolean(actingId)} onClick={() => { setRejecting(selected); setSelected(null); setReason(''); }}>Từ chối</Button>
-            <Button disabled={Boolean(actingId)} onClick={() => void approve(selected)}>
+            <Button disabled={Boolean(actingId)} onClick={() => { setApproving(selected); setSelected(null); setReason(''); }}>
               {actingId && <Spinner data-icon="inline-start"/>}Duyệt mở lại
             </Button>
           </div>
@@ -255,8 +258,13 @@ export const BscReopenRequestsPage: React.FC = () => {
         onClose={() => setApproving(null)}
         busy={Boolean(actingId)}
       >
+        {approving?.review_decision_source === 'DIRECTOR_OVERRIDE' && <FieldGroup><Field data-invalid={!reason.trim()}>
+          <FieldLabel htmlFor="override-reopen-reason">Lý do Giám đốc can thiệp</FieldLabel>
+          <Textarea id="override-reopen-reason" aria-invalid={!reason.trim()} maxLength={2000} rows={5} value={reason} onChange={event => setReason(event.target.value)}/>
+          {!reason.trim() && <FieldDescription>Vui lòng nhập lý do cụ thể để lưu audit.</FieldDescription>}
+        </Field></FieldGroup>}
         <div className="dialog-actions">
-          <Button disabled={Boolean(actingId)} onClick={() => approving && void approve(approving)}>
+          <Button disabled={Boolean(actingId) || (approving?.review_decision_source === 'DIRECTOR_OVERRIDE' && !reason.trim())} onClick={() => approving && void approve(approving)}>
             {actingId && <Spinner data-icon="inline-start"/>}Xác nhận duyệt
           </Button>
           <Button variant="outline" disabled={Boolean(actingId)} onClick={() => setApproving(null)}>Hủy</Button>

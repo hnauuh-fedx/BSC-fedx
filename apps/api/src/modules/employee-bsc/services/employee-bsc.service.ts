@@ -101,7 +101,11 @@ export class EmployeeBscService {
       this.repository.findAll({ AND: filters }, query),
       this.repository.findReviewFilterOptions(access),
     ]);
-    return { ...result, filterOptions };
+    const items = await Promise.all(result.items.map(async (item) => ({
+      ...item,
+      review_capabilities: await this.repository.reviewCapabilities(actor, item),
+    })));
+    return { ...result, items, filterOptions };
   }
 
   async findOne(actor: AuthUser, id: string) {
@@ -188,14 +192,29 @@ export class EmployeeBscService {
     await this.policy.assertActiveResource(bsc);
     if (actor.id === bsc.employee_id) this.policy.assertCanRequestReopen(actor, bsc);
     else this.policy.assertCanViewReopenHistory(actor, bsc);
-    return this.repository.findReopenRequestsForBsc(bscId);
+    const requests = await this.repository.findReopenRequestsForBsc(bscId);
+    if (actor.id === bsc.employee_id) return requests;
+    return Promise.all(requests.map(async (request) => {
+      if (request.status !== 'PENDING') return request;
+      try {
+        return { ...request, review_decision_source: (await this.policy.assertCanReviewReopen(actor, request)).decisionSource };
+      } catch (error) {
+        if (error instanceof ForbiddenException) return request;
+        throw error;
+      }
+    }));
   }
 
-  pendingReopenRequests(actor: AuthUser, query: QueryReopenRequestDto) {
+  async pendingReopenRequests(actor: AuthUser, query: QueryReopenRequestDto) {
     if (!actor.permissions.includes(BSC_PERMISSIONS.REVIEW_REOPEN)) {
       throw new ForbiddenException({ code: 'BSC_ACCESS_DENIED', message: 'Không có quyền xử lý yêu cầu mở lại.' });
     }
-    return this.repository.findPendingReopenRequests(this.policy.pendingReopenWhere(actor), query);
+    const result = await this.repository.findPendingReopenRequests(this.policy.pendingReopenWhere(actor), query);
+    const items = await Promise.all(result.items.map(async (item) => ({
+      ...item,
+      review_decision_source: (await this.policy.assertCanReviewReopen(actor, item)).decisionSource,
+    })));
+    return { ...result, items };
   }
 
   async reopenRequestDetail(actor: AuthUser, requestId: string) {
@@ -204,14 +223,25 @@ export class EmployeeBscService {
     await this.policy.assertActiveResource(request.employee_bsc);
     if (actor.id === request.employee_bsc.employee_id) this.policy.assertCanRequestReopen(actor, request.employee_bsc);
     else this.policy.assertCanViewReopenHistory(actor, request.employee_bsc);
-    return request;
+    if (actor.id === request.employee_bsc.employee_id || request.status !== 'PENDING') return request;
+    try {
+      return { ...request, review_decision_source: (await this.policy.assertCanReviewReopen(actor, request)).decisionSource };
+    } catch (error) {
+      if (error instanceof ForbiddenException) return request;
+      throw error;
+    }
   }
 
-  async approveReopenRequest(actor: AuthUser, requestId: string, metadata: AuditRequestMetadata) {
+  async approveReopenRequest(actor: AuthUser, requestId: string, reason: string | undefined, metadata: AuditRequestMetadata) {
     const request = await this.repository.findReopenRequest(requestId);
     if (!request) throw new NotFoundException({ code: 'BSC_REOPEN_REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu mở lại.' });
     await this.policy.assertCanReviewReopen(actor, request);
-    return this.repository.approveReopenRequest(actor, requestId, metadata, (snapshot) => this.assertReopenDecision(actor, snapshot));
+    return this.repository.approveReopenRequest(actor, requestId, metadata, (snapshot, authority) => {
+      this.assertReopenDecision(actor, snapshot);
+      return authority.decisionSource === 'DIRECTOR_OVERRIDE'
+        ? this.normalizeReason(reason, 'BSC_OVERRIDE_REASON_REQUIRED')
+        : null;
+    });
   }
 
   async rejectReopenRequest(actor: AuthUser, requestId: string, rawReason: string, metadata: AuditRequestMetadata) {
@@ -255,8 +285,8 @@ export class EmployeeBscService {
     });
   }
 
-  approvePlan(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
-    return this.reviewPlan(actor, id, 'APPROVE_PLAN', undefined, metadata);
+  approvePlan(actor: AuthUser, id: string, reason: string | undefined, metadata: AuditRequestMetadata) {
+    return this.reviewPlan(actor, id, 'APPROVE_PLAN', reason, metadata);
   }
 
   returnPlan(actor: AuthUser, id: string, reason: string, metadata: AuditRequestMetadata) {
@@ -283,8 +313,8 @@ export class EmployeeBscService {
     });
   }
 
-  approveEvaluation(actor: AuthUser, id: string, metadata: AuditRequestMetadata) {
-    return this.reviewEvaluation(actor, id, 'APPROVE_EVALUATION', undefined, metadata);
+  approveEvaluation(actor: AuthUser, id: string, reason: string | undefined, metadata: AuditRequestMetadata) {
+    return this.reviewEvaluation(actor, id, 'APPROVE_EVALUATION', reason, metadata);
   }
 
   returnEvaluation(actor: AuthUser, id: string, reason: string, metadata: AuditRequestMetadata) {
@@ -378,8 +408,11 @@ export class EmployeeBscService {
     const bsc = await this.requireBsc(id);
     await this.policy.assertCanReview(actor, bsc, 'PLAN', action === 'APPROVE_PLAN'
       ? BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE : BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE);
-    return this.repository.reviewPlanWorkflow(actor, id, action, metadata, (snapshot) => {
-      const normalizedReason = this.workflow.assertCanReviewPlan(actor, this.workflowContext(snapshot), action, reason);
+    return this.repository.reviewPlanWorkflow(actor, id, action, metadata, (snapshot, authority) => {
+      const workflowReason = this.workflow.assertCanReviewPlan(actor, this.workflowContext(snapshot), action, reason);
+      const normalizedReason = authority.decisionSource === 'DIRECTOR_OVERRIDE'
+        ? this.normalizeReason(reason, 'BSC_OVERRIDE_REASON_REQUIRED')
+        : workflowReason;
       if (action === 'APPROVE_PLAN') this.workflow.assertPlanDefinitionComplete(this.planDefinition(snapshot));
       return normalizedReason;
     });
@@ -389,9 +422,12 @@ export class EmployeeBscService {
     const bsc = await this.requireBsc(id);
     await this.policy.assertCanReview(actor, bsc, 'EVALUATION', action === 'APPROVE_EVALUATION'
       ? BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE : BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE);
-    return this.repository.reviewEvaluationWorkflow(actor, id, action, metadata, (snapshot) => {
+    return this.repository.reviewEvaluationWorkflow(actor, id, action, metadata, (snapshot, authority) => {
       const result = this.scoreSnapshot(snapshot);
-      const normalizedReason = this.workflow.assertCanReviewEvaluation(actor, this.workflowContext(snapshot), action, reason);
+      const workflowReason = this.workflow.assertCanReviewEvaluation(actor, this.workflowContext(snapshot), action, reason);
+      const normalizedReason = authority.decisionSource === 'DIRECTOR_OVERRIDE'
+        ? this.normalizeReason(reason, 'BSC_OVERRIDE_REASON_REQUIRED')
+        : workflowReason;
       this.workflow.assertEvaluationScoringComplete(result);
       return { scoring: result, reason: normalizedReason };
     });

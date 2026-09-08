@@ -78,6 +78,20 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       role_id: canonicalManagerRole.id, permission_id: id,
     })), skipDuplicates: true });
     const directorRole = await prisma.roles.findUniqueOrThrow({ where: { code: 'DIRECTOR' } });
+    await prisma.permissions.upsert({
+      where: { code: 'bsc.review.override' },
+      create: { code: 'bsc.review.override', name: 'bsc.review.override', module: 'bsc' },
+      update: {},
+    });
+    const directorPermissionRows = await prisma.permissions.findMany({ where: { code: { in: [
+      BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE, BSC_PERMISSIONS.RETURN_PLAN_SUBORDINATE,
+      BSC_PERMISSIONS.APPROVE_EVALUATION_SUBORDINATE, BSC_PERMISSIONS.RETURN_EVALUATION_SUBORDINATE,
+      BSC_PERMISSIONS.REVIEW_REOPEN, BSC_PERMISSIONS.RESET_APPROVED, BSC_PERMISSIONS.REVIEW_OVERRIDE,
+    ] } }, select: { id: true } });
+    await prisma.role_permissions.createMany({
+      data: directorPermissionRows.map(({ id }) => ({ role_id: directorRole.id, permission_id: id })),
+      skipDuplicates: true,
+    });
     const adminRole = await role('ADMIN', []);
     const selfApprovalRole = await role('ADMIN_SELF_BSC', [BSC_PERMISSIONS.VIEW_UNIT, BSC_PERMISSIONS.APPROVE_PLAN_SUBORDINATE]);
     const unrelatedGlobalRole = await role('UNRELATED_GLOBAL', []);
@@ -109,6 +123,7 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
     const managerEvalOwner = await user('MANAGER_EVAL_OWNER', departmentA.id, canonicalManagerRole.id, 'DEPARTMENT', directorA.id);
     const handoverManager = await user('HANDOVER_MANAGER', departmentA.id, canonicalManagerRole.id, 'DEPARTMENT', directorA.id);
     const routedEmployee = await user('ROUTED_EMPLOYEE', departmentA.id, employeeRole.id, 'SELF', routedManager.id);
+    const overrideEmployee = await user('OVERRIDE_EMPLOYEE', departmentA.id, employeeRole.id, 'SELF', routedManager.id);
     const legacyRoutedEmployee = await user('LEGACY_EMP', departmentA.id, employeeRole.id, 'SELF', routedManager.id);
     const handoverEmployee = await user('HANDOVER_EMPLOYEE', departmentA.id, employeeRole.id, 'SELF', routedManager.id);
     const admin = await user('ADMIN', departmentA.id, adminRole.id, 'GLOBAL');
@@ -127,6 +142,7 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
     await relationship(employeeViewOnly.id, managerViewOnly.id, '2020-01-01');
     await relationship(employeeViewOnlyOtherDepartment.id, managerViewOnly.id, '2020-01-01');
     await relationship(routedEmployee.id, routedManager.id, '2020-01-01');
+    await relationship(overrideEmployee.id, routedManager.id, '2020-01-01');
     await relationship(managerBscOwner.id, directorA.id, '2020-01-01');
     await relationship(managerEvalOwner.id, directorA.id, '2020-01-01');
     await relationship(legacyRoutedEmployee.id, routedManager.id, '2020-01-01');
@@ -164,6 +180,7 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
     const managerBBsc = await bsc(managerB, directorB.id);
     const directorABsc = await bsc(directorA, directorA.id);
     const approvedEmployeeBBsc = await bsc(employeeB2, managerB.id, 'APPROVED', 'APPROVED');
+    const directorOverridePlanBsc = await bsc(overrideEmployee, routedManager.id);
     const legacyRoutedEvaluationBsc = await bsc(legacyRoutedEmployee, routedManager.id, 'APPROVED', 'SUBMITTED');
     const employeeViewOnlyBsc = await bsc(employeeViewOnly, managerViewOnly.id);
     const employeeViewOnlyOtherDepartmentBsc = await bsc(employeeViewOnlyOtherDepartment, managerViewOnly.id);
@@ -286,7 +303,7 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       assert.equal(reopened.plan_status, 'REOPENED');
     });
 
-    await t.test('configured department manager reviews and resets employee stages while own BSC stays with DIRECTOR', async () => {
+    await t.test('configured department manager is primary while GLOBAL DIRECTOR can intervene and own BSC stays with DIRECTOR', async () => {
       const employeeRecord = await bsc(routedEmployee, routedManager.id, 'DRAFT', 'NOT_STARTED');
       const submittedPlan = await request(server).post(`/employee-bsc/${employeeRecord.id}/plan/submit`)
         .set(auth(tokens.routedEmployee)).send({}).expect(200);
@@ -296,17 +313,35 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       });
       assert.equal(planStep.approver_id, routedManager.id);
       assert.equal(planStep.approver_role, 'MANAGER');
-      await request(server).post(`/employee-bsc/${employeeRecord.id}/plan/approve`).set(auth(tokens.directorA)).send({}).expect(403);
+      await request(server).post(`/employee-bsc/${employeeRecord.id}/plan/approve`).set(auth(tokens.directorA)).send({}).expect(400);
       await request(server).post(`/employee-bsc/${employeeRecord.id}/plan/approve`).set(auth(tokens.routedManager)).send({}).expect(200);
 
       await prisma.employee_bsc_items.updateMany({ where: { employee_bsc_id: employeeRecord.id }, data: { actual_value: 100 } });
       await request(server).post(`/employee-bsc/${employeeRecord.id}/evaluation/submit`).set(auth(tokens.routedEmployee)).send({}).expect(200);
-      await request(server).post(`/employee-bsc/${employeeRecord.id}/evaluation/approve`).set(auth(tokens.routedManager)).send({}).expect(200);
+      const missingEvaluationReason = await request(server).post(`/employee-bsc/${employeeRecord.id}/evaluation/approve`)
+        .set(auth(tokens.directorA)).send({}).expect(400);
+      assert.equal(missingEvaluationReason.body.code, 'BSC_OVERRIDE_REASON_REQUIRED');
+      await request(server).post(`/employee-bsc/${employeeRecord.id}/evaluation/approve`).set(auth(tokens.directorA))
+        .send({ reason: 'Giám đốc duyệt thay kết quả trong thời gian Trưởng phòng vắng mặt' }).expect(200);
+      const overriddenEvaluationStep = await prisma.bsc_approval_steps.findUniqueOrThrow({
+        where: { employee_bsc_id_stage_step_order: { employee_bsc_id: employeeRecord.id, stage: 'EVALUATION', step_order: 1 } },
+      });
+      assert.equal(overriddenEvaluationStep.approver_id, routedManager.id);
+      assert.equal(overriddenEvaluationStep.approver_role, 'MANAGER');
+      assert.equal(overriddenEvaluationStep.acted_by, directorA.id);
+      assert.equal(overriddenEvaluationStep.acted_as_role, 'DIRECTOR');
+      assert.equal(overriddenEvaluationStep.decision_source, 'DIRECTOR_OVERRIDE');
       await request(server).post(`/employee-bsc/${employeeRecord.id}/evaluation/reset-approved`).set(auth(tokens.directorA))
-        .send({ reason: 'Giám đốc không thuộc tuyến duyệt này' }).expect(403);
-      await request(server).post(`/employee-bsc/${employeeRecord.id}/evaluation/reset-approved`).set(auth(tokens.routedManager))
-        .send({ reason: 'Điều chỉnh kết quả trong phạm vi phòng ban' }).expect(200);
+        .send({ reason: 'Giám đốc mở lại để can thiệp kết quả' }).expect(200);
       assert.equal((await prisma.employee_bsc.findUniqueOrThrow({ where: { id: employeeRecord.id } })).evaluation_status, 'REOPENED');
+      const overrideReset = await prisma.bsc_unlock_requests.findFirstOrThrow({
+        where: { employee_bsc_id: employeeRecord.id, request_source: 'DIRECTOR_RESET', stage: 'EVALUATION' },
+        orderBy: { requested_at: 'desc' },
+      });
+      assert.equal(overrideReset.decision_source, 'DIRECTOR_OVERRIDE');
+      assert.equal(await prisma.bsc_status_histories.count({
+        where: { employee_bsc_id: employeeRecord.id, action: 'RESET_EVALUATION_APPROVED_OVERRIDE' },
+      }), 1);
 
       await request(server).post(`/employee-bsc/${employeeRecord.id}/evaluation/submit`).set(auth(tokens.routedEmployee)).send({}).expect(200);
       await request(server).post(`/employee-bsc/${employeeRecord.id}/evaluation/approve`).set(auth(tokens.routedManager)).send({}).expect(200);
@@ -342,8 +377,19 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
         .set(auth(tokens.routedManager)).send({ reason: 'Chưa đủ căn cứ' }).expect(200);
       const approvedRequest = await request(server).post(`/employee-bsc/${employeeRecord.id}/reopen-requests`)
         .set(auth(tokens.routedEmployee)).send({ stage: 'EVALUATION', reason: 'Đã bổ sung căn cứ' }).expect(201);
+      const directorQueue = await request(server).get('/employee-bsc/reopen-requests/pending?stage=EVALUATION&limit=100')
+        .set(auth(tokens.directorA)).expect(200);
+      const queuedOverride = directorQueue.body.items.find((item: { id: string }) => item.id === approvedRequest.body.id);
+      assert.equal(queuedOverride.review_decision_source, 'DIRECTOR_OVERRIDE');
+      const missingReopenReason = await request(server).post(`/employee-bsc/reopen-requests/${approvedRequest.body.id}/approve`)
+        .set(auth(tokens.directorA)).send({}).expect(400);
+      assert.equal(missingReopenReason.body.code, 'BSC_OVERRIDE_REASON_REQUIRED');
       await request(server).post(`/employee-bsc/reopen-requests/${approvedRequest.body.id}/approve`)
-        .set(auth(tokens.routedManager)).send({}).expect(200);
+        .set(auth(tokens.directorA)).send({ reason: 'Giám đốc duyệt mở lại thay Trưởng phòng' }).expect(200);
+      const reviewedRequest = await prisma.bsc_unlock_requests.findUniqueOrThrow({ where: { id: approvedRequest.body.id } });
+      assert.equal(reviewedRequest.reviewer_id, routedManager.id);
+      assert.equal(reviewedRequest.reviewed_by, directorA.id);
+      assert.equal(reviewedRequest.decision_source, 'DIRECTOR_OVERRIDE');
       assert.equal((await prisma.employee_bsc.findUniqueOrThrow({ where: { id: employeeRecord.id } })).evaluation_status, 'REOPENED');
 
       await request(server).post(`/employee-bsc/${approvedEmployeeBBsc.id}/plan/reset-approved`).set(auth(tokens.routedManager))
@@ -367,6 +413,40 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       assert.equal(detail.body.review_capabilities.canReturnEvaluation, true);
       await request(server).post(`/employee-bsc/${legacyRoutedEvaluationBsc.id}/evaluation/return`)
         .set(auth(tokens.routedManager)).send({ reason: 'Bổ sung kết quả đánh giá' }).expect(200);
+    });
+
+    await t.test('GLOBAL DIRECTOR can override a department-manager PLAN with a required reason', async () => {
+      const pending = await request(server).get('/employee-bsc/pending-review?stage=PLAN&limit=100')
+        .set(auth(tokens.directorA)).expect(200);
+      assert.ok(pending.body.items.some((item: { id: string }) => item.id === directorOverridePlanBsc.id));
+
+      const detail = await request(server).get(`/employee-bsc/${directorOverridePlanBsc.id}`)
+        .set(auth(tokens.directorA)).expect(200);
+      assert.equal(detail.body.review_capabilities.canApprovePlan, true);
+      assert.equal(detail.body.review_capabilities.planDecisionSource, 'DIRECTOR_OVERRIDE');
+
+      const missingReason = await request(server).post(`/employee-bsc/${directorOverridePlanBsc.id}/plan/approve`)
+        .set(auth(tokens.directorA)).send({}).expect(400);
+      assert.equal(missingReason.body.code, 'BSC_OVERRIDE_REASON_REQUIRED');
+
+      const approved = await request(server).post(`/employee-bsc/${directorOverridePlanBsc.id}/plan/approve`)
+        .set(auth(tokens.directorA)).send({ reason: 'Phê duyệt thay do Trưởng phòng vắng mặt' }).expect(200);
+      assert.equal(approved.body.plan_status, 'APPROVED');
+      assert.equal(approved.body.plan_approved_by, directorA.id);
+      const step = await prisma.bsc_approval_steps.findUniqueOrThrow({
+        where: { employee_bsc_id_stage_step_order: { employee_bsc_id: directorOverridePlanBsc.id, stage: 'PLAN', step_order: 1 } },
+      });
+      assert.equal(step.approver_id, routedManager.id);
+      assert.equal(step.approver_role, 'MANAGER');
+      assert.equal(step.acted_by, directorA.id);
+      assert.equal(step.acted_as_role, 'DIRECTOR');
+      assert.equal(step.decision_source, 'DIRECTOR_OVERRIDE');
+      const review = await prisma.bsc_reviews.findFirstOrThrow({
+        where: { employee_bsc_id: directorOverridePlanBsc.id, stage: 'PLAN' }, orderBy: { reviewed_at: 'desc' },
+      });
+      assert.equal(review.reviewer_id, directorA.id);
+      assert.equal(review.reviewer_role, 'DIRECTOR');
+      assert.equal(review.decision_source, 'DIRECTOR_OVERRIDE');
     });
 
     await t.test('the current department head can take over a manager-routed pending submission', async () => {
@@ -393,6 +473,31 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       });
       assert.equal(step.approver_id, handoverManager.id);
       assert.equal(step.status, 'APPROVED');
+    });
+
+    await t.test('GLOBAL DIRECTOR can intervene when a configured department has no active head', async () => {
+      await prisma.department_manager_assignments.updateMany({
+        where: { department_id: departmentA.id, is_primary: true },
+        data: { end_date: new Date('2026-09-07') },
+      });
+
+      const detail = await request(server).get(`/employee-bsc/${employeeABsc.id}`)
+        .set(auth(tokens.directorA)).expect(200);
+      assert.equal(detail.body.review_capabilities.canApprovePlan, true);
+      assert.equal(detail.body.review_capabilities.planDecisionSource, 'DIRECTOR_OVERRIDE');
+
+      const missingReason = await request(server).post(`/employee-bsc/${employeeABsc.id}/plan/approve`)
+        .set(auth(tokens.directorA)).send({}).expect(400);
+      assert.equal(missingReason.body.code, 'BSC_OVERRIDE_REASON_REQUIRED');
+      await request(server).post(`/employee-bsc/${employeeABsc.id}/plan/approve`)
+        .set(auth(tokens.directorA)).send({ reason: 'Giám đốc xử lý để hồ sơ không bị treo khi phòng ban đang khuyết Trưởng phòng' })
+        .expect(200);
+    });
+
+    await t.test('a department transfer does not make an existing BSC inaccessible', async () => {
+      await prisma.users.update({ where: { id: employeeA.id }, data: { department_id: departmentB.id } });
+      await request(server).get(`/employee-bsc/${employeeABsc.id}`).set(auth(tokens.directorA)).expect(200);
+      await prisma.users.update({ where: { id: employeeA.id }, data: { department_id: departmentA.id } });
     });
 
     await t.test('reports and aggregates exclude the other department', async () => {

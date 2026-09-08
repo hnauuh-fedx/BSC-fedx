@@ -100,12 +100,17 @@ export const BscPendingReviewPage: React.FC = () => {
   }, [load, reload]);
 
   const approve = async (item: EmployeeBsc) => {
+    const decisionSource = stage === 'PLAN' ? item.review_capabilities?.planDecisionSource : item.review_capabilities?.evaluationDecisionSource;
+    if (decisionSource === 'DIRECTOR_OVERRIDE' && !reason.trim()) return;
     setActingId(item.id);
     setError('');
     try {
-      if (stage === 'PLAN') await employeeBscApi.approvePlan(item.id);
-      else await employeeBscApi.approveEvaluation(item.id);
+      if (stage === 'PLAN') await (decisionSource === 'DIRECTOR_OVERRIDE'
+        ? employeeBscApi.approvePlan(item.id, reason.trim()) : employeeBscApi.approvePlan(item.id));
+      else await (decisionSource === 'DIRECTOR_OVERRIDE'
+        ? employeeBscApi.approveEvaluation(item.id, reason.trim()) : employeeBscApi.approveEvaluation(item.id));
       setApproving(null);
+      setReason('');
       setReload(value => value + 1);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể duyệt BSC.');
@@ -194,7 +199,7 @@ export const BscPendingReviewPage: React.FC = () => {
               <dl><dt>Đơn vị</dt><dd>{item.departments.name}</dd><dt>Ngày nộp</dt><dd>{formatDate(stage === 'PLAN' ? item.plan_submitted_at : item.evaluation_submitted_at)}</dd><dt>Trạng thái</dt><dd><BscStatusBadge status={stage === 'PLAN' ? item.plan_status : item.evaluation_status}/></dd></dl>
               <div className="flex flex-col gap-2">
                 {canReturn && <Button className="min-h-11 w-full" variant="outline" disabled={Boolean(actingId)} onClick={() => { setReturning(item); setReason(''); }}><RotateCcwIcon data-icon="inline-start"/>Trả lại</Button>}
-                {canApprove && <Button className="min-h-11 w-full" disabled={Boolean(actingId)} onClick={() => setApproving(item)}><CheckIcon data-icon="inline-start"/>Duyệt</Button>}
+                {canApprove && <Button className="min-h-11 w-full" disabled={Boolean(actingId)} onClick={() => { setApproving(item); setReason(''); }}><CheckIcon data-icon="inline-start"/>{item.review_capabilities?.[stage === 'PLAN' ? 'planDecisionSource' : 'evaluationDecisionSource'] === 'DIRECTOR_OVERRIDE' ? 'Duyệt can thiệp' : 'Duyệt'}</Button>}
               </div>
             </CardContent>
           </Card>)}</div>
@@ -225,8 +230,8 @@ export const BscPendingReviewPage: React.FC = () => {
                       </Button>
                     }
                     {canApprove &&
-                      <Button className="min-h-11 md:min-h-0" variant="outline" size="sm" disabled={Boolean(actingId)} onClick={() => setApproving(item)}>
-                        <CheckIcon data-icon="inline-start"/>{actingId === item.id ? 'Đang xử lý…' : 'Duyệt'}
+                      <Button className="min-h-11 md:min-h-0" variant="outline" size="sm" disabled={Boolean(actingId)} onClick={() => { setApproving(item); setReason(''); }}>
+                        <CheckIcon data-icon="inline-start"/>{actingId === item.id ? 'Đang xử lý…' : item.review_capabilities?.[stage === 'PLAN' ? 'planDecisionSource' : 'evaluationDecisionSource'] === 'DIRECTOR_OVERRIDE' ? 'Duyệt can thiệp' : 'Duyệt'}
                       </Button>
                     }
                   </div></TableCell>
@@ -245,8 +250,13 @@ export const BscPendingReviewPage: React.FC = () => {
         onClose={() => setApproving(null)}
         busy={Boolean(actingId)}
       >
+        {approving?.review_capabilities?.[stage === 'PLAN' ? 'planDecisionSource' : 'evaluationDecisionSource'] === 'DIRECTOR_OVERRIDE' && <FieldGroup><Field data-invalid={!reason.trim()}>
+          <FieldLabel htmlFor="override-approve-reason">Lý do Giám đốc can thiệp</FieldLabel>
+          <Textarea id="override-approve-reason" aria-invalid={!reason.trim()} maxLength={2000} rows={5} value={reason} onChange={event => setReason(event.target.value)}/>
+          {!reason.trim() && <FieldDescription>Vui lòng nhập lý do cụ thể để lưu audit.</FieldDescription>}
+        </Field></FieldGroup>}
         <div className="dialog-actions">
-          <Button disabled={Boolean(actingId)} onClick={() => approving && void approve(approving)}>
+          <Button disabled={Boolean(actingId) || (approving?.review_capabilities?.[stage === 'PLAN' ? 'planDecisionSource' : 'evaluationDecisionSource'] === 'DIRECTOR_OVERRIDE' && !reason.trim())} onClick={() => approving && void approve(approving)}>
             {actingId && <Spinner data-icon="inline-start"/>}Xác nhận duyệt
           </Button>
           <Button variant="outline" disabled={Boolean(actingId)} onClick={() => setApproving(null)}>Hủy</Button>

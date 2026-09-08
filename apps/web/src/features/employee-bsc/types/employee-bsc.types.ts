@@ -19,8 +19,11 @@ export type EmployeeBsc = {
   review_capabilities?: {
     canApprovePlan: boolean; canReturnPlan: boolean; canApproveEvaluation: boolean;
     canReturnEvaluation: boolean; canResetPlan: boolean; canResetEvaluation: boolean;
+    planDecisionSource?: BscReviewDecisionSource | null; evaluationDecisionSource?: BscReviewDecisionSource | null;
+    resetPlanDecisionSource?: BscReviewDecisionSource | null; resetEvaluationDecisionSource?: BscReviewDecisionSource | null;
   };
-  bsc_approval_steps?: Array<{ stage: 'PLAN' | 'EVALUATION'; approver_id: string | null; approver_role: 'DIRECTOR' | 'MANAGER'; status: string }>;
+  bsc_approval_steps?: Array<{ stage: 'PLAN' | 'EVALUATION'; approver_id: string | null; approver_role: 'DIRECTOR' | 'MANAGER'; status: string;
+    acted_by?: string | null; acted_as_role?: 'DIRECTOR' | 'MANAGER' | null; decision_source?: BscReviewDecisionSource }>;
   bsc_cycles: {
     id: string; code: string; name: string; year: number; month: number | null; status: string;
       start_date?: string; end_date?: string | null;
@@ -70,11 +73,15 @@ export type BscReopenRequest = {
   request_source?: 'OWNER_REQUEST' | 'DIRECTOR_RESET' | 'MANAGER_RESET';
   request_reason: string; requested_at: string; status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
   reviewed_by: string | null; review_comment: string | null; reviewed_at: string | null;
+  decision_source?: BscReviewDecisionSource; review_decision_source?: BscReviewDecisionSource;
   source_version_id: string | null; resulting_version_id: string | null;
   users_bsc_unlock_requests_requested_byTousers: { id: string; employee_code: string; full_name: string };
   users_bsc_unlock_requests_reviewer_idTousers: { id: string; employee_code: string; full_name: string } | null;
+  users_bsc_unlock_requests_reviewed_byTousers?: { id: string; employee_code: string; full_name: string } | null;
   employee_bsc: EmployeeBsc;
 };
+
+export type BscReviewDecisionSource = 'PRIMARY_ROUTE' | 'DIRECTOR_OVERRIDE';
 
 export type BscReopenPage = { items: BscReopenRequest[]; page: number; limit: number; total: number };
 export type BscDuplicateOptions = {

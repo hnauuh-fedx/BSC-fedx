@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -139,5 +139,26 @@ describe('BscPendingReviewPage', () => {
 
     expect(await screen.findByRole('columnheader', { name: 'Hồ sơ BSC' })).toBeVisible();
     expect(employeeBscApi.pendingReview).toHaveBeenCalled();
+  });
+
+  it('requires and sends a reason when a GLOBAL DIRECTOR approves as an override', async () => {
+    const user = userEvent.setup();
+    vi.mocked(employeeBscApi.pendingReview).mockResolvedValue({
+      items: [{ ...pendingBsc, review_capabilities: {
+        canApprovePlan: true, canReturnPlan: true, canApproveEvaluation: false, canReturnEvaluation: false,
+        canResetPlan: false, canResetEvaluation: false, planDecisionSource: 'DIRECTOR_OVERRIDE',
+      } }],
+      page: 1, limit: 10, total: 1,
+      filterOptions: { cycles: [], departments: [] },
+    });
+
+    render(<MemoryRouter><BscPendingReviewPage /></MemoryRouter>);
+    await user.click((await screen.findAllByRole('button', { name: 'Duyệt can thiệp' }))[0]);
+    const confirmButton = screen.getByRole('button', { name: 'Xác nhận duyệt' });
+    expect(confirmButton).toBeDisabled();
+    await user.type(screen.getByLabelText('Lý do Giám đốc can thiệp'), 'Trưởng phòng vắng mặt');
+    await user.click(confirmButton);
+
+    await waitFor(() => expect(employeeBscApi.approvePlan).toHaveBeenCalledWith('bsc-1', 'Trưởng phòng vắng mặt'));
   });
 });
