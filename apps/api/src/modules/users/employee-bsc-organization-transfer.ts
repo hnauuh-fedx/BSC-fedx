@@ -19,6 +19,7 @@ export interface EmployeeBscTransferInput extends EmployeeOrganizationTarget {
   employeeId: string;
   previousDepartmentId?: string;
   actorId: string;
+  actorRoleCodes: string[];
   reason: string;
   source: 'USER_UPDATE' | 'RELEASE_BACKFILL';
 }
@@ -45,13 +46,13 @@ async function reconcileTransferredUserRoleScopes(
   });
 
   const transferredRoleAssignmentIds: string[] = [];
+  const repairsAgainstCurrentDepartment = input.source === 'RELEASE_BACKFILL';
   for (const assignment of assignments) {
     const isEmployeeRole = assignment.roles.code === 'EMPLOYEE'
-      && (input.previousDepartmentId === undefined || assignment.scope_id === input.previousDepartmentId);
+      && (repairsAgainstCurrentDepartment || assignment.scope_id === input.previousDepartmentId);
     const isManagerRole = assignment.roles.code === 'MANAGER'
-      && input.previousDepartmentId !== undefined
-      && input.previousDepartmentId !== input.departmentId
-      && assignment.scope_id === input.previousDepartmentId;
+      && assignment.scope_id !== input.departmentId
+      && (repairsAgainstCurrentDepartment || assignment.scope_id === input.previousDepartmentId);
     if (!isEmployeeRole && !isManagerRole) continue;
 
     const nextScope = isEmployeeRole
@@ -86,6 +87,7 @@ async function reconcileTransferredUserRoleScopes(
         scopeId: nextScope.scopeId,
         reason: input.reason,
         source: input.source,
+        actorRoleCodes: input.actorRoleCodes,
         transferredAt: now.toISOString(),
       } as Prisma.InputJsonValue,
     } });

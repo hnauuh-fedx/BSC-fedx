@@ -631,10 +631,15 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
       assert.ok(await prisma.audit_logs.count({ where: { entity_id: employeeBBsc.id, action: 'BSC_ORGANIZATION_TRANSFERRED' } }));
     });
 
-    await t.test('release backfill reconciles two transferred employees once', async () => {
+    await t.test('release backfill reconciles transferred BSC and canonical role scopes once', async () => {
       const first = await user('BACKFILL_FIRST', departmentB.id, employeeRole.id, 'SELF', managerB.id);
       const second = await user('BACKFILL_SECOND', departmentB.id, employeeRole.id, 'SELF', managerB.id);
       const legacyScope = await user('BACKFILL_SCOPE', departmentB.id, canonicalEmployeeRole.id, 'DEPARTMENT', managerB.id);
+      const legacyManagerScope = await user('BACKFILL_MANAGER', departmentA.id, canonicalManagerRole.id, 'DEPARTMENT', directorA.id);
+      await prisma.user_roles.updateMany({
+        where: { user_id: legacyManagerScope.id, role_id: canonicalManagerRole.id },
+        data: { scope_id: departmentB.id },
+      });
       await relationship(first.id, managerB.id, '2020-01-01');
       await relationship(second.id, managerB.id, '2020-01-01');
       await relationship(legacyScope.id, managerB.id, '2020-01-01');
@@ -663,33 +668,49 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
 
       const discoveryDryRun = await backfillTransferredEmployeeBsc(prisma, 'ALL', 'DRY_RUN', admin.id);
       assert.ok(discoveryDryRun.requestedEmployeeIds.includes(legacyScope.id));
-      assert.ok(discoveryDryRun.candidateRoleScopeCount >= 1);
+      assert.ok(discoveryDryRun.requestedEmployeeIds.includes(legacyManagerScope.id));
+      assert.ok(discoveryDryRun.candidateRoleScopeCount >= 2);
       assert.equal((await prisma.user_roles.findFirstOrThrow({ where: {
         user_id: legacyScope.id, role_id: canonicalEmployeeRole.id,
       } })).scope_type, 'DEPARTMENT');
 
-      const dryRun = await backfillTransferredEmployeeBsc(prisma, `${first.id}, ${second.id}, ${legacyScope.id}`, 'DRY_RUN', admin.id);
+      const backfillIds = `${first.id}, ${second.id}, ${legacyScope.id}, ${legacyManagerScope.id}`;
+      const dryRun = await backfillTransferredEmployeeBsc(prisma, backfillIds, 'DRY_RUN', admin.id);
       assert.equal(dryRun.candidateBscCount, 2);
       assert.equal(dryRun.transferredBscCount, 0);
-      assert.equal(dryRun.candidateRoleScopeCount, 1);
+      assert.equal(dryRun.candidateRoleScopeCount, 2);
       assert.equal(dryRun.transferredRoleScopeCount, 0);
       assert.equal((await prisma.user_roles.findFirstOrThrow({ where: {
         user_id: legacyScope.id, role_id: canonicalEmployeeRole.id,
       } })).scope_type, 'DEPARTMENT');
+      assert.equal((await prisma.user_roles.findFirstOrThrow({ where: {
+        user_id: legacyManagerScope.id, role_id: canonicalManagerRole.id,
+      } })).scope_id, departmentB.id);
       assert.equal((await prisma.employee_bsc.findUniqueOrThrow({ where: { id: firstBsc.id } })).department_id, departmentB.id);
       assert.equal(await prisma.audit_logs.count({ where: {
         entity_id: { in: [firstBsc.id, secondBsc.id] }, action: 'BSC_ORGANIZATION_TRANSFERRED',
       } }), 0);
 
-      const firstRun = await backfillTransferredEmployeeBsc(prisma, `${first.id}, ${second.id}, ${legacyScope.id}`, 'APPLY', admin.id);
-      assert.deepEqual(firstRun.transferredEmployeeIds.sort(), [first.id, second.id, legacyScope.id].sort());
+      const firstRun = await backfillTransferredEmployeeBsc(prisma, backfillIds, 'APPLY', admin.id);
+      assert.deepEqual(firstRun.transferredEmployeeIds.sort(), [first.id, second.id, legacyScope.id, legacyManagerScope.id].sort());
       assert.equal(firstRun.transferredBscCount, 2);
-      assert.equal(firstRun.transferredRoleScopeCount, 1);
+      assert.equal(firstRun.transferredRoleScopeCount, 2);
       const repairedScope = await prisma.user_roles.findFirstOrThrow({ where: {
         user_id: legacyScope.id, role_id: canonicalEmployeeRole.id,
       } });
       assert.equal(repairedScope.scope_type, 'SELF');
       assert.equal(repairedScope.scope_id, null);
+      const repairedManagerScope = await prisma.user_roles.findFirstOrThrow({ where: {
+        user_id: legacyManagerScope.id, role_id: canonicalManagerRole.id,
+      } });
+      assert.equal(repairedManagerScope.scope_type, 'DEPARTMENT');
+      assert.equal(repairedManagerScope.scope_id, departmentA.id);
+      const roleScopeAudit = await prisma.audit_logs.findFirstOrThrow({ where: {
+        entity_id: repairedManagerScope.id,
+        action: 'USER_ROLE_SCOPE_TRANSFERRED',
+        user_id: admin.id,
+      } });
+      assert.ok((roleScopeAudit.new_data as { actorRoleCodes?: string[] }).actorRoleCodes?.includes(adminRole.code));
       const transferred = await prisma.employee_bsc.findMany({ where: { id: { in: [firstBsc.id, secondBsc.id] } } });
       assert.ok(transferred.every((item) => item.department_id === departmentA.id && item.direct_manager_id === routedManager.id));
       const firstStep = await prisma.bsc_approval_steps.findUniqueOrThrow({ where: {
@@ -706,7 +727,7 @@ test('Phase 3D.1 BSC authorization, DIRECTOR flow and scope isolation', { skip: 
         user_id: admin.id,
       } }), auditCount);
 
-      const secondRun = await backfillTransferredEmployeeBsc(prisma, `${first.id},${second.id},${legacyScope.id}`, 'APPLY', admin.id);
+      const secondRun = await backfillTransferredEmployeeBsc(prisma, backfillIds, 'APPLY', admin.id);
       assert.equal(secondRun.transferredBscCount, 0);
       assert.equal(secondRun.transferredRoleScopeCount, 0);
       assert.equal(await prisma.audit_logs.count({ where: {

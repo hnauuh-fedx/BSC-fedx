@@ -119,6 +119,7 @@ export class UsersService {
             previousDepartmentId: old.department_id,
             ...target,
             actorId: actor.id,
+            actorRoleCodes: [...new Set(actor.roles.map((role) => role.code))],
             reason: transferReason!,
             source: 'USER_UPDATE',
           });

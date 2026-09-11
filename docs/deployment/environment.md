@@ -12,8 +12,9 @@ See [pilot-runbook.md](pilot-runbook.md) for backup, deploy and rollback procedu
 
 When a user was moved before the organization-transfer workflow was deployed, set
 `BSC_TRANSFER_BACKFILL_USER_IDS` to the comma-separated user UUIDs, or set it to
-`ALL` to discover active users whose canonical `EMPLOYEE` assignment still uses
-a department scope. Set
+`ALL` to inspect active users with canonical `EMPLOYEE` or `MANAGER` department
+assignments. The backfill normalizes legacy `EMPLOYEE` scopes and repairs canonical
+`MANAGER` scopes that differ from the user's current department. Set
 `BSC_TRANSFER_BACKFILL_ACTOR_ID` to the UUID of the active administrator performing
 the repair, and set
 `BSC_TRANSFER_BACKFILL_MODE=DRY_RUN` for the first release. The release seed runs

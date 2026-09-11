@@ -236,7 +236,7 @@ export async function backfillTransferredEmployeeBsc(
                 user_roles_user_roles_user_idTousers: {
                   some: {
                     scope_type: 'DEPARTMENT' as const,
-                    roles: { code: 'EMPLOYEE', status: 'ACTIVE' as const },
+                    roles: { code: { in: ['EMPLOYEE', 'MANAGER'] }, status: 'ACTIVE' as const },
                     OR: [{ expires_at: null }, { expires_at: { gt: now } }],
                   },
                 },
@@ -269,7 +269,16 @@ export async function backfillTransferredEmployeeBsc(
             },
           },
         },
-        select: { id: true },
+        select: {
+          id: true,
+          user_roles_user_roles_user_idTousers: {
+            where: {
+              roles: { status: 'ACTIVE' },
+              OR: [{ expires_at: null }, { expires_at: { gt: now } }],
+            },
+            select: { roles: { select: { code: true } } },
+          },
+        },
       });
       if (!actor) throw new Error('BSC transfer backfill operator must have active GLOBAL user.update authority');
 
@@ -283,6 +292,7 @@ export async function backfillTransferredEmployeeBsc(
           positionId: user.position_id,
           directManagerId: user.direct_manager_id,
           actorId: actor.id,
+          actorRoleCodes: [...new Set(actor.user_roles_user_roles_user_idTousers.map((assignment) => assignment.roles.code))],
           reason: 'Đồng bộ BSC kỳ mở sau khi nhân sự đã được điều chuyển',
           source: 'RELEASE_BACKFILL',
         });
