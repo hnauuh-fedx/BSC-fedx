@@ -11,12 +11,17 @@ See [pilot-runbook.md](pilot-runbook.md) for backup, deploy and rollback procedu
 ## One-time BSC organization transfer backfill
 
 When a user was moved before the organization-transfer workflow was deployed, set
-`BSC_TRANSFER_BACKFILL_USER_IDS` to the comma-separated user UUIDs, set
+`BSC_TRANSFER_BACKFILL_USER_IDS` to the comma-separated user UUIDs, or set it to
+`ALL` to discover active users whose canonical `EMPLOYEE` assignment still uses
+a department scope. Set
 `BSC_TRANSFER_BACKFILL_ACTOR_ID` to the UUID of the active administrator performing
 the repair, and set
 `BSC_TRANSFER_BACKFILL_MODE=DRY_RUN` for the first release. The release seed runs
 the complete transaction and rolls it back, so the log reports `candidateBscCount`
-without changing production data. After checking the candidates, change the mode to
+and `candidateRoleScopeCount` without changing production data. For the selected or
+discovered users, active legacy `EMPLOYEE` assignments scoped to a department are
+normalized to `SELF`; open-cycle BSC organization metadata is reconciled as before.
+After checking the candidates, change the mode to
 `APPLY` and deploy again. The idempotent release seed reconciles only BSCs whose cycles are `OPEN`, including
 pending approval steps and reopen requests. BSCs in `LOCKED` or `CLOSED` cycles are
 preserved as historical snapshots. Check `bscTransferBackfill.transferredBscCount`

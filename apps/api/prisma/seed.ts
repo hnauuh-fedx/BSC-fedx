@@ -186,6 +186,8 @@ export interface EmployeeBscTransferBackfillResult {
   transferredEmployeeIds: string[];
   candidateBscCount: number;
   transferredBscCount: number;
+  candidateRoleScopeCount: number;
+  transferredRoleScopeCount: number;
 }
 
 class BscTransferDryRunRollback extends Error {
@@ -204,9 +206,18 @@ export async function backfillTransferredEmployeeBsc(
   mode: 'DRY_RUN' | 'APPLY' = 'APPLY',
   actorId?: string,
 ): Promise<EmployeeBscTransferBackfillResult> {
-  const employeeIds = transferBackfillEmployeeIds(rawEmployeeIds);
-  if (employeeIds.length === 0) {
-    return { mode, requestedEmployeeIds: [], transferredEmployeeIds: [], candidateBscCount: 0, transferredBscCount: 0 };
+  const discoverAll = rawEmployeeIds?.trim().toUpperCase() === 'ALL';
+  const employeeIds = discoverAll ? [] : transferBackfillEmployeeIds(rawEmployeeIds);
+  if (!discoverAll && employeeIds.length === 0) {
+    return {
+      mode,
+      requestedEmployeeIds: [],
+      transferredEmployeeIds: [],
+      candidateBscCount: 0,
+      transferredBscCount: 0,
+      candidateRoleScopeCount: 0,
+      transferredRoleScopeCount: 0,
+    };
   }
   const invalidId = employeeIds.find((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id));
   if (invalidId) throw new Error(`BSC_TRANSFER_BACKFILL_USER_IDS contains an invalid UUID: ${invalidId}`);
@@ -217,14 +228,31 @@ export async function backfillTransferredEmployeeBsc(
   const reviewerResolver = new BscReviewerResolver();
   try {
     return await client.$transaction(async (tx) => {
+      const now = new Date();
       const users = await tx.users.findMany({
-        where: { id: { in: employeeIds }, status: 'ACTIVE', deleted_at: null },
+        where: {
+          ...(discoverAll
+            ? {
+                user_roles_user_roles_user_idTousers: {
+                  some: {
+                    scope_type: 'DEPARTMENT' as const,
+                    roles: { code: 'EMPLOYEE', status: 'ACTIVE' as const },
+                    OR: [{ expires_at: null }, { expires_at: { gt: now } }],
+                  },
+                },
+              }
+            : { id: { in: employeeIds } }),
+          status: 'ACTIVE',
+          deleted_at: null,
+        },
         select: { id: true, department_id: true, position_id: true, direct_manager_id: true },
         orderBy: { id: 'asc' },
       });
-      const foundIds = new Set(users.map((user) => user.id));
-      const missing = employeeIds.filter((id) => !foundIds.has(id));
-      if (missing.length) throw new Error(`BSC transfer backfill users were not found or inactive: ${missing.join(', ')}`);
+      if (!discoverAll) {
+        const foundIds = new Set(users.map((user) => user.id));
+        const missing = employeeIds.filter((id) => !foundIds.has(id));
+        if (missing.length) throw new Error(`BSC transfer backfill users were not found or inactive: ${missing.join(', ')}`);
+      }
       const actor = await tx.users.findFirst({
         where: {
           id: actorId,
@@ -247,6 +275,7 @@ export async function backfillTransferredEmployeeBsc(
 
       const transferredEmployeeIds: string[] = [];
       let transferredBscCount = 0;
+      let transferredRoleScopeCount = 0;
       for (const user of users) {
         const result = await transferOpenEmployeeBsc(tx, reviewerResolver, {
           employeeId: user.id,
@@ -257,17 +286,20 @@ export async function backfillTransferredEmployeeBsc(
           reason: 'Đồng bộ BSC kỳ mở sau khi nhân sự đã được điều chuyển',
           source: 'RELEASE_BACKFILL',
         });
-        if (result.transferredBscIds.length) {
+        if (result.transferredBscIds.length || result.transferredRoleAssignmentIds.length) {
           transferredEmployeeIds.push(user.id);
           transferredBscCount += result.transferredBscIds.length;
+          transferredRoleScopeCount += result.transferredRoleAssignmentIds.length;
         }
       }
       const result = {
         mode,
-        requestedEmployeeIds: employeeIds,
+        requestedEmployeeIds: users.map((user) => user.id),
         transferredEmployeeIds,
         candidateBscCount: transferredBscCount,
         transferredBscCount: mode === 'APPLY' ? transferredBscCount : 0,
+        candidateRoleScopeCount: transferredRoleScopeCount,
+        transferredRoleScopeCount: mode === 'APPLY' ? transferredRoleScopeCount : 0,
       };
       if (mode === 'DRY_RUN') throw new BscTransferDryRunRollback(result);
       return result;

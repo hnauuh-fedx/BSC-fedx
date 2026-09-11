@@ -116,6 +116,7 @@ export class UsersService {
         if (organizationChanged) {
           await transferOpenEmployeeBsc(db, this.reviewerResolver, {
             employeeId: id,
+            previousDepartmentId: old.department_id,
             ...target,
             actorId: actor.id,
             reason: transferReason!,

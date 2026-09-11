@@ -17,6 +17,7 @@ export interface EmployeeOrganizationTarget {
 
 export interface EmployeeBscTransferInput extends EmployeeOrganizationTarget {
   employeeId: string;
+  previousDepartmentId?: string;
   actorId: string;
   reason: string;
   source: 'USER_UPDATE' | 'RELEASE_BACKFILL';
@@ -24,6 +25,73 @@ export interface EmployeeBscTransferInput extends EmployeeOrganizationTarget {
 
 export interface EmployeeBscTransferResult {
   transferredBscIds: string[];
+  transferredRoleAssignmentIds: string[];
+}
+
+async function reconcileTransferredUserRoleScopes(
+  db: Transaction,
+  input: EmployeeBscTransferInput,
+): Promise<string[]> {
+  const now = new Date();
+  const assignments = await db.user_roles.findMany({
+    where: {
+      user_id: input.employeeId,
+      scope_type: 'DEPARTMENT',
+      OR: [{ expires_at: null }, { expires_at: { gt: now } }],
+      roles: { code: { in: ['EMPLOYEE', 'MANAGER'] }, status: 'ACTIVE' },
+    },
+    select: { id: true, scope_type: true, scope_id: true, roles: { select: { code: true } } },
+    orderBy: { id: 'asc' },
+  });
+
+  const transferredRoleAssignmentIds: string[] = [];
+  for (const assignment of assignments) {
+    const isEmployeeRole = assignment.roles.code === 'EMPLOYEE'
+      && (input.previousDepartmentId === undefined || assignment.scope_id === input.previousDepartmentId);
+    const isManagerRole = assignment.roles.code === 'MANAGER'
+      && input.previousDepartmentId !== undefined
+      && input.previousDepartmentId !== input.departmentId
+      && assignment.scope_id === input.previousDepartmentId;
+    if (!isEmployeeRole && !isManagerRole) continue;
+
+    const nextScope = isEmployeeRole
+      ? { scopeType: 'SELF', scopeId: null }
+      : { scopeType: 'DEPARTMENT', scopeId: input.departmentId };
+    const changed = await db.user_roles.updateMany({
+      where: { id: assignment.id, scope_type: assignment.scope_type, scope_id: assignment.scope_id },
+      data: { scope_type: nextScope.scopeType, scope_id: nextScope.scopeId },
+    });
+    if (changed.count !== 1) {
+      throw new ConflictException({
+        code: 'USER_ROLE_SCOPE_TRANSFER_CONFLICT',
+        message: 'Phạm vi vai trò vừa được cập nhật bởi một yêu cầu khác.',
+      });
+    }
+    await db.audit_logs.create({ data: {
+      user_id: input.actorId,
+      module: 'users',
+      entity_type: 'user_roles',
+      entity_id: assignment.id,
+      action: 'USER_ROLE_SCOPE_TRANSFERRED',
+      old_data: {
+        employeeId: input.employeeId,
+        roleCode: assignment.roles.code,
+        scopeType: assignment.scope_type,
+        scopeId: assignment.scope_id,
+      } as Prisma.InputJsonValue,
+      new_data: {
+        employeeId: input.employeeId,
+        roleCode: assignment.roles.code,
+        scopeType: nextScope.scopeType,
+        scopeId: nextScope.scopeId,
+        reason: input.reason,
+        source: input.source,
+        transferredAt: now.toISOString(),
+      } as Prisma.InputJsonValue,
+    } });
+    transferredRoleAssignmentIds.push(assignment.id);
+  }
+  return transferredRoleAssignmentIds;
 }
 
 function approvalAssignment(reviewers: BscReviewAssignment[]) {
@@ -58,6 +126,7 @@ export async function transferOpenEmployeeBsc(
   resolver: BscReviewerResolver,
   input: EmployeeBscTransferInput,
 ): Promise<EmployeeBscTransferResult> {
+  const transferredRoleAssignmentIds = await reconcileTransferredUserRoleScopes(db, input);
   const managerMismatch: Prisma.employee_bscWhereInput = input.directManagerId === null
     ? { direct_manager_id: { not: null } }
     : { OR: [{ direct_manager_id: null }, { direct_manager_id: { not: input.directManagerId } }] };
@@ -244,5 +313,5 @@ export async function transferOpenEmployeeBsc(
     } });
     transferredBscIds.push(bsc.id);
   }
-  return { transferredBscIds };
+  return { transferredBscIds, transferredRoleAssignmentIds };
 }
