@@ -22,6 +22,8 @@ the complete transaction and rolls it back, so the log reports `candidateBscCoun
 and `candidateRoleScopeCount` without changing production data. For the selected or
 discovered users, active legacy `EMPLOYEE` assignments scoped to a department are
 normalized to `SELF`; open-cycle BSC organization metadata is reconciled as before.
+For safety, an account with multiple active department-scoped `MANAGER` assignments
+is left unchanged by automatic role-scope repair and must be reviewed manually.
 After checking the candidates, change the mode to
 `APPLY` and deploy again. The idempotent release seed reconciles only BSCs whose cycles are `OPEN`, including
 pending approval steps and reopen requests. BSCs in `LOCKED` or `CLOSED` cycles are

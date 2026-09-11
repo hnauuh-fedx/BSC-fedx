@@ -47,12 +47,16 @@ async function reconcileTransferredUserRoleScopes(
 
   const transferredRoleAssignmentIds: string[] = [];
   const repairsAgainstCurrentDepartment = input.source === 'RELEASE_BACKFILL';
+  const managerAssignments = assignments.filter((assignment) => assignment.roles.code === 'MANAGER');
+  const unambiguousBackfillManagerId = repairsAgainstCurrentDepartment && managerAssignments.length === 1
+    ? managerAssignments[0].id
+    : null;
   for (const assignment of assignments) {
     const isEmployeeRole = assignment.roles.code === 'EMPLOYEE'
       && (repairsAgainstCurrentDepartment || assignment.scope_id === input.previousDepartmentId);
     const isManagerRole = assignment.roles.code === 'MANAGER'
       && assignment.scope_id !== input.departmentId
-      && (repairsAgainstCurrentDepartment || assignment.scope_id === input.previousDepartmentId);
+      && (assignment.id === unambiguousBackfillManagerId || assignment.scope_id === input.previousDepartmentId);
     if (!isEmployeeRole && !isManagerRole) continue;
 
     const nextScope = isEmployeeRole
