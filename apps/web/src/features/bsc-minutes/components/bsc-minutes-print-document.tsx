@@ -47,7 +47,7 @@ const longDate = (value: string, place: string) => {
 const longTime = (value: string) => {
   const [hour, minute] = value.split(':');
   if (!hour || minute === undefined) return value;
-  return `${Number(hour)} giờ ${Number(minute)} phút`;
+  return `${Number(hour)} giờ ${minute.padStart(2, '0')} phút`;
 };
 
 const shortDate = (value: string) => {
