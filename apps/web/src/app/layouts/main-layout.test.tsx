@@ -52,22 +52,22 @@ describe('MainLayout navigation permissions', () => {
   it('shows the reopen review queue when the user can review reopen requests', () => {
     directorAuth(['bsc.reopen.subordinate']);
     render(<MemoryRouter><MainLayout><p>Nội dung</p></MainLayout></MemoryRouter>);
-    expect(screen.getByRole('link', { name: 'Yêu cầu mở lại' }))
+    expect(screen.getByRole('link', { name: 'Mở lại BSC cá nhân' }))
       .toHaveAttribute('href', '/management/bsc-reopen-requests');
   });
 
   it('shows scoped employee BSC review queues to a department MANAGER with permissions', () => {
     managerAuth(['bsc.plan.approve.subordinate', 'bsc.reopen.subordinate']);
     render(<MemoryRouter><MainLayout><p>Content</p></MainLayout></MemoryRouter>);
-    expect(screen.getByRole('link', { name: /Ch.*duy/ })).toBeVisible();
-    expect(screen.getByRole('link', { name: /Y.*u c.*u m/ })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Duyệt BSC cá nhân' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Mở lại BSC cá nhân' })).toBeVisible();
   });
 
   it('hides employee review queues from a MANAGER who is not an active routed department head', () => {
     managerAuth(['bsc.plan.approve.subordinate', 'bsc.reopen.subordinate'], false);
     render(<MemoryRouter><MainLayout><p>Content</p></MainLayout></MemoryRouter>);
-    expect(screen.queryByRole('link', { name: /Ch.*duy/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /Y.*u c.*u m/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Duyệt BSC cá nhân' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Mở lại BSC cá nhân' })).not.toBeInTheDocument();
   });
 
   it('keeps a valid department MANAGER assignment effective alongside a GLOBAL DIRECTOR assignment', () => {
@@ -86,8 +86,8 @@ describe('MainLayout navigation permissions', () => {
 
     render(<MemoryRouter><MainLayout><p>Content</p></MainLayout></MemoryRouter>);
 
-    expect(screen.getByRole('link', { name: /Ch.*duy/ })).toBeVisible();
-    expect(screen.getByRole('link', { name: /Y.*u c.*u m/ })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Duyệt BSC cá nhân' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Mở lại BSC cá nhân' })).toBeVisible();
   });
 
   it('keeps personal BSC hidden for an unit-only dashboard user', () => {
@@ -96,6 +96,22 @@ describe('MainLayout navigation permissions', () => {
     expect(screen.getByRole('link', { name: 'Báo cáo' })).toHaveAttribute('href', '/reports/bsc');
     expect(screen.getByRole('link', { name: 'Tổng quan BSC' })).toHaveAttribute('href', '/management/bsc-overview');
     expect(screen.queryByRole('link', { name: 'BSC cá nhân' })).not.toBeInTheDocument();
+  });
+
+  it('orders management navigation by personal workflow, department workflow, then overview', () => {
+    directorAuth([
+      'bsc.plan.approve.subordinate', 'bsc.reopen.subordinate',
+      'bsc.department.plan.approve', 'bsc.statistics.organization',
+    ]);
+    render(<MemoryRouter><MainLayout><p>Nội dung</p></MainLayout></MemoryRouter>);
+
+    const personalReview = screen.getByRole('link', { name: 'Duyệt BSC cá nhân' });
+    const personalReopen = screen.getByRole('link', { name: 'Mở lại BSC cá nhân' });
+    const departmentReview = screen.getByRole('link', { name: 'Duyệt BSC phòng ban' });
+    const overview = screen.getByRole('link', { name: 'Tổng quan BSC' });
+    expect(personalReview.compareDocumentPosition(personalReopen) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(personalReopen.compareDocumentPosition(departmentReview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(departmentReview.compareDocumentPosition(overview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('opens the account menu and links every authenticated user to account settings', async () => {

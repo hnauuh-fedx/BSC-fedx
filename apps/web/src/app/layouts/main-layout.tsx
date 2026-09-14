@@ -114,10 +114,10 @@ export const MainLayout: React.FC<PropsWithChildren> = ({ children }) => {
     ...(canViewDepartmentBsc ? [{ href: '/department-bsc', label: 'BSC phòng ban', icon: Building2Icon, end: true }] : []),
   ];
   const management: NavigationItem[] = [
-    ...(canViewManagementOverview ? [{ href: '/management/bsc-overview', label: 'Tổng quan BSC', icon: BarChart3Icon }] : []),
-    ...(canReview ? [{ href: '/management/bsc-reviews', label: 'Chờ duyệt', icon: ClipboardCheckIcon }] : []),
+    ...(canReview ? [{ href: '/management/bsc-reviews', label: 'Duyệt BSC cá nhân', icon: ClipboardCheckIcon }] : []),
+    ...(canReviewReopen ? [{ href: '/management/bsc-reopen-requests', label: 'Mở lại BSC cá nhân', icon: RotateCcwIcon }] : []),
     ...(canReviewDepartmentBsc ? [{ href: '/management/department-bsc-reviews', label: 'Duyệt BSC phòng ban', icon: ClipboardCheckIcon }] : []),
-    ...(canReviewReopen ? [{ href: '/management/bsc-reopen-requests', label: 'Yêu cầu mở lại', icon: RotateCcwIcon }] : []),
+    ...(canViewManagementOverview ? [{ href: '/management/bsc-overview', label: 'Tổng quan BSC', icon: BarChart3Icon }] : []),
     ...(canReport ? [{ href: '/reports/bsc', label: 'Báo cáo', icon: FileBarChartIcon }] : []),
     ...(canAccessMinutes ? [{ href: '/management/bsc-minutes', label: 'Biên bản', icon: FileTextIcon }] : []),
   ];

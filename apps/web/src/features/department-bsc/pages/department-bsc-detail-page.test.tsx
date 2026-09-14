@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -111,7 +111,12 @@ describe('DepartmentBscDetailPage', () => {
       </Routes></MemoryRouter></SystemConfirmDialogProvider>,
     );
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Mở lại đánh giá đã duyệt' }));
+    const actionBar = await screen.findByLabelText('Thao tác BSC');
+    const planResetButton = within(actionBar).getByRole('button', { name: 'Mở lại kế hoạch đã duyệt' });
+    const evaluationResetButton = within(actionBar).getByRole('button', { name: 'Mở lại đánh giá đã duyệt' });
+    expect(planResetButton.compareDocumentPosition(evaluationResetButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Mở lại BSC đã duyệt' })).not.toBeInTheDocument();
+    await userEvent.click(evaluationResetButton);
     const dialog = screen.getByRole('dialog', { name: 'Mở lại đánh giá đã duyệt' });
     expect(screen.getByRole('button', { name: 'Xác nhận mở lại' })).toBeDisabled();
     await userEvent.type(dialog.querySelector('textarea')!, 'Điều chỉnh kết quả');
