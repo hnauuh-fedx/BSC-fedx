@@ -8,7 +8,6 @@ import {
   ClipboardCheckIcon,
   FileBarChartIcon,
   FileTextIcon,
-  LayoutDashboardIcon,
   LogOutIcon,
   MenuIcon,
   RotateCcwIcon,
@@ -36,7 +35,6 @@ import {
   SheetTrigger,
 } from '../../components/ui/sheet';
 import {
-  canAccessWorkspacePath,
   hasAnyWorkspacePermission,
   MANAGEMENT_OVERVIEW_PERMISSIONS,
   REPORT_PERMISSIONS,
@@ -79,8 +77,7 @@ const NavigationGroup: React.FC<{ label: string; items: NavigationItem[]; onNavi
   </section>;
 };
 
-const ShellNavigation: React.FC<{ workspace: NavigationItem[]; management: NavigationItem[]; administration: NavigationItem[]; onNavigate?: () => void }> = (props) => <nav className="shell-navigation" aria-label="Điều hướng chính">
-  <NavigationGroup label="Không gian làm việc" items={props.workspace} onNavigate={props.onNavigate}/>
+const ShellNavigation: React.FC<{ management: NavigationItem[]; administration: NavigationItem[]; onNavigate?: () => void }> = (props) => <nav className="shell-navigation" aria-label="Điều hướng chính">
   <NavigationGroup label="Quản lý BSC" items={props.management} onNavigate={props.onNavigate}/>
   <NavigationGroup label="Quản trị hệ thống" items={props.administration} onNavigate={props.onNavigate}/>
 </nav>;
@@ -108,23 +105,20 @@ export const MainLayout: React.FC<PropsWithChildren> = ({ children }) => {
     .filter((_, index, words) => index === 0 || index === words.length - 1)
     .map((word) => word[0]).join('').toUpperCase() || '?';
 
-  const workspace: NavigationItem[] = [
-    ...(canAccessWorkspacePath('/dashboard', permissions) ? [{ href: '/dashboard', label: 'Tổng quan', icon: LayoutDashboardIcon, end: true }] : []),
-    ...(canViewOwnBsc ? [{ href: '/employee-bsc', label: 'BSC cá nhân', icon: TargetIcon, end: true }] : []),
-    ...(canViewDepartmentBsc ? [{ href: '/department-bsc', label: 'BSC phòng ban', icon: Building2Icon, end: true }] : []),
-  ];
   const management: NavigationItem[] = [
+    ...(canViewManagementOverview ? [{ href: '/management/bsc-overview', label: 'Tổng quan BSC cá nhân', icon: BarChart3Icon }] : []),
+    ...(canViewOwnBsc ? [{ href: '/employee-bsc', label: 'BSC cá nhân', icon: TargetIcon, end: true }] : []),
     ...(canReview ? [{ href: '/management/bsc-reviews', label: 'Duyệt BSC cá nhân', icon: ClipboardCheckIcon }] : []),
     ...(canReviewReopen ? [{ href: '/management/bsc-reopen-requests', label: 'Mở lại BSC cá nhân', icon: RotateCcwIcon }] : []),
+    ...(canViewDepartmentBsc ? [{ href: '/department-bsc', label: 'BSC phòng ban', icon: Building2Icon, end: true }] : []),
     ...(canReviewDepartmentBsc ? [{ href: '/management/department-bsc-reviews', label: 'Duyệt BSC phòng ban', icon: ClipboardCheckIcon }] : []),
-    ...(canViewManagementOverview ? [{ href: '/management/bsc-overview', label: 'Tổng quan BSC', icon: BarChart3Icon }] : []),
     ...(canReport ? [{ href: '/reports/bsc', label: 'Báo cáo', icon: FileBarChartIcon }] : []),
     ...(canAccessMinutes ? [{ href: '/management/bsc-minutes', label: 'Biên bản', icon: FileTextIcon }] : []),
   ];
   const administration: NavigationItem[] = ADMINISTRATION_DESTINATIONS
     .filter((item) => hasAnyPermission(permissions, item.permissions))
     .map((item) => ({ href: item.href, label: item.label, icon: navigationIcon(item.href) }));
-  const currentLabel = location.pathname === '/notifications' ? 'Thông báo' : [...workspace, ...management, ...administration]
+  const currentLabel = location.pathname === '/notifications' ? 'Thông báo' : [...management, ...administration]
     .filter((item) => location.pathname === item.href || location.pathname.startsWith(`${item.href}/`))
     .sort((a, b) => b.href.length - a.href.length)[0]?.label ?? 'BSC Management';
 
@@ -156,7 +150,7 @@ export const MainLayout: React.FC<PropsWithChildren> = ({ children }) => {
         <img className="brand-logo" src={brandLogo} alt="" width={44} height={44}/>
         <span>BSC Management</span>
       </NavLink>
-      <ShellNavigation workspace={workspace} management={management} administration={administration}/>
+      <ShellNavigation management={management} administration={administration}/>
       <p className="sidebar-caption">Quản trị hiệu suất rõ ràng, nhất quán.</p>
     </aside>
     <div className="app-workspace">
@@ -172,11 +166,11 @@ export const MainLayout: React.FC<PropsWithChildren> = ({ children }) => {
                   <SheetDescription>Điều hướng theo quyền tài khoản</SheetDescription>
                 </div>
               </div>
-              <ShellNavigation workspace={workspace} management={management} administration={administration} onNavigate={() => setMobileNavigationOpen(false)}/>
+              <ShellNavigation management={management} administration={administration} onNavigate={() => setMobileNavigationOpen(false)}/>
             </SheetContent>
           </Sheet>
         </div>
-        <div className="app-header-context"><span>Không gian làm việc</span><strong>{currentLabel}</strong></div>
+        <div className="app-header-context"><span>Quản lý BSC</span><strong>{currentLabel}</strong></div>
         <div className="user-menu"><NotificationBell />{accountMenu}</div>
       </header>
       <div id="main-content" className="app-content" tabIndex={-1}>{children}</div>

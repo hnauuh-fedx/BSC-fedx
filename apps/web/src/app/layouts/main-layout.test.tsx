@@ -46,6 +46,8 @@ describe('MainLayout navigation permissions', () => {
     auth(['bsc.view.own']);
     render(<MemoryRouter><MainLayout><p>Nội dung</p></MainLayout></MemoryRouter>);
     expect(screen.getByRole('link', { name: 'BSC cá nhân' })).toHaveAttribute('href', '/employee-bsc');
+    expect(screen.queryByText('Không gian làm việc')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Tổng quan' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Quản trị' })).not.toBeInTheDocument();
   });
 
@@ -94,24 +96,30 @@ describe('MainLayout navigation permissions', () => {
     auth(['bsc.statistics.organization', 'bsc.view.unit']);
     render(<MemoryRouter><MainLayout><p>Nội dung</p></MainLayout></MemoryRouter>);
     expect(screen.getByRole('link', { name: 'Báo cáo' })).toHaveAttribute('href', '/reports/bsc');
-    expect(screen.getByRole('link', { name: 'Tổng quan BSC' })).toHaveAttribute('href', '/management/bsc-overview');
+    expect(screen.getByRole('link', { name: 'Tổng quan BSC cá nhân' })).toHaveAttribute('href', '/management/bsc-overview');
     expect(screen.queryByRole('link', { name: 'BSC cá nhân' })).not.toBeInTheDocument();
   });
 
-  it('orders management navigation by personal workflow, department workflow, then overview', () => {
+  it('orders all navigation under BSC management: personal workflow, department workflow, then reports', () => {
     directorAuth([
-      'bsc.plan.approve.subordinate', 'bsc.reopen.subordinate',
-      'bsc.department.plan.approve', 'bsc.statistics.organization',
+      'bsc.view.own', 'bsc.plan.approve.subordinate', 'bsc.reopen.subordinate',
+      'bsc.department.view', 'bsc.department.plan.approve', 'bsc.statistics.organization',
     ]);
     render(<MemoryRouter><MainLayout><p>Nội dung</p></MainLayout></MemoryRouter>);
 
+    const overview = screen.getByRole('link', { name: 'Tổng quan BSC cá nhân' });
+    const personalBsc = screen.getByRole('link', { name: 'BSC cá nhân' });
     const personalReview = screen.getByRole('link', { name: 'Duyệt BSC cá nhân' });
     const personalReopen = screen.getByRole('link', { name: 'Mở lại BSC cá nhân' });
+    const departmentBsc = screen.getByRole('link', { name: 'BSC phòng ban' });
     const departmentReview = screen.getByRole('link', { name: 'Duyệt BSC phòng ban' });
-    const overview = screen.getByRole('link', { name: 'Tổng quan BSC' });
+    const report = screen.getByRole('link', { name: 'Báo cáo' });
+    expect(overview.compareDocumentPosition(personalBsc) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(personalBsc.compareDocumentPosition(personalReview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(personalReview.compareDocumentPosition(personalReopen) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(personalReopen.compareDocumentPosition(departmentReview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(departmentReview.compareDocumentPosition(overview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(personalReopen.compareDocumentPosition(departmentBsc) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(departmentBsc.compareDocumentPosition(departmentReview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(departmentReview.compareDocumentPosition(report) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('opens the account menu and links every authenticated user to account settings', async () => {
