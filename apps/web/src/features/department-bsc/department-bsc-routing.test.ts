@@ -7,6 +7,7 @@ describe('department BSC routing', () => {
     expect(canAccessWorkspacePath('/department-bsc/new', ['bsc.department.create'])).toBe(true);
     expect(canAccessWorkspacePath('/department-bsc/bsc-1', ['bsc.department.view'])).toBe(true);
     expect(canAccessWorkspacePath('/management/department-bsc-reviews', ['bsc.department.plan.approve'])).toBe(true);
+    expect(canAccessWorkspacePath('/management/department-bsc-reviews', ['bsc.department.reopen.review'])).toBe(true);
     expect(canAccessWorkspacePath('/management/department-bsc-reviews', ['bsc.department.view'])).toBe(false);
   });
 });

@@ -68,6 +68,11 @@ test('department BSC is owned by the assigned department manager and reviewed by
       DEPARTMENT_BSC_PERMISSIONS.APPROVE_EVALUATION, DEPARTMENT_BSC_PERMISSIONS.RETURN_EVALUATION,
       DEPARTMENT_BSC_PERMISSIONS.REVIEW_REOPEN,
       'department.view', 'department.manage']);
+    const rogueReviewerRole = await makeRole('REVIEWER', [DEPARTMENT_BSC_PERMISSIONS.VIEW,
+      DEPARTMENT_BSC_PERMISSIONS.APPROVE_PLAN, DEPARTMENT_BSC_PERMISSIONS.RETURN_PLAN,
+      DEPARTMENT_BSC_PERMISSIONS.APPROVE_EVALUATION, DEPARTMENT_BSC_PERMISSIONS.RETURN_EVALUATION,
+      DEPARTMENT_BSC_PERMISSIONS.REVIEW_REOPEN]);
+    const canonicalDirectorRole = await prisma.roles.findUniqueOrThrow({ where: { code: 'DIRECTOR' } });
     const hash = await argon2.hash(password);
     const makeUser = async (name: string, departmentId: string, roleId: string, scope: 'DEPARTMENT' | 'GLOBAL') => {
       const user = await prisma.users.create({ data: { employee_code: `${marker}_${name}`, username: String(`${marker}_${name}`).toLowerCase(), full_name: name,
@@ -82,13 +87,16 @@ test('department BSC is owned by the assigned department manager and reviewed by
     const replacementManager = await makeUser('REPLACEMENT_MANAGER', department.id, managerRole.id, 'DEPARTMENT');
     const otherManager = await makeUser('OTHER_MANAGER', outsideDepartment.id, managerRole.id, 'DEPARTMENT');
     const director = await makeUser('DIRECTOR', department.id, directorRole.id, 'GLOBAL');
+    const rogueReviewer = await makeUser('REVIEWER', outsideDepartment.id, rogueReviewerRole.id, 'GLOBAL');
+    await prisma.user_roles.create({ data: { user_id: director.id, role_id: canonicalDirectorRole.id, scope_type: 'GLOBAL' } });
     const cycle = await prisma.bsc_cycles.create({ data: { code: `${marker}_CYCLE`, name: 'Tháng thử nghiệm', cycle_type: 'MONTH',
       year: 2099, month: 1, start_date: new Date('2020-01-01'), end_date: new Date('2199-12-31'), status: 'OPEN', created_by: director.id } });
 
     const created = await createApp(); app = created.app; await app.init();
     const server = app.getHttpServer();
     const login = async (username: string) => (await request(server).post('/auth/login').send({ username, password }).expect(200)).body.accessToken as string;
-    const tokens = { manager: await login(manager.username), replacementManager: await login(replacementManager.username), otherManager: await login(otherManager.username), director: await login(director.username) };
+    const tokens = { manager: await login(manager.username), replacementManager: await login(replacementManager.username),
+      otherManager: await login(otherManager.username), director: await login(director.username), rogueReviewer: await login(rogueReviewer.username) };
     const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
     await t.test('an authorized administrator records the active department manager assignment', async () => {
@@ -126,6 +134,8 @@ test('department BSC is owned by the assigned department manager and reviewed by
       await request(server).delete(`/department-bsc/${bscId}/items/${itemId}`).set(auth(tokens.manager)).expect(403);
       await request(server).patch(`/department-bsc/${bscId}/items/${itemId}`).set(auth(tokens.manager)).send({ targetValue: 120 }).expect(403);
       await request(server).post(`/department-bsc/${bscId}/plan/approve`).set(auth(tokens.manager)).send({}).expect(403);
+      await request(server).get('/department-bsc/pending-review?stage=PLAN').set(auth(tokens.rogueReviewer)).expect(403);
+      await request(server).post(`/department-bsc/${bscId}/plan/approve`).set(auth(tokens.rogueReviewer)).send({}).expect(403);
       await request(server).post(`/department-bsc/${bscId}/plan/return`).set(auth(tokens.director)).send({ reason: '   ' }).expect(400);
       const returned = await request(server).post(`/department-bsc/${bscId}/plan/return`).set(auth(tokens.director))
         .send({ reason: 'Bo sung noi dung ke hoach' }).expect(200);
@@ -178,19 +188,83 @@ test('department BSC is owned by the assigned department manager and reviewed by
       assert.match(exported.headers['content-type'], /spreadsheetml/);
     });
 
+    await t.test('director can directly reopen an approved department evaluation with an audit trace', async () => {
+      const directorDetail = await request(server).get(`/department-bsc/${bscId}`).set(auth(tokens.director)).expect(200);
+      assert.equal(directorDetail.body.review_capabilities.canResetPlan, true);
+      assert.equal(directorDetail.body.review_capabilities.canResetEvaluation, true);
+      await request(server).post(`/department-bsc/${bscId}/evaluation/reset-approved`).set(auth(tokens.manager))
+        .send({ reason: 'Khong duoc tu mo lai' }).expect(403);
+      await request(server).post(`/department-bsc/${bscId}/evaluation/reset-approved`).set(auth(tokens.director))
+        .send({ reason: '   ' }).expect(400);
+
+      const reset = await request(server).post(`/department-bsc/${bscId}/evaluation/reset-approved`).set(auth(tokens.director))
+        .send({ reason: 'Dieu chinh ket qua da duyet' }).expect(200);
+      assert.equal(reset.body.request_source, 'DIRECTOR_RESET');
+      assert.equal(reset.body.status, 'APPROVED');
+      const reopened = await request(server).get(`/department-bsc/${bscId}`).set(auth(tokens.manager)).expect(200);
+      assert.equal(reopened.body.plan_status, 'APPROVED');
+      assert.equal(reopened.body.evaluation_status, 'REOPENED');
+      assert.equal(reopened.body.final_score, null);
+      assert.equal(reopened.body.department_bsc_items[0].actual_value, 95);
+
+      await request(server).post(`/department-bsc/${bscId}/evaluation/submit`).set(auth(tokens.manager)).send({}).expect(200);
+      await request(server).post(`/department-bsc/${bscId}/evaluation/approve`).set(auth(tokens.director)).send({}).expect(200);
+
+      await prisma.bsc_cycles.update({ where: { id: cycle.id }, data: { status: 'LOCKED' } });
+      const lockedDetail = await request(server).get(`/department-bsc/${bscId}`).set(auth(tokens.director)).expect(200);
+      assert.equal(lockedDetail.body.review_capabilities.canResetEvaluation, false);
+      await request(server).post(`/department-bsc/${bscId}/evaluation/reset-approved`).set(auth(tokens.director))
+        .send({ reason: 'Ky da khoa' }).expect(400);
+      await prisma.bsc_cycles.update({ where: { id: cycle.id }, data: { status: 'OPEN' } });
+
+      const concurrent = await Promise.all([
+        request(server).post(`/department-bsc/${bscId}/evaluation/reset-approved`).set(auth(tokens.director)).send({ reason: 'Mo lai dong thoi' }),
+        request(server).post(`/department-bsc/${bscId}/evaluation/reset-approved`).set(auth(tokens.director)).send({ reason: 'Mo lai dong thoi' }),
+      ]);
+      assert.deepEqual(concurrent.map((response) => response.status).sort(), [200, 409]);
+      await request(server).post(`/department-bsc/${bscId}/evaluation/submit`).set(auth(tokens.manager)).send({}).expect(200);
+      await request(server).post(`/department-bsc/${bscId}/evaluation/approve`).set(auth(tokens.director)).send({}).expect(200);
+
+      const planReset = await request(server).post(`/department-bsc/${bscId}/plan/reset-approved`).set(auth(tokens.director))
+        .send({ reason: 'Dieu chinh ke hoach da duyet' }).expect(200);
+      assert.equal(planReset.body.request_source, 'DIRECTOR_RESET');
+      const planReopened = await request(server).get(`/department-bsc/${bscId}`).set(auth(tokens.manager)).expect(200);
+      assert.equal(planReopened.body.plan_status, 'REOPENED');
+      assert.equal(planReopened.body.evaluation_status, 'NOT_STARTED');
+      assert.equal(planReopened.body.department_bsc_items[0].actual_value, null);
+      const evaluationResetHistory = await prisma.department_bsc_status_histories.findFirst({ where: {
+        department_bsc_id: bscId, stage: 'EVALUATION', action: 'RESET_BY_PLAN_REOPEN',
+      }, orderBy: { changed_at: 'desc' } });
+      assert.equal(evaluationResetHistory?.to_status, 'NOT_STARTED');
+      const planResetAudit = await prisma.audit_logs.findFirstOrThrow({ where: {
+        entity_id: bscId, action: 'DEPARTMENT_BSC_PLAN_RESET_APPROVED',
+      }, orderBy: { created_at: 'desc' } });
+      assert.equal((planResetAudit.old_data as { evaluationStatus?: string }).evaluationStatus, 'APPROVED');
+      assert.equal((planResetAudit.new_data as { evaluationStatus?: string }).evaluationStatus, 'NOT_STARTED');
+
+      await request(server).post(`/department-bsc/${bscId}/plan/submit`).set(auth(tokens.manager)).send({}).expect(200);
+      await request(server).post(`/department-bsc/${bscId}/plan/approve`).set(auth(tokens.director)).send({}).expect(200);
+      await request(server).patch(`/department-bsc/${bscId}/items/${itemId}/actual`).set(auth(tokens.manager))
+        .send({ actualValue: 95, managerNote: 'Nhap lai sau khi mo ke hoach' }).expect(200);
+      await request(server).post(`/department-bsc/${bscId}/evaluation/submit`).set(auth(tokens.manager)).send({}).expect(200);
+      await request(server).post(`/department-bsc/${bscId}/evaluation/approve`).set(auth(tokens.director)).send({}).expect(200);
+    });
+
     await t.test('reopen requires a request, director approval, audit history and a new snapshot', async () => {
+      const beforeHistories = await prisma.department_bsc_status_histories.count({ where: { department_bsc_id: bscId } });
+      const beforeVersions = await prisma.department_bsc_versions.count({ where: { department_bsc_id: bscId } });
       const reopen = await request(server).post(`/department-bsc/${bscId}/reopen-requests`).set(auth(tokens.manager))
         .send({ stage: 'EVALUATION', reason: 'Cập nhật kết quả đã đối soát lại' }).expect(201);
       const pending = await request(server).get('/department-bsc/reopen-requests/pending').set(auth(tokens.director)).expect(200);
-      assert.equal(pending.body.some((row: { id: string }) => row.id === reopen.body.id), true);
+      assert.equal(pending.body.items.some((row: { id: string }) => row.id === reopen.body.id), true);
       const approvedReopen = await request(server).post(`/department-bsc/reopen-requests/${reopen.body.id}/approve`).set(auth(tokens.director))
         .send({ reason: '<b>Dong y mo lai</b>' }).expect(200);
       assert.equal(approvedReopen.body.review_reason, 'Dong y mo lai');
       const detail = await request(server).get(`/department-bsc/${bscId}`).set(auth(tokens.manager)).expect(200);
       assert.equal(detail.body.evaluation_status, 'REOPENED');
       assert.equal(detail.body.final_score, null);
-      assert.equal(await prisma.department_bsc_status_histories.count({ where: { department_bsc_id: bscId } }), 9);
-      assert.equal(await prisma.department_bsc_versions.count({ where: { department_bsc_id: bscId } }), 9);
+      assert.equal(await prisma.department_bsc_status_histories.count({ where: { department_bsc_id: bscId } }), beforeHistories + 1);
+      assert.equal(await prisma.department_bsc_versions.count({ where: { department_bsc_id: bscId } }), beforeVersions + 1);
     });
 
     await t.test('a new active department manager receives an editable BSC handover', async () => {

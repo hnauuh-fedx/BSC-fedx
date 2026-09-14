@@ -33,7 +33,7 @@ export class DepartmentBscService {
     const [cycle, department, reviewer] = await Promise.all([
       this.prisma.bsc_cycles.findUnique({ where: { id: cycleId } }),
       this.prisma.departments.findUnique({ where: { id: assignment.department_id } }),
-      this.findReviewer(actor, assignment.department_id),
+      this.findReviewer(actor),
     ]);
     if (!cycle) this.notFound('BSC_CYCLE_NOT_FOUND', 'Không tìm thấy kỳ BSC.');
     if (cycle.status !== 'OPEN') this.badRequest('DEPARTMENT_BSC_CYCLE_NOT_OPEN', 'Chỉ được tạo BSC phòng ban trong kỳ đang mở.');
@@ -63,35 +63,47 @@ export class DepartmentBscService {
     if (query.departmentId) filters.push({ department_id: query.departmentId });
     if (query.planStatus) filters.push({ plan_status: query.planStatus });
     if (query.evaluationStatus) filters.push({ evaluation_status: query.evaluationStatus });
-    if (query.search) filters.push({ bsc_code: { contains: query.search, mode: 'insensitive' } });
+    if (query.search) filters.push({ OR: [
+      { bsc_code: { contains: query.search, mode: 'insensitive' } },
+      { departments: { name: { contains: query.search, mode: 'insensitive' } } },
+      { users_department_bsc_responsible_manager_idTousers: { full_name: { contains: query.search, mode: 'insensitive' } } },
+    ] });
     const finalWhere = { AND: filters };
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.department_bsc.findMany({ where: finalWhere, orderBy: { created_at: 'desc' }, skip: (query.page - 1) * query.limit, take: query.limit }),
       this.prisma.department_bsc.count({ where: finalWhere }),
     ]);
-    return { items: await Promise.all(rows.map((row) => this.present(row, false))), page: query.page, limit: query.limit, total };
+    return { items: await Promise.all(rows.map((row) => this.present(row, false, actor))), page: query.page, limit: query.limit, total,
+      filterOptions: await this.filterOptions(where) };
   }
 
   async pendingReview(actor: AuthUser, query: QueryDepartmentBscDto) {
     const stage = query.stage ?? 'PLAN';
     const permissions = stage === 'PLAN' ? [P.APPROVE_PLAN, P.RETURN_PLAN] : [P.APPROVE_EVALUATION, P.RETURN_EVALUATION];
-    const where = this.reviewScopeWhereAny(actor, permissions);
+    this.assertGlobalDirectorAnyPermission(actor, permissions);
+    const where: Prisma.department_bscWhereInput = {};
     const filters: Prisma.department_bscWhereInput[] = [where, { responsible_manager_id: { not: actor.id } },
       stage === 'PLAN' ? { plan_status: 'SUBMITTED' } : { plan_status: 'APPROVED', evaluation_status: 'SUBMITTED' }];
     if (query.cycleId) filters.push({ cycle_id: query.cycleId });
     if (query.departmentId) filters.push({ department_id: query.departmentId });
+    if (query.search) filters.push({ OR: [
+      { bsc_code: { contains: query.search, mode: 'insensitive' } },
+      { departments: { name: { contains: query.search, mode: 'insensitive' } } },
+      { users_department_bsc_responsible_manager_idTousers: { full_name: { contains: query.search, mode: 'insensitive' } } },
+    ] });
     const finalWhere = { AND: filters };
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.department_bsc.findMany({ where: finalWhere, orderBy: { updated_at: 'asc' }, skip: (query.page - 1) * query.limit, take: query.limit }),
       this.prisma.department_bsc.count({ where: finalWhere }),
     ]);
-    return { items: await Promise.all(rows.map((row) => this.present(row, false))), page: query.page, limit: query.limit, total };
+    return { items: await Promise.all(rows.map((row) => this.present(row, false, actor))), page: query.page, limit: query.limit, total,
+      filterOptions: await this.filterOptions(where) };
   }
 
   async detail(actor: AuthUser, id: string) {
     const bsc = await this.requireBsc(this.prisma, id);
     this.assertCanView(actor, bsc);
-    return this.present(bsc, true);
+    return this.present(bsc, true, actor);
   }
 
   async scoringPreview(actor: AuthUser, id: string) {
@@ -435,10 +447,56 @@ export class DepartmentBscService {
     } catch (error) { this.mapUnique(error); }
   }
 
-  async pendingReopen(actor: AuthUser) {
-    const where = this.reviewScopeWhere(actor, P.REVIEW_REOPEN);
-    const bscs = await this.prisma.department_bsc.findMany({ where, select: { id: true } });
-    return this.prisma.department_bsc_unlock_requests.findMany({ where: { status: 'PENDING', department_bsc_id: { in: bscs.map((bsc) => bsc.id) } }, orderBy: { created_at: 'asc' } });
+  async pendingReopen(actor: AuthUser, query: QueryDepartmentBscDto) {
+    this.assertGlobalDirectorPermission(actor, P.REVIEW_REOPEN);
+    const where: Prisma.department_bscWhereInput = {};
+    const bscFilters: Prisma.department_bscWhereInput[] = [where];
+    if (query.cycleId) bscFilters.push({ cycle_id: query.cycleId });
+    if (query.departmentId) bscFilters.push({ department_id: query.departmentId });
+    if (query.search) bscFilters.push({ OR: [
+      { bsc_code: { contains: query.search, mode: 'insensitive' } },
+      { departments: { name: { contains: query.search, mode: 'insensitive' } } },
+      { users_department_bsc_responsible_manager_idTousers: { full_name: { contains: query.search, mode: 'insensitive' } } },
+    ] });
+    const requestWhere: Prisma.department_bsc_unlock_requestsWhereInput = { status: 'PENDING', department_bsc: { AND: bscFilters } };
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.department_bsc_unlock_requests.findMany({ where: requestWhere, orderBy: { created_at: 'asc' },
+        skip: (query.page - 1) * query.limit, take: query.limit,
+        include: { department_bsc: { include: { bsc_cycles: true, departments: true,
+          users_department_bsc_responsible_manager_idTousers: { select: { id: true, employee_code: true, full_name: true } } } } } }),
+      this.prisma.department_bsc_unlock_requests.count({ where: requestWhere }),
+    ]);
+    const reviewCapabilities = { canApproveReopen: true, canRejectReopen: true };
+    return { items: rows.map((row) => ({ ...row, review_capabilities: reviewCapabilities })),
+      page: query.page, limit: query.limit, total, filterOptions: await this.filterOptions(where) };
+  }
+
+  async resetApproved(actor: AuthUser, id: string, stage: 'PLAN' | 'EVALUATION', rawReason: string, metadata: AuditRequestMetadata) {
+    const reason = this.reason(rawReason);
+    return this.prisma.$transaction(async (db) => {
+      const bsc = await this.lockBsc(db, id);
+      await this.assertDirectorReset(actor, bsc);
+      await this.assertCycleEditable(db, bsc.cycle_id);
+      if (stage === 'PLAN' ? bsc.plan_status !== 'APPROVED'
+        : bsc.plan_status !== 'APPROVED' || bsc.evaluation_status !== 'APPROVED') {
+        this.conflict('DEPARTMENT_BSC_REOPEN_NOT_AVAILABLE');
+      }
+      const now = new Date();
+      const resetRecord = await db.department_bsc_unlock_requests.create({ data: {
+        department_bsc_id: id, stage, requested_by: actor.id, reviewer_id: actor.id,
+        request_reason: reason, request_source: 'DIRECTOR_RESET', status: 'APPROVED', reviewed_by: actor.id,
+        review_reason: reason, reviewed_at: now,
+      } });
+      await db.department_bsc_unlock_requests.updateMany({ where: {
+        department_bsc_id: id, status: 'PENDING', id: { not: resetRecord.id }, ...(stage === 'EVALUATION' ? { stage } : {}),
+      }, data: { status: 'EXPIRED', reviewed_by: actor.id, review_reason: 'Yêu cầu hết hiệu lực do Giám đốc đã mở lại trực tiếp BSC.', reviewed_at: now } });
+      await this.reopenApprovedStage(db, actor, bsc, stage, reason, metadata, 'RESET_APPROVED');
+      await this.audit(db, actor, `DEPARTMENT_BSC_${stage}_RESET_BY_DIRECTOR`, 'department_bsc_unlock_request', resetRecord.id,
+        null, resetRecord, metadata);
+      await this.notifications.publish(db, { type: NOTIFICATION_EVENT.DEPARTMENT_BSC_REOPEN_APPROVED,
+        resourceId: resetRecord.id, sourceId: resetRecord.id, actorId: actor.id });
+      return resetRecord;
+    });
   }
 
   async reviewReopen(actor: AuthUser, requestId: string, action: 'APPROVE' | 'REJECT', rawReason: string | undefined, metadata: AuditRequestMetadata) {
@@ -457,21 +515,7 @@ export class DepartmentBscService {
       if (claimed.count !== 1) this.conflict('DEPARTMENT_BSC_REOPEN_ALREADY_REVIEWED');
       const updatedRequest = await db.department_bsc_unlock_requests.findUniqueOrThrow({ where: { id: requestId } });
       if (action === 'APPROVE') {
-        const items = await db.department_bsc_items.findMany({ where: { department_bsc_id: bsc.id }, orderBy: { sort_order: 'asc' } });
-        if (request.stage === 'PLAN') {
-          const reopened = await db.department_bsc.updateMany({ where: { id: bsc.id, plan_status: 'APPROVED' }, data: { plan_status: 'REOPENED', evaluation_status: 'NOT_STARTED',
-            evaluation_submitted_at: null, evaluation_approved_at: null, evaluation_approved_by: null, total_score: 0, final_score: null, final_grade: null, updated_at: now } });
-          if (reopened.count !== 1) this.conflict('DEPARTMENT_BSC_REOPEN_NOT_AVAILABLE');
-          await db.department_bsc_items.updateMany({ where: { department_bsc_id: bsc.id }, data: { actual_value: null, actual_text: null,
-            manager_note: null, achievement_percent: 0, weighted_score: 0 } });
-        } else {
-          const reopened = await db.department_bsc.updateMany({ where: { id: bsc.id, evaluation_status: 'APPROVED' }, data: { evaluation_status: 'REOPENED', total_score: 0, final_score: null, final_grade: null, updated_at: now } });
-          if (reopened.count !== 1) this.conflict('DEPARTMENT_BSC_REOPEN_NOT_AVAILABLE');
-        }
-        await db.department_bsc_approval_steps.updateMany({ where: { department_bsc_id: bsc.id, stage: request.stage }, data: { status: 'REOPENED', comment: reason, acted_at: now } });
-        const reopenedBsc = await this.requireBsc(db, bsc.id);
-        const reopenedItems = await db.department_bsc_items.findMany({ where: { department_bsc_id: bsc.id }, orderBy: { sort_order: 'asc' } });
-        await this.recordTransition(db, actor, reopenedBsc, request.stage as 'PLAN' | 'EVALUATION', 'APPROVED', 'REOPENED', 'REOPEN', reason, reopenedItems, metadata);
+        await this.reopenApprovedStage(db, actor, bsc, request.stage as 'PLAN' | 'EVALUATION', reason, metadata, 'REOPEN');
       }
       await this.audit(db, actor, `DEPARTMENT_BSC_REOPEN_${action}`, 'department_bsc_unlock_request', request.id, request, updatedRequest, metadata);
       await this.notifications.publish(db, {
@@ -484,6 +528,41 @@ export class DepartmentBscService {
       });
       return updatedRequest;
     });
+  }
+
+  private async reopenApprovedStage(db: Prisma.TransactionClient, actor: AuthUser, bsc: BscRow,
+    stage: 'PLAN' | 'EVALUATION', reason: string | null, metadata: AuditRequestMetadata, action: 'REOPEN' | 'RESET_APPROVED') {
+    const itemsBefore = await db.department_bsc_items.findMany({ where: { department_bsc_id: bsc.id }, orderBy: { sort_order: 'asc' } });
+    const now = new Date();
+    if (stage === 'PLAN') {
+      const reopened = await db.department_bsc.updateMany({ where: { id: bsc.id, plan_status: 'APPROVED' }, data: {
+        plan_status: 'REOPENED', plan_approved_at: null, plan_approved_by: null,
+        evaluation_status: 'NOT_STARTED', evaluation_submitted_at: null, evaluation_approved_at: null,
+        evaluation_approved_by: null, total_score: 0, final_score: null, final_grade: null, updated_at: now,
+      } });
+      if (reopened.count !== 1) this.conflict('DEPARTMENT_BSC_REOPEN_NOT_AVAILABLE');
+      await db.department_bsc_items.updateMany({ where: { department_bsc_id: bsc.id }, data: {
+        actual_value: null, actual_text: null, manager_note: null, director_note: null,
+        achievement_percent: 0, weighted_score: 0, updated_at: now,
+      } });
+      await db.department_bsc_approval_steps.updateMany({ where: { department_bsc_id: bsc.id, stage: 'EVALUATION' },
+        data: { status: 'NOT_STARTED', comment: null, acted_at: null } });
+    } else {
+      const reopened = await db.department_bsc.updateMany({ where: { id: bsc.id, plan_status: 'APPROVED', evaluation_status: 'APPROVED' }, data: {
+        evaluation_status: 'REOPENED', evaluation_approved_at: null, evaluation_approved_by: null,
+        total_score: 0, final_score: null, final_grade: null, updated_at: now,
+      } });
+      if (reopened.count !== 1) this.conflict('DEPARTMENT_BSC_REOPEN_NOT_AVAILABLE');
+    }
+    await db.department_bsc_approval_steps.updateMany({ where: { department_bsc_id: bsc.id, stage },
+      data: { status: 'REOPENED', comment: reason, acted_at: now } });
+    const reopenedBsc = await this.requireBsc(db, bsc.id);
+    const reopenedItems = await db.department_bsc_items.findMany({ where: { department_bsc_id: bsc.id }, orderBy: { sort_order: 'asc' } });
+    await this.recordTransition(db, actor, reopenedBsc, stage, 'APPROVED', 'REOPENED', action, reason, reopenedItems, metadata,
+      undefined, { bsc, items: itemsBefore });
+    if (stage === 'PLAN' && bsc.evaluation_status !== 'NOT_STARTED') {
+      await this.recordDependentStageReset(db, actor, bsc, reopenedBsc, bsc.evaluation_status, reason, metadata, itemsBefore, reopenedItems);
+    }
   }
 
   async requireBsc(db: Db, id: string) {
@@ -510,7 +589,7 @@ export class DepartmentBscService {
     return item;
   }
 
-  private async present(bsc: BscRow, includeDetails = true) {
+  private async present(bsc: BscRow, includeDetails = true, actor?: AuthUser) {
     const [cycle, department, manager, reviewer, items, histories, reviews] = await Promise.all([
       this.prisma.bsc_cycles.findUnique({ where: { id: bsc.cycle_id } }),
       this.prisma.departments.findUnique({ where: { id: bsc.department_id } }),
@@ -520,10 +599,38 @@ export class DepartmentBscService {
       includeDetails ? this.prisma.department_bsc_status_histories.findMany({ where: { department_bsc_id: bsc.id }, orderBy: { changed_at: 'asc' } }) : Promise.resolve([]),
       includeDetails ? this.prisma.department_bsc_reviews.findMany({ where: { department_bsc_id: bsc.id }, orderBy: { reviewed_at: 'asc' } }) : Promise.resolve([]),
     ]);
+    const reviewCapabilities = actor && cycle ? await this.reviewCapabilities(actor, bsc, cycle.status) : undefined;
     return { ...bsc, total_score: Number(bsc.total_score), final_score: bsc.final_score === null ? null : Number(bsc.final_score),
       bsc_cycles: cycle, departments: department, responsible_manager: manager, reviewer,
       department_bsc_items: items.map((item) => this.presentItem(item)), department_bsc_status_histories: histories,
-      department_bsc_reviews: reviews, goal_groups: BSC_GOAL_GROUPS };
+      department_bsc_reviews: reviews, goal_groups: BSC_GOAL_GROUPS, review_capabilities: reviewCapabilities };
+  }
+
+  private async filterOptions(where: Prisma.department_bscWhereInput) {
+    const [cycleRows, departmentRows] = await Promise.all([
+      this.prisma.department_bsc.findMany({ where, distinct: ['cycle_id'], select: { bsc_cycles: { select: { id: true, name: true } } } }),
+      this.prisma.department_bsc.findMany({ where, distinct: ['department_id'], select: { departments: { select: { id: true, name: true } } } }),
+    ]);
+    return {
+      cycles: cycleRows.map((row) => row.bsc_cycles).sort((a, b) => a.name.localeCompare(b.name, 'vi')),
+      departments: departmentRows.map((row) => row.departments).sort((a, b) => a.name.localeCompare(b.name, 'vi')),
+    };
+  }
+
+  private async reviewCapabilities(actor: AuthUser, bsc: BscRow, cycleStatus: string) {
+    const activeManager = await this.activeAssignment(actor.id);
+    const reviewerEligible = actor.id !== bsc.responsible_manager_id && activeManager?.department_id !== bsc.department_id;
+    const canReview = (permission: string) => reviewerEligible && this.hasGlobalDirectorPermission(actor, permission);
+    const reviewable = ['OPEN', 'LOCKED'].includes(cycleStatus);
+    const approvePlan = reviewable && bsc.plan_status === 'SUBMITTED' && canReview(P.APPROVE_PLAN);
+    const returnPlan = reviewable && bsc.plan_status === 'SUBMITTED' && canReview(P.RETURN_PLAN);
+    const approveEvaluation = reviewable && bsc.plan_status === 'APPROVED' && bsc.evaluation_status === 'SUBMITTED' && canReview(P.APPROVE_EVALUATION);
+    const returnEvaluation = reviewable && bsc.plan_status === 'APPROVED' && bsc.evaluation_status === 'SUBMITTED' && canReview(P.RETURN_EVALUATION);
+    const canReset = cycleStatus === 'OPEN' && reviewerEligible && this.hasGlobalDirectorResetRole(actor);
+    return { canApprovePlan: approvePlan, canReturnPlan: returnPlan,
+      canApproveEvaluation: approveEvaluation, canReturnEvaluation: returnEvaluation,
+      canResetPlan: canReset && bsc.plan_status === 'APPROVED',
+      canResetEvaluation: canReset && bsc.plan_status === 'APPROVED' && bsc.evaluation_status === 'APPROVED' };
   }
 
   private presentItem<T extends { target_value: Prisma.Decimal | null; actual_value: Prisma.Decimal | null; weight: Prisma.Decimal; achievement_percent: Prisma.Decimal; weighted_score: Prisma.Decimal }>(item: T) {
@@ -537,13 +644,13 @@ export class DepartmentBscService {
       start_date: { lte: now }, OR: [{ end_date: null }, { end_date: { gt: now } }] }, orderBy: { start_date: 'desc' } });
   }
 
-  private async findReviewer(actor: AuthUser, departmentId: string) {
+  private async findReviewer(actor: AuthUser) {
     const directManagerId = await this.prisma.users.findUnique({ where: { id: actor.id }, select: { direct_manager_id: true } });
     const reviewerPermissions = [P.APPROVE_PLAN, P.RETURN_PLAN, P.APPROVE_EVALUATION, P.RETURN_EVALUATION];
     const where: Prisma.usersWhereInput = { status: 'ACTIVE', deleted_at: null, id: { not: actor.id },
-      user_roles_user_roles_user_idTousers: { some: { roles: { status: 'ACTIVE', AND: reviewerPermissions.map((code) => ({ role_permissions: { some: { permissions: { code } } } })) },
-        AND: [{ OR: [{ scope_type: 'GLOBAL' }, { scope_type: 'DEPARTMENT', scope_id: departmentId }] },
-          { OR: [{ expires_at: null }, { expires_at: { gt: new Date() } }] }] } } };
+      user_roles_user_roles_user_idTousers: { some: { roles: { code: 'DIRECTOR', status: 'ACTIVE',
+        AND: reviewerPermissions.map((code) => ({ role_permissions: { some: { permissions: { code } } } })) },
+        scope_type: 'GLOBAL', OR: [{ expires_at: null }, { expires_at: { gt: new Date() } }] } } };
     if (directManagerId?.direct_manager_id) {
       const direct = await this.prisma.users.findFirst({ where: { AND: [where, { id: directManagerId.direct_manager_id }] } });
       if (direct) return direct;
@@ -555,20 +662,6 @@ export class DepartmentBscService {
     const scope = this.scopeWhere(actor, permission);
     if (!scope) this.deny();
     return scope;
-  }
-
-  private reviewScopeWhere(actor: AuthUser, permission: string): Prisma.department_bscWhereInput {
-    const scope = this.scopeWhere(actor, permission);
-    if (!scope) this.deny();
-    return scope;
-  }
-
-  private reviewScopeWhereAny(actor: AuthUser, permissions: string[]): Prisma.department_bscWhereInput {
-    const assignments = actor.roles.filter((role) => role.permissions?.some((permission) => permissions.includes(permission)));
-    if (assignments.some((role) => role.scopeType === 'GLOBAL')) return {};
-    const ids = assignments.filter((role) => role.scopeType === 'DEPARTMENT' && role.scopeId).map((role) => role.scopeId!);
-    if (!ids.length) this.deny();
-    return { department_id: { in: [...new Set(ids)] } };
   }
 
   private scopeWhere(actor: AuthUser, permission: string): Prisma.department_bscWhereInput | null {
@@ -602,7 +695,34 @@ export class DepartmentBscService {
     if (actor.id === bsc.responsible_manager_id) throw new ForbiddenException({ code: 'DEPARTMENT_BSC_SELF_APPROVAL_FORBIDDEN', message: 'Trưởng phòng không thể tự duyệt BSC phòng ban.' });
     const activeManager = await this.activeAssignment(actor.id);
     if (activeManager?.department_id === bsc.department_id) throw new ForbiddenException({ code: 'DEPARTMENT_BSC_SELF_APPROVAL_FORBIDDEN', message: 'Trưởng phòng đương nhiệm không thể tự duyệt BSC phòng ban.' });
-    if (!this.hasScopedPermission(actor, permission, bsc.department_id)) this.deny();
+    this.assertGlobalDirectorPermission(actor, permission);
+  }
+
+  private async canDirectorReset(actor: AuthUser, bsc: BscRow) {
+    if (actor.id === bsc.responsible_manager_id || !this.hasGlobalDirectorResetRole(actor)) return false;
+    const activeManager = await this.activeAssignment(actor.id);
+    return activeManager?.department_id !== bsc.department_id;
+  }
+
+  private hasGlobalDirectorResetRole(actor: AuthUser) {
+    return this.hasGlobalDirectorPermission(actor, P.RESET_APPROVED);
+  }
+
+  private hasGlobalDirectorPermission(actor: AuthUser, permission: string) {
+    return actor.permissions.includes(permission) && actor.roles.some((role) => role.code === 'DIRECTOR'
+      && role.scopeType === 'GLOBAL' && role.permissions?.includes(permission));
+  }
+
+  private assertGlobalDirectorPermission(actor: AuthUser, permission: string) {
+    if (!this.hasGlobalDirectorPermission(actor, permission)) this.deny();
+  }
+
+  private assertGlobalDirectorAnyPermission(actor: AuthUser, permissions: string[]) {
+    if (!permissions.some((permission) => this.hasGlobalDirectorPermission(actor, permission))) this.deny();
+  }
+
+  private async assertDirectorReset(actor: AuthUser, bsc: BscRow) {
+    if (!await this.canDirectorReset(actor, bsc)) this.deny();
   }
 
   private async assertCycleEditable(db: Db, cycleId: string) {
@@ -643,16 +763,25 @@ export class DepartmentBscService {
   }
 
   private async recordTransition(db: Prisma.TransactionClient, actor: AuthUser, bsc: BscRow, stage: 'PLAN' | 'EVALUATION', from: string,
-    to: string, action: string, comment: string | null, items: unknown[], metadata: AuditRequestMetadata, scoring?: BscScoringResult) {
+    to: string, action: string, comment: string | null, items: unknown[], metadata: AuditRequestMetadata, scoring?: BscScoringResult,
+    versionSnapshot?: { bsc: BscRow; items: unknown[] }) {
     const history = await db.department_bsc_status_histories.create({ data: { department_bsc_id: bsc.id, stage, from_status: from, to_status: to,
       action, comment, changed_by: actor.id, ip_address: metadata.ipAddress, user_agent: metadata.userAgent } });
     const count = await db.department_bsc_versions.count({ where: { department_bsc_id: bsc.id } });
-    const snapshot = JSON.parse(JSON.stringify({ bsc, items,
-      totalWeight: scoring?.totalWeight ?? items.reduce<number>((sum, item) => sum + Number((item as { weight?: unknown }).weight ?? 0), 0),
+    const snapshotBsc = versionSnapshot?.bsc ?? bsc;
+    const snapshotItems = versionSnapshot?.items ?? items;
+    const snapshot = JSON.parse(JSON.stringify({ bsc: snapshotBsc, items: snapshotItems,
+      totalWeight: scoring?.totalWeight ?? snapshotItems.reduce<number>((sum, item) => sum + Number((item as { weight?: unknown }).weight ?? 0), 0),
       totalScore: scoring?.totalWeightedScore ?? null, finalGrade: scoring?.classification ?? null })) as Prisma.InputJsonValue;
     await db.department_bsc_versions.create({ data: { department_bsc_id: bsc.id, version_number: count + 1, stage,
-      version_type: `${stage}_${action}`, snapshot, created_by: actor.id } });
-    await this.audit(db, actor, `DEPARTMENT_BSC_${stage}_${action}`, 'department_bsc', bsc.id, { status: from }, { status: to, comment }, metadata);
+      version_type: versionSnapshot ? 'PRE_REOPEN' : `${stage}_${action}`, snapshot, created_by: actor.id } });
+    const beforeAudit = versionSnapshot
+      ? this.reopenAuditState(versionSnapshot.bsc, versionSnapshot.items)
+      : { stage, status: from };
+    const afterAudit = versionSnapshot
+      ? { ...this.reopenAuditState(bsc, items), reason: comment }
+      : { stage, status: to, comment };
+    await this.audit(db, actor, `DEPARTMENT_BSC_${stage}_${action}`, 'department_bsc', bsc.id, beforeAudit, afterAudit, metadata);
     const notificationType = this.transitionNotificationType(stage, action);
     if (notificationType) {
       await this.notifications.publish(db, {
@@ -662,6 +791,37 @@ export class DepartmentBscService {
         actorId: actor.id,
       });
     }
+  }
+
+  private async recordDependentStageReset(db: Prisma.TransactionClient, actor: AuthUser, before: BscRow, after: BscRow,
+    from: string, reason: string | null, metadata: AuditRequestMetadata, itemsBefore: unknown[], itemsAfter: unknown[]) {
+    await db.department_bsc_status_histories.create({ data: { department_bsc_id: after.id, stage: 'EVALUATION',
+      from_status: from, to_status: 'NOT_STARTED', action: 'RESET_BY_PLAN_REOPEN', comment: reason,
+      changed_by: actor.id, ip_address: metadata.ipAddress, user_agent: metadata.userAgent } });
+    await this.audit(db, actor, 'DEPARTMENT_BSC_EVALUATION_RESET_BY_PLAN_REOPEN', 'department_bsc', after.id,
+      this.reopenAuditState(before, itemsBefore), { ...this.reopenAuditState(after, itemsAfter), reason }, metadata);
+  }
+
+  private reopenAuditState(bsc: BscRow, items: unknown[]) {
+    return {
+      planStatus: bsc.plan_status,
+      evaluationStatus: bsc.evaluation_status,
+      planApprovedAt: bsc.plan_approved_at,
+      planApprovedBy: bsc.plan_approved_by,
+      evaluationSubmittedAt: bsc.evaluation_submitted_at,
+      evaluationApprovedAt: bsc.evaluation_approved_at,
+      evaluationApprovedBy: bsc.evaluation_approved_by,
+      totalScore: bsc.total_score,
+      finalScore: bsc.final_score,
+      finalGrade: bsc.final_grade,
+      items: items.map((item) => {
+        const row = item as { id?: unknown; actual_value?: unknown; actual_text?: unknown; manager_note?: unknown;
+          director_note?: unknown; achievement_percent?: unknown; weighted_score?: unknown };
+        return { id: row.id, actualValue: row.actual_value, actualText: row.actual_text,
+          managerNote: row.manager_note, directorNote: row.director_note,
+          achievementPercent: row.achievement_percent, weightedScore: row.weighted_score };
+      }),
+    };
   }
 
   private transitionNotificationType(stage: 'PLAN' | 'EVALUATION', action: string): NotificationEventType | null {

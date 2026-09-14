@@ -178,20 +178,23 @@ export class NotificationPublisher {
   private async departmentReopenDraft(db: Prisma.TransactionClient, event: NotificationEvent): Promise<NotificationDraft> {
     const request = await db.department_bsc_unlock_requests.findUnique({
       where: { id: event.resourceId },
-      select: { id: true, department_bsc_id: true, stage: true, requested_by: true, reviewer_id: true },
+      select: { id: true, department_bsc_id: true, stage: true, requested_by: true, reviewer_id: true, request_source: true },
     });
     if (!request) this.sourceNotFound();
     const bsc = await db.department_bsc.findUnique({
       where: { id: request.department_bsc_id },
-      select: { id: true, department_id: true },
+      select: { id: true, department_id: true, responsible_manager_id: true },
     });
     if (!bsc) this.sourceNotFound();
     const department = await db.departments.findUnique({ where: { id: bsc.department_id }, select: { name: true } });
     const requested = event.type.endsWith('_REQUESTED');
-    const action = requested ? 'REQUESTED' : event.type.endsWith('_APPROVED') ? 'APPROVED' : 'REJECTED';
+    const directReset = request.request_source === 'DIRECTOR_RESET';
+    const action = directReset ? 'DIRECTOR_RESET' : requested ? 'REQUESTED' : event.type.endsWith('_APPROVED') ? 'APPROVED' : 'REJECTED';
     return {
-      recipientId: requested ? request.reviewer_id : request.requested_by,
-      ...this.reopenCopy(request.stage as NotificationStage, action, 'phòng ban', department?.name ?? 'phòng ban'),
+      recipientId: requested ? request.reviewer_id : directReset ? bsc.responsible_manager_id : request.requested_by,
+      ...(directReset
+        ? this.directResetCopy(request.stage as NotificationStage, department?.name ?? 'phòng ban', 'Giám đốc')
+        : this.reopenCopy(request.stage as NotificationStage, action, 'phòng ban', department?.name ?? 'phòng ban')),
       entityType: 'department_bsc',
       entityId: bsc.id,
       targetPath: requested

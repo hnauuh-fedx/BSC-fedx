@@ -46,6 +46,7 @@ export class UpdateDepartmentBscActualDto {
   @IsOptional() @IsString() @MaxLength(5000) managerNote?: string;
 }
 export class ReturnDepartmentBscDto { @IsString() @Length(1, 2000) reason!: string; }
+export class ResetApprovedDepartmentBscDto { @IsString() @Length(1, 2000) reason!: string; }
 export class DuplicateDepartmentBscDto { @IsUUID() targetCycleId!: string; }
 export class DepartmentBscReopenDto {
   @IsIn(['PLAN', 'EVALUATION']) stage!: 'PLAN' | 'EVALUATION';

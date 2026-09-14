@@ -99,6 +99,7 @@ export const MainLayout: React.FC<PropsWithChildren> = ({ children }) => {
   const canReviewDepartmentBsc = [
     'bsc.department.plan.approve', 'bsc.department.plan.return',
     'bsc.department.evaluation.approve', 'bsc.department.evaluation.return',
+    'bsc.department.reopen.review',
   ].some((permission) => permissions.includes(permission));
   const canReview = REVIEW_QUEUE_PERMISSIONS.some((permission) => reviewerPermissions.has(permission));
   const canReviewReopen = reviewerPermissions.has('bsc.reopen.subordinate');

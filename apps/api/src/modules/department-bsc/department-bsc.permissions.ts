@@ -12,7 +12,7 @@ export const DEPARTMENT_BSC_PERMISSIONS = {
   RETURN_EVALUATION: 'bsc.department.evaluation.return',
   REQUEST_REOPEN: 'bsc.department.reopen.request',
   REVIEW_REOPEN: 'bsc.department.reopen.review',
+  RESET_APPROVED: 'bsc.department.reset.approved',
   VIEW_VERSION: 'bsc.department.version.view',
   EXPORT: 'bsc.department.report.export',
 } as const;
-

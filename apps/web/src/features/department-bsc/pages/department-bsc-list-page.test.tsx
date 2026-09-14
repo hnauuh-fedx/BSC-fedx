@@ -84,6 +84,14 @@ describe('DepartmentBscListPage actions', () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:department-bsc');
   });
 
+  it('filters the list by search text', async () => {
+    renderPage();
+
+    await userEvent.type(await screen.findByRole('searchbox', { name: 'Tìm kiếm' }), 'Marketing');
+
+    await waitFor(() => expect(departmentBscApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ search: 'Marketing', page: 1 })));
+  });
+
   it('duplicates into a selected open cycle and opens the new BSC', async () => {
     renderPage();
 
@@ -94,6 +102,6 @@ describe('DepartmentBscListPage actions', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Xác nhận sao chép' }));
 
     await waitFor(() => expect(departmentBscApi.duplicate).toHaveBeenCalledWith('department-bsc-1', 'cycle-2'));
-    expect(screen.getByLabelText('current-location')).toHaveTextContent('/department-bsc/department-bsc-2');
+    await waitFor(() => expect(screen.getByLabelText('current-location')).toHaveTextContent('/department-bsc/department-bsc-2'));
   });
 });

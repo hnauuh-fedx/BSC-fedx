@@ -22,11 +22,20 @@ export type DepartmentBsc = {
   department_bsc_status_histories: Array<{ id: string; stage: string; from_status: string | null; to_status: string; action: string; comment: string | null; changed_at: string }>;
   department_bsc_reviews: Array<{ id: string; stage: string; action: string; comment: string | null; reviewed_at: string }>;
   goal_groups: BscGoalGroup[];
+  review_capabilities?: {
+    canApprovePlan: boolean; canReturnPlan: boolean; canApproveEvaluation: boolean;
+    canReturnEvaluation: boolean; canResetPlan: boolean; canResetEvaluation: boolean;
+  };
 };
-export type DepartmentBscPage = { items: DepartmentBsc[]; page: number; limit: number; total: number };
+export type DepartmentBscFilterOptions = { cycles: Array<{ id: string; name: string }>; departments: Array<{ id: string; name: string }> };
+export type DepartmentBscPage = { items: DepartmentBsc[]; page: number; limit: number; total: number; filterOptions?: DepartmentBscFilterOptions };
 export type DepartmentBscVersion = { id: string; version_number: number; stage: string; version_type: string; created_at: string; snapshot: Record<string, unknown> };
 export type DepartmentBscReopenRequest = {
-  id: string; department_bsc_id: string; stage: 'PLAN' | 'EVALUATION'; status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  id: string; department_bsc_id: string; stage: 'PLAN' | 'EVALUATION'; status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
+  request_source?: 'OWNER_REQUEST' | 'DIRECTOR_RESET';
   request_reason: string; review_reason: string | null; created_at: string; reviewed_at: string | null;
+  review_capabilities?: { canApproveReopen: boolean; canRejectReopen: boolean };
+  department_bsc?: DepartmentBsc & { users_department_bsc_responsible_manager_idTousers?: { id: string; employee_code: string; full_name: string } };
 };
+export type DepartmentBscReopenPage = { items: DepartmentBscReopenRequest[]; page: number; limit: number; total: number; filterOptions?: DepartmentBscFilterOptions };
 export type DepartmentBscScoring = BscScoringPreview;

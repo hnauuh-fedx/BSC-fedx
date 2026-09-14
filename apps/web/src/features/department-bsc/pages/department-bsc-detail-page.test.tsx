@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SystemConfirmDialogProvider } from '../../../components/system-confirm-dialog';
@@ -19,6 +20,8 @@ vi.mock('../department-bsc.service', async (importOriginal) => {
       detail: vi.fn(),
       scoringPreview: vi.fn(),
       versions: vi.fn(),
+      resetApprovedPlan: vi.fn(),
+      resetApprovedEvaluation: vi.fn(),
     },
   };
 });
@@ -91,5 +94,29 @@ describe('DepartmentBscDetailPage', () => {
     ).toBeVisible();
     expect(screen.queryByText('DBSC_MKT_CE23CCEF16FC')).not.toBeInTheDocument();
     expect(screen.getByText('Trưởng phòng: Trưởng phòng Marketing')).toBeVisible();
+  });
+
+  it('allows the director to directly reopen an approved evaluation with a required reason', async () => {
+    vi.mocked(useAuth).mockReturnValue({ user: { permissions: [P.VIEW, P.RESET_APPROVED] } } as ReturnType<typeof useAuth>);
+    vi.mocked(departmentBscApi.detail).mockResolvedValue({ ...bsc, plan_status: 'APPROVED', evaluation_status: 'APPROVED',
+      review_capabilities: { canApprovePlan: false, canReturnPlan: false, canApproveEvaluation: false,
+        canReturnEvaluation: false, canResetPlan: true, canResetEvaluation: true } });
+    vi.mocked(departmentBscApi.resetApprovedEvaluation).mockResolvedValue({ id: 'reset-1', department_bsc_id: bsc.id,
+      stage: 'EVALUATION', status: 'APPROVED', request_source: 'DIRECTOR_RESET', request_reason: 'Điều chỉnh kết quả',
+      review_reason: 'Điều chỉnh kết quả', created_at: '2026-07-01T00:00:00.000Z', reviewed_at: '2026-07-01T00:00:00.000Z' });
+
+    render(
+      <SystemConfirmDialogProvider><MemoryRouter initialEntries={['/department-bsc/department-bsc-1']}><Routes>
+        <Route path="/department-bsc/:id" element={<DepartmentBscDetailPage />} />
+      </Routes></MemoryRouter></SystemConfirmDialogProvider>,
+    );
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Mở lại đánh giá đã duyệt' }));
+    const dialog = screen.getByRole('dialog', { name: 'Mở lại đánh giá đã duyệt' });
+    expect(screen.getByRole('button', { name: 'Xác nhận mở lại' })).toBeDisabled();
+    await userEvent.type(dialog.querySelector('textarea')!, 'Điều chỉnh kết quả');
+    await userEvent.click(screen.getByRole('button', { name: 'Xác nhận mở lại' }));
+
+    expect(departmentBscApi.resetApprovedEvaluation).toHaveBeenCalledWith(bsc.id, 'Điều chỉnh kết quả');
   });
 });

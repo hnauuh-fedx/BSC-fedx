@@ -49,6 +49,7 @@ export const DEPARTMENT_BSC_VIEW_PERMISSIONS = ['bsc.department.view'] as const;
 export const DEPARTMENT_BSC_REVIEW_PERMISSIONS = [
   'bsc.department.plan.approve', 'bsc.department.plan.return',
   'bsc.department.evaluation.approve', 'bsc.department.evaluation.return',
+  'bsc.department.reopen.review',
 ] as const;
 
 export const hasAnyWorkspacePermission = (

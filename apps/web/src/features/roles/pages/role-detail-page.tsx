@@ -53,6 +53,7 @@ const PERMISSION_CODE_LABELS: Record<string, string> = {
   'bsc.reopen.request': 'Yêu cầu mở lại BSC',
   'bsc.reopen.review': 'Xét duyệt mở lại BSC',
   'bsc.reset.approved': 'Mở lại trực tiếp BSC đã duyệt',
+  'bsc.department.reset.approved': 'Mở lại trực tiếp BSC phòng ban đã duyệt',
   'bsc.version.view': 'Xem lịch sử phiên bản',
   'audit.view': 'Xem nhật ký hệ thống',
 };

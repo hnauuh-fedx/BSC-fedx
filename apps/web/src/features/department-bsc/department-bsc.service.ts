@@ -1,5 +1,5 @@
 import { httpClient } from '../../lib/http-client';
-import type { DepartmentBsc, DepartmentBscItem, DepartmentBscPage, DepartmentBscReopenRequest, DepartmentBscScoring, DepartmentBscVersion } from './department-bsc.types';
+import type { DepartmentBsc, DepartmentBscItem, DepartmentBscPage, DepartmentBscReopenPage, DepartmentBscReopenRequest, DepartmentBscScoring, DepartmentBscVersion } from './department-bsc.types';
 
 const query = (input: Record<string, string | number | undefined>) => {
   const value = new URLSearchParams(Object.entries(input).filter(([, item]) => item !== undefined && item !== '').map(([key, item]) => [key, String(item)])).toString();
@@ -24,10 +24,12 @@ export const departmentBscApi = {
   submitEvaluation: (id: string) => httpClient.post<DepartmentBsc>(`/department-bsc/${id}/evaluation/submit`, {}),
   approveEvaluation: (id: string) => httpClient.post<DepartmentBsc>(`/department-bsc/${id}/evaluation/approve`, {}),
   returnEvaluation: (id: string, reason: string) => httpClient.post<DepartmentBsc>(`/department-bsc/${id}/evaluation/return`, { reason }),
+  resetApprovedPlan: (id: string, reason: string) => httpClient.post<DepartmentBscReopenRequest>(`/department-bsc/${id}/plan/reset-approved`, { reason }),
+  resetApprovedEvaluation: (id: string, reason: string) => httpClient.post<DepartmentBscReopenRequest>(`/department-bsc/${id}/evaluation/reset-approved`, { reason }),
   duplicate: (id: string, targetCycleId: string) => httpClient.post<DepartmentBsc>(`/department-bsc/${id}/duplicate`, { targetCycleId }),
   versions: (id: string) => httpClient.get<DepartmentBscVersion[]>(`/department-bsc/${id}/versions`),
   requestReopen: (id: string, stage: 'PLAN' | 'EVALUATION', reason: string) => httpClient.post(`/department-bsc/${id}/reopen-requests`, { stage, reason }),
-  pendingReopen: () => httpClient.get<DepartmentBscReopenRequest[]>('/department-bsc/reopen-requests/pending'),
+  pendingReopen: (params: Record<string, string | number | undefined> = {}) => httpClient.get<DepartmentBscReopenPage>(`/department-bsc/reopen-requests/pending${query(params)}`),
   approveReopen: (requestId: string) => httpClient.post<DepartmentBscReopenRequest>(`/department-bsc/reopen-requests/${requestId}/approve`, {}),
   rejectReopen: (requestId: string, reason: string) => httpClient.post<DepartmentBscReopenRequest>(`/department-bsc/reopen-requests/${requestId}/reject`, { reason }),
 };
@@ -38,5 +40,6 @@ export const DEPARTMENT_BSC_PERMISSIONS = {
   RETURN_PLAN: 'bsc.department.plan.return', SUBMIT_EVALUATION: 'bsc.department.evaluation.submit',
   APPROVE_EVALUATION: 'bsc.department.evaluation.approve', RETURN_EVALUATION: 'bsc.department.evaluation.return',
   REQUEST_REOPEN: 'bsc.department.reopen.request', REVIEW_REOPEN: 'bsc.department.reopen.review', VIEW_VERSION: 'bsc.department.version.view',
+  RESET_APPROVED: 'bsc.department.reset.approved',
   EXPORT: 'bsc.department.report.export',
 } as const;

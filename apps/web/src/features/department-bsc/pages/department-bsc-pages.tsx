@@ -1,5 +1,5 @@
 import React, { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeftIcon, CopyIcon, EyeIcon, FilePlus2Icon, FileSpreadsheetIcon, PencilIcon, PlusIcon, Trash2Icon, XIcon } from 'lucide-react';
+import { ArrowLeftIcon, CheckIcon, CopyIcon, EyeIcon, FilePlus2Icon, FileSpreadsheetIcon, PencilIcon, PlusIcon, RotateCcwIcon, Trash2Icon, XIcon } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Badge } from '../../../components/ui/badge';
 import { Button } from '../../../components/ui/button';
@@ -9,13 +9,14 @@ import { Input } from '../../../components/ui/input';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
 import { Spinner } from '../../../components/ui/spinner';
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
+import { Tabs, TabsList, TabsTrigger } from '../../../components/ui/tabs';
 import { Textarea } from '../../../components/ui/textarea';
 import { useSystemConfirm } from '../../../components/system-confirm-dialog';
 import { departmentBscTitle } from '../../../lib/bsc-display';
 import { bscStageLabel } from '../../../lib/bsc-stage';
 import { bscCyclesApi, BscCycle } from '../../bsc-cycles';
 import { useAuth } from '../../auth/hooks/use-auth';
-import { AccessibleDialog, EmptyState, ErrorState, LoadingState, PageHeader, Pagination } from '../../organization/management-ui';
+import { AccessibleDialog, EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SearchInput } from '../../organization/management-ui';
 import { DEPARTMENT_BSC_PERMISSIONS as P, departmentBscApi } from '../department-bsc.service';
 import type { DepartmentBsc, DepartmentBscItem, DepartmentBscReopenRequest, DepartmentBscScoring, DepartmentBscVersion } from '../department-bsc.types';
 
@@ -37,10 +38,15 @@ const download = ({ blob, fileName }: { blob: Blob; fileName: string }) => {
 
 export const DepartmentBscListPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const permissions = user?.permissions ?? [];
   const [items, setItems] = useState<DepartmentBsc[]>([]);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(Number(searchParams.get('page')) || 1);
+  const [search, setSearch] = useState(searchParams.get('search') ?? ''), [cycleId, setCycleId] = useState(searchParams.get('cycleId') ?? 'ALL');
+  const [departmentId, setDepartmentId] = useState(searchParams.get('departmentId') ?? 'ALL');
+  const [planStatus, setPlanStatus] = useState(searchParams.get('planStatus') ?? 'ALL'), [evaluationStatus, setEvaluationStatus] = useState(searchParams.get('evaluationStatus') ?? 'ALL');
+  const [filterCycles, setFilterCycles] = useState<Array<{ id: string; name: string }>>([]), [filterDepartments, setFilterDepartments] = useState<Array<{ id: string; name: string }>>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -53,11 +59,21 @@ export const DepartmentBscListPage: React.FC = () => {
   const [duplicateError, setDuplicateError] = useState('');
   const load = useCallback(async () => {
     setLoading(true); setError('');
-    try { const result = await departmentBscApi.list({ page, limit: 20 }); setItems(result.items); setTotal(result.total); }
+    try { const result = await departmentBscApi.list({ search, cycleId: cycleId === 'ALL' ? '' : cycleId, departmentId: departmentId === 'ALL' ? '' : departmentId,
+      planStatus: planStatus === 'ALL' ? '' : planStatus, evaluationStatus: evaluationStatus === 'ALL' ? '' : evaluationStatus, page, limit: 20 });
+      setItems(result.items); setTotal(result.total); setFilterCycles(result.filterOptions?.cycles ?? []); setFilterDepartments(result.filterOptions?.departments ?? []); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể tải danh sách BSC phòng ban.'); }
     finally { setLoading(false); }
-  }, [page]);
+  }, [search, cycleId, departmentId, planStatus, evaluationStatus, page]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    setPage(Number(searchParams.get('page')) || 1);
+    setSearch(searchParams.get('search') ?? '');
+    setCycleId(searchParams.get('cycleId') ?? 'ALL');
+    setDepartmentId(searchParams.get('departmentId') ?? 'ALL');
+    setPlanStatus(searchParams.get('planStatus') ?? 'ALL');
+    setEvaluationStatus(searchParams.get('evaluationStatus') ?? 'ALL');
+  }, [searchParams]);
   const exportExcel = async (item: DepartmentBsc) => {
     setExportingId(item.id); setError('');
     try { download(await departmentBscApi.export(item.id)); }
@@ -85,13 +101,23 @@ export const DepartmentBscListPage: React.FC = () => {
     } catch (cause) { setDuplicateError(cause instanceof Error ? cause.message : 'Không thể sao chép BSC phòng ban.'); }
     finally { setDuplicateBusy(false); }
   };
-  const canReview = [P.APPROVE_PLAN, P.RETURN_PLAN, P.APPROVE_EVALUATION, P.RETURN_EVALUATION].some((permission) => permissions.includes(permission));
+  const canReview = [P.APPROVE_PLAN, P.RETURN_PLAN, P.APPROVE_EVALUATION, P.RETURN_EVALUATION, P.REVIEW_REOPEN]
+    .some((permission) => permissions.includes(permission));
+  const updateUrl = (values: Record<string, string | number>) => { const next = new URLSearchParams(searchParams); Object.entries(values).forEach(([key, value]) => value && value !== 'ALL' && value !== 1 ? next.set(key, String(value)) : next.delete(key)); setSearchParams(next); };
+  const clearFilters = () => { setSearch(''); setCycleId('ALL'); setDepartmentId('ALL'); setPlanStatus('ALL'); setEvaluationStatus('ALL'); setPage(1); setSearchParams({}); };
   return <main className="flex flex-col gap-6">
     <PageHeader title="BSC phòng ban" description="Theo dõi kế hoạch và đánh giá của từng phòng ban theo quy trình hai giai đoạn." action={<div className="flex flex-wrap justify-end gap-2">
       {canReview && <Button asChild variant="outline"><Link to="/management/department-bsc-reviews">BSC chờ duyệt</Link></Button>}
       {permissions.includes(P.CREATE) && <Button asChild><Link to="/department-bsc/new"><FilePlus2Icon data-icon="inline-start"/>Tạo BSC phòng ban</Link></Button>}
     </div>}/>
-    {error && <ErrorState error={error} onRetry={() => void load()}/>} {loading ? <LoadingState/> : items.length === 0 ? <EmptyState message="Chưa có BSC phòng ban trong phạm vi của bạn."/> : <Card>
+    <Card><CardHeader><CardTitle>Bộ lọc</CardTitle><CardDescription>Tìm BSC theo kỳ, phòng ban và trạng thái từng giai đoạn.</CardDescription></CardHeader><CardContent><FieldGroup className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <Field><FieldLabel className="sr-only">Tìm BSC</FieldLabel><SearchInput value={search} onChange={(value) => { setSearch(value); setPage(1); updateUrl({ search: value, page: 1 }); }}/></Field>
+      <Field><FieldLabel htmlFor="department-list-cycle">Kỳ BSC</FieldLabel><Select value={cycleId} onValueChange={(value) => { setCycleId(value); setPage(1); updateUrl({ cycleId: value, page: 1 }); }}><SelectTrigger id="department-list-cycle"><SelectValue/></SelectTrigger><SelectContent><SelectGroup><SelectItem value="ALL">Tất cả kỳ</SelectItem>{filterCycles.map((cycle) => <SelectItem key={cycle.id} value={cycle.id}>{cycle.name}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
+      <Field><FieldLabel htmlFor="department-list-department">Phòng ban</FieldLabel><Select value={departmentId} onValueChange={(value) => { setDepartmentId(value); setPage(1); updateUrl({ departmentId: value, page: 1 }); }}><SelectTrigger id="department-list-department"><SelectValue/></SelectTrigger><SelectContent><SelectGroup><SelectItem value="ALL">Tất cả phòng ban</SelectItem>{filterDepartments.map((department) => <SelectItem key={department.id} value={department.id}>{department.name}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
+      <Field><FieldLabel htmlFor="department-list-plan-status">Kế hoạch</FieldLabel><Select value={planStatus} onValueChange={(value) => { setPlanStatus(value); setPage(1); updateUrl({ planStatus: value, page: 1 }); }}><SelectTrigger id="department-list-plan-status"><SelectValue/></SelectTrigger><SelectContent><SelectGroup><SelectItem value="ALL">Tất cả trạng thái</SelectItem>{['DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REOPENED'].map((status) => <SelectItem key={status} value={status}>{statusLabel[status]}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
+      <Field><FieldLabel htmlFor="department-list-evaluation-status">Đánh giá</FieldLabel><Select value={evaluationStatus} onValueChange={(value) => { setEvaluationStatus(value); setPage(1); updateUrl({ evaluationStatus: value, page: 1 }); }}><SelectTrigger id="department-list-evaluation-status"><SelectValue/></SelectTrigger><SelectContent><SelectGroup><SelectItem value="ALL">Tất cả trạng thái</SelectItem>{['NOT_STARTED', 'DRAFT', 'SUBMITTED', 'RETURNED', 'APPROVED', 'REOPENED'].map((status) => <SelectItem key={status} value={status}>{statusLabel[status]}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
+    </FieldGroup><div className="mt-4 flex justify-end"><Button variant="ghost" onClick={clearFilters}>Xóa bộ lọc</Button></div></CardContent></Card>
+    {error && <ErrorState error={error} onRetry={() => void load()}/>} {loading ? <LoadingState/> : items.length === 0 ? <EmptyState message="Không có BSC phòng ban phù hợp với bộ lọc."/> : <Card>
       <CardHeader><CardTitle>Danh sách BSC</CardTitle><CardDescription>{total} hồ sơ trong phạm vi truy cập.</CardDescription></CardHeader>
       <CardContent><Table className="min-w-[960px]"><TableHeader><TableRow><TableHead>Kỳ</TableHead><TableHead>Phòng ban</TableHead><TableHead>Kế hoạch</TableHead><TableHead>Đánh giá</TableHead><TableHead>Điểm chính thức</TableHead><TableHead>Xếp loại chính thức</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader>
         <TableBody>{items.map((item) => <TableRow key={item.id}><TableCell className="font-medium">{item.bsc_cycles.name}</TableCell><TableCell>{item.departments.name}</TableCell><TableCell><Status value={item.plan_status}/></TableCell><TableCell><Status value={item.evaluation_status}/></TableCell><TableCell>{item.evaluation_status === 'APPROVED' ? item.final_score ?? '—' : '—'}</TableCell><TableCell>{item.evaluation_status === 'APPROVED' ? item.final_grade ?? '—' : '—'}</TableCell><TableCell className="text-right"><div className="flex items-center justify-end gap-1 whitespace-nowrap">
@@ -99,7 +125,7 @@ export const DepartmentBscListPage: React.FC = () => {
           {permissions.includes(P.EXPORT) && <Button variant="outline" size="icon-sm" aria-label="Xuất Excel" title="Xuất Excel" disabled={exportingId === item.id} onClick={() => void exportExcel(item)}>{exportingId === item.id ? <Spinner/> : <FileSpreadsheetIcon data-icon="inline-start"/>}</Button>}
           {permissions.includes(P.DUPLICATE) && <Button variant="outline" size="icon-sm" aria-label="Sao chép BSC" title="Sao chép BSC" onClick={() => void openDuplicate(item)}><CopyIcon data-icon="inline-start"/></Button>}
         </div></TableCell></TableRow>)}</TableBody>
-      </Table></CardContent><CardFooter><Pagination page={page} total={total} limit={20} onChange={setPage}/></CardFooter>
+      </Table></CardContent><CardFooter><Pagination page={page} total={total} limit={20} onChange={(value) => { setPage(value); updateUrl({ page: value }); }}/></CardFooter>
     </Card>}
     <AccessibleDialog open={Boolean(duplicateSource)} title="Sao chép BSC phòng ban" description="BSC mới kế thừa cấu trúc KPI từ phiên kế hoạch được duyệt đầu tiên; nếu chưa có phiên duyệt thì tạo BSC trắng. Kết quả đánh giá không được sao chép." onClose={closeDuplicate} busy={duplicateBusy}>
       {duplicateLoading ? <LoadingState/> : <>
@@ -132,26 +158,54 @@ export const DepartmentBscPendingReviewPage: React.FC = () => {
   const [stage, setStage] = useState<'PLAN' | 'EVALUATION' | 'REOPEN'>(
     initialStage === 'EVALUATION' || initialStage === 'REOPEN' ? initialStage : 'PLAN',
   ), [items, setItems] = useState<DepartmentBsc[]>([]), [reopens, setReopens] = useState<DepartmentBscReopenRequest[]>([]), [error, setError] = useState('');
-  const [loading, setLoading] = useState(true), [busyAction, setBusyAction] = useState(''), [reason, setReason] = useState('');
+  const [search, setSearch] = useState(searchParams.get('search') ?? ''), [cycleId, setCycleId] = useState(searchParams.get('cycleId') ?? 'ALL');
+  const [departmentId, setDepartmentId] = useState(searchParams.get('departmentId') ?? 'ALL'), [page, setPage] = useState(Number(searchParams.get('page')) || 1);
+  const [cycles, setCycles] = useState<Array<{ id: string; name: string }>>([]), [departments, setDepartments] = useState<Array<{ id: string; name: string }>>([]);
+  const [total, setTotal] = useState(0), [loading, setLoading] = useState(true), [busyAction, setBusyAction] = useState(''), [reason, setReason] = useState('');
+  const [approving, setApproving] = useState<DepartmentBsc | null>(null), [returning, setReturning] = useState<DepartmentBsc | null>(null);
+  const [reopenDecision, setReopenDecision] = useState<{ request: DepartmentBscReopenRequest; action: 'APPROVE' | 'REJECT' } | null>(null);
   const busy = Boolean(busyAction);
   const load = useCallback(async () => { setLoading(true); setError(''); try {
-    if (stage === 'REOPEN') { setReopens(await departmentBscApi.pendingReopen()); setItems([]); }
-    else { const result = await departmentBscApi.pendingReview({ stage, page: 1, limit: 100 }); setItems(result.items); setReopens([]); }
-  } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể tải hàng chờ duyệt.'); } finally { setLoading(false); } }, [stage]);
+    const params = { search, cycleId: cycleId === 'ALL' ? '' : cycleId, departmentId: departmentId === 'ALL' ? '' : departmentId, page, limit: 20 };
+    const result = stage === 'REOPEN' ? await departmentBscApi.pendingReopen(params) : await departmentBscApi.pendingReview({ ...params, stage });
+    if (stage === 'REOPEN') { setReopens(result.items as DepartmentBscReopenRequest[]); setItems([]); }
+    else { setItems(result.items as DepartmentBsc[]); setReopens([]); }
+    setTotal(result.total); setCycles(result.filterOptions?.cycles ?? []); setDepartments(result.filterOptions?.departments ?? []);
+  } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể tải hàng chờ duyệt.'); } finally { setLoading(false); } }, [stage, search, cycleId, departmentId, page]);
   useEffect(() => { void load(); }, [load]);
-  const reviewReopen = async (requestId: string, action: 'APPROVE' | 'REJECT') => { setBusyAction(`${requestId}:${action}`); setError(''); try {
-    if (action === 'APPROVE') await departmentBscApi.approveReopen(requestId); else await departmentBscApi.rejectReopen(requestId, reason);
-    setReason(''); await load();
-  } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể xử lý yêu cầu mở lại.'); } finally { setBusyAction(''); } };
+  useEffect(() => {
+    const urlStage = searchParams.get('stage');
+    setStage(urlStage === 'EVALUATION' || urlStage === 'REOPEN' ? urlStage : 'PLAN');
+    setPage(Number(searchParams.get('page')) || 1);
+    setSearch(searchParams.get('search') ?? '');
+    setCycleId(searchParams.get('cycleId') ?? 'ALL');
+    setDepartmentId(searchParams.get('departmentId') ?? 'ALL');
+  }, [searchParams]);
+  const updateUrl = (values: Record<string, string | number>) => { const next = new URLSearchParams(searchParams); Object.entries(values).forEach(([key, value]) => value && value !== 'ALL' && value !== 1 ? next.set(key, String(value)) : next.delete(key)); setSearchParams(next); };
+  const switchStage = (value: string) => { const next = value as 'PLAN' | 'EVALUATION' | 'REOPEN'; setStage(next); setPage(1); setReason(''); setApproving(null); setReturning(null); setReopenDecision(null); updateUrl({ stage: next, page: 1 }); };
+  const approve = async () => { if (!approving) return; setBusyAction(`${approving.id}:APPROVE`); setError(''); try {
+    if (stage === 'PLAN') await departmentBscApi.approvePlan(approving.id); else await departmentBscApi.approveEvaluation(approving.id);
+    setApproving(null); await load();
+  } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể duyệt BSC phòng ban.'); } finally { setBusyAction(''); } };
+  const returnBsc = async () => { if (!returning || !reason.trim()) return; setBusyAction(`${returning.id}:RETURN`); setError(''); try {
+    if (stage === 'PLAN') await departmentBscApi.returnPlan(returning.id, reason.trim()); else await departmentBscApi.returnEvaluation(returning.id, reason.trim());
+    setReturning(null); setReason(''); await load();
+  } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể trả lại BSC phòng ban.'); } finally { setBusyAction(''); } };
+  const reviewReopen = async () => { if (!reopenDecision || (reopenDecision.action === 'REJECT' && !reason.trim())) return; const { request, action } = reopenDecision;
+    setBusyAction(`${request.id}:${action}`); setError(''); try { if (action === 'APPROVE') await departmentBscApi.approveReopen(request.id); else await departmentBscApi.rejectReopen(request.id, reason.trim());
+      setReopenDecision(null); setReason(''); await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể xử lý yêu cầu mở lại.'); } finally { setBusyAction(''); } };
   return <main className="flex flex-col gap-6"><PageHeader title="BSC phòng ban chờ duyệt" description="Giám đốc xử lý độc lập giai đoạn kế hoạch và đánh giá." action={<Button asChild variant="outline"><Link to="/department-bsc"><ArrowLeftIcon data-icon="inline-start"/>Danh sách</Link></Button>}/>
-    <Card><CardHeader><CardTitle>Bộ lọc xử lý</CardTitle><CardDescription>Chọn giai đoạn và nhập lý do khi từ chối yêu cầu mở lại.</CardDescription></CardHeader><CardContent><FieldGroup className="grid lg:grid-cols-2">
-      <Field><FieldLabel htmlFor="review-stage">Giai đoạn</FieldLabel><Select value={stage} onValueChange={(value) => {
-        setStage(value as 'PLAN' | 'EVALUATION' | 'REOPEN');
-        setSearchParams({ stage: value });
-      }}><SelectTrigger id="review-stage" className="w-full"><SelectValue/></SelectTrigger><SelectContent><SelectGroup><SelectItem value="PLAN">Kế hoạch</SelectItem><SelectItem value="EVALUATION">Đánh giá</SelectItem><SelectItem value="REOPEN">Yêu cầu mở lại</SelectItem></SelectGroup></SelectContent></Select></Field>
-      {stage === 'REOPEN' && <Field><FieldLabel htmlFor="reopen-review-reason">Lý do từ chối</FieldLabel><Textarea id="reopen-review-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Bắt buộc khi từ chối"/></Field>}
+    <Tabs value={stage} onValueChange={switchStage}><TabsList aria-label="Giai đoạn duyệt"><TabsTrigger value="PLAN">Chờ duyệt kế hoạch</TabsTrigger><TabsTrigger value="EVALUATION">Chờ duyệt đánh giá</TabsTrigger><TabsTrigger value="REOPEN">Yêu cầu mở lại</TabsTrigger></TabsList></Tabs>
+    <Card><CardHeader><CardTitle>Bộ lọc</CardTitle><CardDescription>Thu hẹp danh sách theo kỳ, phòng ban hoặc nội dung tìm kiếm.</CardDescription></CardHeader><CardContent><FieldGroup className="grid gap-4 md:grid-cols-3">
+      <Field><FieldLabel className="sr-only">Tìm BSC</FieldLabel><SearchInput value={search} onChange={(value) => { setSearch(value); setPage(1); updateUrl({ search: value, page: 1 }); }}/></Field>
+      <Field><FieldLabel htmlFor="pending-department-cycle">Kỳ BSC</FieldLabel><Select value={cycleId} onValueChange={(value) => { setCycleId(value); setPage(1); updateUrl({ cycleId: value, page: 1 }); }}><SelectTrigger id="pending-department-cycle"><SelectValue/></SelectTrigger><SelectContent><SelectGroup><SelectItem value="ALL">Tất cả kỳ</SelectItem>{cycles.map((cycle) => <SelectItem key={cycle.id} value={cycle.id}>{cycle.name}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
+      <Field><FieldLabel htmlFor="pending-department">Phòng ban</FieldLabel><Select value={departmentId} onValueChange={(value) => { setDepartmentId(value); setPage(1); updateUrl({ departmentId: value, page: 1 }); }}><SelectTrigger id="pending-department"><SelectValue/></SelectTrigger><SelectContent><SelectGroup><SelectItem value="ALL">Tất cả phòng ban</SelectItem>{departments.map((department) => <SelectItem key={department.id} value={department.id}>{department.name}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
     </FieldGroup></CardContent></Card>
-    {error && <ErrorState error={error}/>} {loading ? <LoadingState/> : stage === 'REOPEN' ? (reopens.length === 0 ? <EmptyState message="Không có yêu cầu mở lại đang chờ xử lý."/> : <Card><CardHeader><CardTitle>Yêu cầu mở lại</CardTitle><CardDescription>{reopens.length} yêu cầu cần xử lý.</CardDescription></CardHeader><CardContent><Table className="min-w-[760px]"><TableHeader><TableRow><TableHead>Giai đoạn</TableHead><TableHead>Lý do</TableHead><TableHead>Ngày yêu cầu</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader><TableBody>{reopens.map((request) => <TableRow key={request.id}><TableCell>{bscStageLabel(request.stage)}</TableCell><TableCell className="max-w-80 whitespace-normal">{request.request_reason}</TableCell><TableCell>{formatDate(request.created_at)}</TableCell><TableCell><div className="flex justify-end gap-2"><Button asChild variant="outline" size="sm"><Link to={`/department-bsc/${request.department_bsc_id}`}>Xem BSC</Link></Button><Button variant="outline" size="sm" disabled={busy || !reason.trim()} onClick={() => void reviewReopen(request.id, 'REJECT')}>{busyAction === `${request.id}:REJECT` && <Spinner data-icon="inline-start"/>}Từ chối</Button><Button size="sm" disabled={busy} onClick={() => void reviewReopen(request.id, 'APPROVE')}>{busyAction === `${request.id}:APPROVE` && <Spinner data-icon="inline-start"/>}Chấp thuận</Button></div></TableCell></TableRow>)}</TableBody></Table></CardContent></Card>) : items.length === 0 ? <EmptyState message={`Không có BSC phòng ban chờ duyệt ${bscStageLabel(stage).toLowerCase()}.`}/> : <Card><CardHeader><CardTitle>Duyệt {bscStageLabel(stage).toLowerCase()}</CardTitle><CardDescription>{items.length} BSC cần xử lý.</CardDescription></CardHeader><CardContent><Table className="min-w-[760px]"><TableHeader><TableRow><TableHead>Kỳ</TableHead><TableHead>Phòng ban</TableHead><TableHead>Trưởng phòng</TableHead><TableHead>Ngày nộp</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.id}><TableCell>{item.bsc_cycles.name}</TableCell><TableCell>{item.departments.name}</TableCell><TableCell>{item.responsible_manager.full_name}</TableCell><TableCell>{formatDate(stage === 'PLAN' ? item.plan_submitted_at : item.evaluation_submitted_at)}</TableCell><TableCell className="text-right"><Button asChild size="sm"><Link to={`/department-bsc/${item.id}`}>Xử lý</Link></Button></TableCell></TableRow>)}</TableBody></Table></CardContent></Card>}
+    {error && <ErrorState error={error}/>} {loading ? <LoadingState/> : stage === 'REOPEN' ? (reopens.length === 0 ? <EmptyState message="Không có yêu cầu mở lại đang chờ xử lý."/> : <Card><CardHeader><CardTitle>Yêu cầu mở lại</CardTitle><CardDescription>{total} yêu cầu cần xử lý.</CardDescription></CardHeader><CardContent><Table className="min-w-[900px]"><TableHeader><TableRow><TableHead>Kỳ</TableHead><TableHead>Phòng ban</TableHead><TableHead>Giai đoạn</TableHead><TableHead>Lý do</TableHead><TableHead>Ngày yêu cầu</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader><TableBody>{reopens.map((request) => { const canReject = Boolean(request.review_capabilities?.canRejectReopen); const canApprove = Boolean(request.review_capabilities?.canApproveReopen); return <TableRow key={request.id}><TableCell>{request.department_bsc?.bsc_cycles?.name ?? '—'}</TableCell><TableCell>{request.department_bsc?.departments?.name ?? '—'}</TableCell><TableCell>{bscStageLabel(request.stage)}</TableCell><TableCell className="max-w-80 whitespace-normal">{request.request_reason}</TableCell><TableCell>{formatDate(request.created_at)}</TableCell><TableCell><div className="flex justify-end gap-2"><Button asChild variant="outline" size="sm"><Link to={`/department-bsc/${request.department_bsc_id}`}>Xem BSC</Link></Button>{canReject && <Button variant="outline" size="sm" disabled={busy} onClick={() => { setReopenDecision({ request, action: 'REJECT' }); setReason(''); }}>Từ chối</Button>}{canApprove && <Button size="sm" disabled={busy} onClick={() => { setReopenDecision({ request, action: 'APPROVE' }); setReason(''); }}><CheckIcon data-icon="inline-start"/>Chấp thuận</Button>}</div></TableCell></TableRow>; })}</TableBody></Table></CardContent><CardFooter><Pagination page={page} total={total} limit={20} onChange={(value) => { setPage(value); updateUrl({ page: value }); }}/></CardFooter></Card>) : items.length === 0 ? <EmptyState message={`Không có BSC phòng ban chờ duyệt ${bscStageLabel(stage).toLowerCase()}.`}/> : <Card><CardHeader><CardTitle>Duyệt {bscStageLabel(stage).toLowerCase()}</CardTitle><CardDescription>{total} BSC cần xử lý.</CardDescription></CardHeader><CardContent><Table className="min-w-[960px]"><TableHeader><TableRow><TableHead>Kỳ</TableHead><TableHead>Phòng ban</TableHead><TableHead>Trưởng phòng</TableHead><TableHead>Ngày nộp</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => { const canApprove = Boolean(item.review_capabilities?.[stage === 'PLAN' ? 'canApprovePlan' : 'canApproveEvaluation']); const canReturn = Boolean(item.review_capabilities?.[stage === 'PLAN' ? 'canReturnPlan' : 'canReturnEvaluation']); return <TableRow key={item.id}><TableCell>{item.bsc_cycles.name}</TableCell><TableCell>{item.departments.name}</TableCell><TableCell>{item.responsible_manager.full_name}</TableCell><TableCell>{formatDate(stage === 'PLAN' ? item.plan_submitted_at : item.evaluation_submitted_at)}</TableCell><TableCell><div className="flex justify-end gap-2"><Button asChild variant="outline" size="sm"><Link to={`/department-bsc/${item.id}`}>Xem BSC</Link></Button>{canReturn && <Button variant="outline" size="sm" disabled={busy} onClick={() => { setReturning(item); setReason(''); }}><RotateCcwIcon data-icon="inline-start"/>Trả lại</Button>}{canApprove && <Button size="sm" disabled={busy} onClick={() => setApproving(item)}><CheckIcon data-icon="inline-start"/>Duyệt</Button>}</div></TableCell></TableRow>; })}</TableBody></Table></CardContent><CardFooter><Pagination page={page} total={total} limit={20} onChange={(value) => { setPage(value); updateUrl({ page: value }); }}/></CardFooter></Card>}
+    <AccessibleDialog open={Boolean(approving)} title={`Duyệt ${stage === 'PLAN' ? 'kế hoạch' : 'đánh giá'} BSC phòng ban`} description="Xác nhận hồ sơ đã đủ điều kiện để chuyển sang trạng thái đã duyệt." onClose={() => !busy && setApproving(null)} busy={busy}><div className="flex justify-end gap-2"><Button variant="outline" disabled={busy} onClick={() => setApproving(null)}>Hủy</Button><Button disabled={busy} onClick={() => void approve()}>{busy && <Spinner data-icon="inline-start"/>}Xác nhận duyệt</Button></div></AccessibleDialog>
+    <AccessibleDialog open={Boolean(returning)} title={`Trả lại ${stage === 'PLAN' ? 'kế hoạch' : 'đánh giá'} BSC phòng ban`} description="Trưởng phòng sẽ được phép chỉnh sửa và nộp lại giai đoạn này." onClose={() => !busy && setReturning(null)} busy={busy}><Field><FieldLabel htmlFor="department-return-reason">Lý do trả lại</FieldLabel><Textarea id="department-return-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Bắt buộc nhập lý do"/></Field><div className="flex justify-end gap-2"><Button variant="outline" disabled={busy} onClick={() => setReturning(null)}>Hủy</Button><Button disabled={busy || !reason.trim()} onClick={() => void returnBsc()}>Xác nhận trả lại</Button></div></AccessibleDialog>
+    <AccessibleDialog open={Boolean(reopenDecision)} title={reopenDecision?.action === 'APPROVE' ? 'Chấp thuận mở lại BSC phòng ban' : 'Từ chối mở lại BSC phòng ban'} description={reopenDecision?.action === 'APPROVE' ? 'BSC sẽ được mở lại đúng giai đoạn mà Trưởng phòng yêu cầu.' : 'Nhập lý do để Trưởng phòng biết vì sao yêu cầu không được chấp thuận.'} onClose={() => !busy && setReopenDecision(null)} busy={busy}>{reopenDecision?.action === 'REJECT' && <Field><FieldLabel htmlFor="reopen-review-reason">Lý do từ chối</FieldLabel><Textarea id="reopen-review-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Bắt buộc nhập lý do"/></Field>}<div className="flex justify-end gap-2"><Button variant="outline" disabled={busy} onClick={() => setReopenDecision(null)}>Hủy</Button><Button disabled={busy || (reopenDecision?.action === 'REJECT' && !reason.trim())} onClick={() => void reviewReopen()}>{busy && <Spinner data-icon="inline-start"/>}Xác nhận</Button></div></AccessibleDialog>
   </main>;
 };
 
@@ -160,10 +214,16 @@ export const DepartmentBscDetailPage: React.FC = () => {
   const { user } = useAuth(); const permissions = user?.permissions ?? [];
   const [bsc, setBsc] = useState<DepartmentBsc | null>(null), [scoring, setScoring] = useState<DepartmentBscScoring | null>(null), [versions, setVersions] = useState<DepartmentBscVersion[]>([]);
   const [cycles, setCycles] = useState<BscCycle[]>([]), [duplicateCycle, setDuplicateCycle] = useState(''), [returnReason, setReturnReason] = useState(''), [reopenReason, setReopenReason] = useState('');
+  const [resetStage, setResetStage] = useState<'PLAN' | 'EVALUATION' | null>(null), [resetReason, setResetReason] = useState('');
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const load = useCallback(async () => { setLoading(true); setError(''); try { const [detail, preview, openCycles] = await Promise.all([departmentBscApi.detail(id), departmentBscApi.scoringPreview(id), bscCyclesApi.open()]); setBsc(detail); setScoring(preview); setCycles(openCycles.filter((cycle) => cycle.id !== detail.cycle_id)); if (permissions.includes(P.VIEW_VERSION)) setVersions(await departmentBscApi.versions(id)); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể tải BSC phòng ban.'); } finally { setLoading(false); } }, [id, permissions]);
   useEffect(() => { void load(); }, [load]);
   const run = async (action: () => Promise<unknown>) => { setBusy(true); setError(''); try { await action(); setReturnReason(''); setReopenReason(''); await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể xử lý BSC phòng ban.'); } finally { setBusy(false); } };
+  const resetApproved = async () => { if (!resetStage || !resetReason.trim()) return; setBusy(true); setError(''); try {
+    if (resetStage === 'PLAN') await departmentBscApi.resetApprovedPlan(id, resetReason.trim());
+    else await departmentBscApi.resetApprovedEvaluation(id, resetReason.trim());
+    setResetStage(null); setResetReason(''); await load();
+  } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể mở lại BSC phòng ban.'); } finally { setBusy(false); } };
   const isOwner = permissions.includes(P.EDIT);
   const canPlanEdit = Boolean(bsc && isOwner && permissions.includes(P.EDIT) && ['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.plan_status) && bsc.evaluation_status === 'NOT_STARTED');
   const canActual = Boolean(bsc && isOwner && permissions.includes(P.EDIT) && bsc.plan_status === 'APPROVED' && ['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.evaluation_status));
@@ -172,11 +232,17 @@ export const DepartmentBscDetailPage: React.FC = () => {
   if (!bsc) return <main className="flex flex-col gap-4"><ErrorState error={error || 'Không tìm thấy BSC phòng ban.'}/><Button asChild variant="outline"><Link to="/department-bsc">Quay lại</Link></Button></main>;
   const reopenHistory = bsc.department_bsc_status_histories.filter((history) => history.action.includes('REOPEN'));
   const statusHistory = bsc.department_bsc_status_histories.filter((history) => !history.action.includes('REOPEN'));
+  const canResetPlan = bsc.bsc_cycles.status === 'OPEN' && Boolean(bsc.review_capabilities?.canResetPlan);
+  const canResetEvaluation = bsc.bsc_cycles.status === 'OPEN' && Boolean(bsc.review_capabilities?.canResetEvaluation);
   return <main aria-label="Chi tiết BSC phòng ban" className="flex flex-col gap-5">
     <PageHeader title={departmentBscTitle(bsc.departments.name, bsc.bsc_cycles.name)} description={`Trưởng phòng: ${bsc.responsible_manager.full_name}`} breadcrumb={<Link to="/department-bsc">BSC phòng ban</Link>}>
       <div className="mt-3 flex flex-wrap gap-3 text-sm"><span className="flex items-center gap-2"><span className="text-muted-foreground">Kế hoạch</span><Status value={bsc.plan_status}/></span><span className="flex items-center gap-2"><span className="text-muted-foreground">Đánh giá</span><Status value={bsc.evaluation_status}/></span></div>
     </PageHeader>
     {error && <ErrorState error={error}/>}<WorkflowActions bsc={bsc} permissions={permissions} busy={busy} isOwner={isOwner} returnReason={returnReason} setReturnReason={setReturnReason} run={run} navigate={navigate}/>
+    {(canResetPlan || canResetEvaluation) && <Card><CardHeader><CardTitle>Mở lại BSC đã duyệt</CardTitle><CardDescription>Giám đốc có thể mở lại trực tiếp khi kỳ BSC vẫn đang mở. Mọi thao tác đều được lưu lịch sử.</CardDescription></CardHeader><CardFooter className="justify-end gap-2">
+      {canResetEvaluation && <Button variant="destructive" disabled={busy} onClick={() => { setResetStage('EVALUATION'); setResetReason(''); }}>Mở lại đánh giá đã duyệt</Button>}
+      {canResetPlan && <Button variant="destructive" disabled={busy} onClick={() => { setResetStage('PLAN'); setResetReason(''); }}>Mở lại kế hoạch đã duyệt</Button>}
+    </CardFooter></Card>}
     <KpiTable bsc={bsc} items={groupedItems} scoring={scoring} canPlanEdit={canPlanEdit} canActual={canActual} busy={busy} run={run}/>
     {((permissions.includes(P.DUPLICATE) && versions.length > 0) || (permissions.includes(P.REQUEST_REOPEN) && (bsc.plan_status === 'APPROVED' || bsc.evaluation_status === 'APPROVED'))) && <Card><CardHeader><CardTitle>Sao chép và yêu cầu chỉnh sửa</CardTitle><CardDescription>Sao chép chỉ kế thừa cấu trúc KPI; yêu cầu chỉnh sửa vẫn giữ nguyên lịch sử đã duyệt.</CardDescription></CardHeader><CardContent><FieldGroup>
       {permissions.includes(P.DUPLICATE) && cycles.length > 0 && <Field><FieldLabel htmlFor="duplicate-cycle">Kỳ đích</FieldLabel><Select value={duplicateCycle} onValueChange={setDuplicateCycle}><SelectTrigger id="duplicate-cycle"><SelectValue placeholder="Chọn kỳ đích"/></SelectTrigger><SelectContent><SelectGroup>{cycles.map((cycle) => <SelectItem key={cycle.id} value={cycle.id}>{cycle.name}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>}
@@ -185,6 +251,12 @@ export const DepartmentBscDetailPage: React.FC = () => {
     <Card><CardHeader><CardTitle>Lịch sử phiên bản</CardTitle></CardHeader><CardContent>{versions.length === 0 ? <EmptyState message="Chưa có phiên bản đã duyệt."/> : <Table><TableHeader><TableRow><TableHead>Phiên bản</TableHead><TableHead>Giai đoạn</TableHead><TableHead>Loại phiên bản</TableHead><TableHead>Thời gian</TableHead></TableRow></TableHeader><TableBody>{versions.map((version) => <TableRow key={version.id}><TableCell>#{version.version_number}</TableCell><TableCell>{bscStageLabel(version.stage)}</TableCell><TableCell>{versionTypeLabel(version.version_type)}</TableCell><TableCell>{formatDate(version.created_at)}</TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
     <Card><CardHeader><CardTitle>Lịch sử yêu cầu mở lại</CardTitle></CardHeader><CardContent>{reopenHistory.length === 0 ? <EmptyState message="Chưa có yêu cầu mở lại."/> : <Table><TableHeader><TableRow><TableHead>Giai đoạn</TableHead><TableHead>Trạng thái</TableHead><TableHead>Lý do</TableHead><TableHead>Thời gian</TableHead></TableRow></TableHeader><TableBody>{reopenHistory.map((history) => <TableRow key={history.id}><TableCell>{bscStageLabel(history.stage)}</TableCell><TableCell><Status value={history.to_status}/></TableCell><TableCell>{history.comment || '—'}</TableCell><TableCell>{formatDate(history.changed_at)}</TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
     <Card><CardHeader><CardTitle>Lịch sử trạng thái</CardTitle></CardHeader><CardContent>{statusHistory.length === 0 ? <EmptyState message="Chưa có thay đổi trạng thái."/> : <Table><TableHeader><TableRow><TableHead>Giai đoạn</TableHead><TableHead>Trạng thái</TableHead><TableHead>Nội dung</TableHead><TableHead>Thời gian</TableHead></TableRow></TableHeader><TableBody>{statusHistory.map((history) => <TableRow key={history.id}><TableCell>{bscStageLabel(history.stage)}</TableCell><TableCell><Status value={history.to_status}/></TableCell><TableCell>{history.comment || '—'}</TableCell><TableCell>{formatDate(history.changed_at)}</TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
+    <AccessibleDialog open={Boolean(resetStage)} title={`Mở lại ${resetStage === 'PLAN' ? 'kế hoạch' : 'đánh giá'} đã duyệt`}
+      description={resetStage === 'PLAN' ? 'Kế hoạch sẽ được mở để chỉnh sửa; trạng thái đánh giá và toàn bộ kết quả hiện tại sẽ được đặt lại.' : 'Đánh giá sẽ được mở để chỉnh sửa; kết quả thực hiện được giữ lại nhưng điểm và xếp loại chính thức sẽ bị xóa.'}
+      onClose={() => { if (!busy) { setResetStage(null); setResetReason(''); } }} busy={busy}>
+      <Field><FieldLabel htmlFor="department-reset-reason">Lý do mở lại</FieldLabel><Textarea id="department-reset-reason" value={resetReason} onChange={(event) => setResetReason(event.target.value)} placeholder="Bắt buộc nhập lý do"/></Field>
+      <div className="flex justify-end gap-2"><Button variant="outline" disabled={busy} onClick={() => { setResetStage(null); setResetReason(''); }}>Hủy</Button><Button variant="destructive" disabled={busy || !resetReason.trim()} onClick={() => void resetApproved()}>{busy && <Spinner data-icon="inline-start"/>}Xác nhận mở lại</Button></div>
+    </AccessibleDialog>
   </main>;
 };
 
@@ -193,8 +265,8 @@ function WorkflowActions({ bsc, permissions, busy, isOwner, returnReason, setRet
   const [editingComment, setEditingComment] = useState(false), [comment, setComment] = useState(bsc.manager_comment ?? '');
   const canSubmitPlan = isOwner && permissions.includes(P.SUBMIT_PLAN) && ['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.plan_status);
   const canSubmitEvaluation = isOwner && permissions.includes(P.SUBMIT_EVALUATION) && bsc.plan_status === 'APPROVED' && ['DRAFT', 'RETURNED', 'REOPENED'].includes(bsc.evaluation_status);
-  const planReview = bsc.plan_status === 'SUBMITTED' && (permissions.includes(P.APPROVE_PLAN) || permissions.includes(P.RETURN_PLAN));
-  const evaluationReview = bsc.evaluation_status === 'SUBMITTED' && (permissions.includes(P.APPROVE_EVALUATION) || permissions.includes(P.RETURN_EVALUATION));
+  const planReview = Boolean(bsc.review_capabilities?.canApprovePlan || bsc.review_capabilities?.canReturnPlan);
+  const evaluationReview = Boolean(bsc.review_capabilities?.canApproveEvaluation || bsc.review_capabilities?.canReturnEvaluation);
   const canDelete = isOwner && permissions.includes(P.DELETE_DRAFT) && bsc.plan_status === 'DRAFT' && bsc.evaluation_status === 'NOT_STARTED';
   const totalWeight = bsc.department_bsc_items.reduce((sum, item) => sum + Number(item.weight), 0);
   const planComplete = bsc.department_bsc_items.length > 0 && Math.abs(totalWeight - 100) < 0.000001;
@@ -202,8 +274,8 @@ function WorkflowActions({ bsc, permissions, busy, isOwner, returnReason, setRet
     {isOwner && permissions.includes(P.EDIT) && <Button variant="ghost" onClick={() => setEditingComment((value) => !value)}>Sửa ghi chú</Button>}
     {canDelete && <Button variant="outline" disabled={busy} onClick={async () => { if (await confirm({ title: 'Xóa BSC?', description: 'BSC nháp và toàn bộ KPI bên trong sẽ bị xóa.', confirmLabel: 'Xóa BSC', tone: 'destructive' })) { await departmentBscApi.delete(bsc.id); navigate('/department-bsc'); } }}>Xóa BSC</Button>}
     {canSubmitPlan && <Button variant="outline" disabled={busy || !planComplete} title={!planComplete ? 'Tổng tỷ trọng KPI phải bằng 100%' : undefined} onClick={() => void run(() => departmentBscApi.submitPlan(bsc.id))}>Gửi duyệt kế hoạch</Button>}{canSubmitEvaluation && <Button variant="outline" disabled={busy} onClick={() => void run(() => departmentBscApi.submitEvaluation(bsc.id))}>Gửi duyệt đánh giá</Button>}
-    {planReview && permissions.includes(P.RETURN_PLAN) && <Button variant="outline" disabled={busy || !returnReason.trim()} onClick={() => void run(() => departmentBscApi.returnPlan(bsc.id, returnReason))}>Trả lại kế hoạch</Button>}{planReview && permissions.includes(P.APPROVE_PLAN) && <Button disabled={busy} onClick={() => void run(() => departmentBscApi.approvePlan(bsc.id))}>Duyệt kế hoạch</Button>}
-    {evaluationReview && permissions.includes(P.RETURN_EVALUATION) && <Button variant="outline" disabled={busy || !returnReason.trim()} onClick={() => void run(() => departmentBscApi.returnEvaluation(bsc.id, returnReason))}>Trả lại đánh giá</Button>}{evaluationReview && permissions.includes(P.APPROVE_EVALUATION) && <Button disabled={busy} onClick={() => void run(() => departmentBscApi.approveEvaluation(bsc.id))}>Duyệt đánh giá</Button>}
+    {bsc.review_capabilities?.canReturnPlan && <Button variant="outline" disabled={busy || !returnReason.trim()} onClick={() => void run(() => departmentBscApi.returnPlan(bsc.id, returnReason))}>Trả lại kế hoạch</Button>}{bsc.review_capabilities?.canApprovePlan && <Button disabled={busy} onClick={async () => { if (await confirm({ title: 'Duyệt kế hoạch BSC phòng ban?', description: 'Kế hoạch sẽ được khóa và Trưởng phòng có thể nhập kết quả đánh giá.', confirmLabel: 'Duyệt kế hoạch' })) await run(() => departmentBscApi.approvePlan(bsc.id)); }}>Duyệt kế hoạch</Button>}
+    {bsc.review_capabilities?.canReturnEvaluation && <Button variant="outline" disabled={busy || !returnReason.trim()} onClick={() => void run(() => departmentBscApi.returnEvaluation(bsc.id, returnReason))}>Trả lại đánh giá</Button>}{bsc.review_capabilities?.canApproveEvaluation && <Button disabled={busy} onClick={async () => { if (await confirm({ title: 'Duyệt đánh giá BSC phòng ban?', description: 'Điểm và xếp loại sẽ trở thành kết quả chính thức.', confirmLabel: 'Duyệt đánh giá' })) await run(() => departmentBscApi.approveEvaluation(bsc.id)); }}>Duyệt đánh giá</Button>}
   </div>{editingComment && <form className="flex flex-col gap-3" onSubmit={(event) => { event.preventDefault(); void run(() => departmentBscApi.update(bsc.id, comment)).then(() => setEditingComment(false)); }}><Field><FieldLabel htmlFor="manager-comment">Ghi chú</FieldLabel><Textarea id="manager-comment" value={comment} onChange={(event) => setComment(event.target.value)}/></Field><div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setEditingComment(false)}>Hủy</Button><Button type="submit" disabled={busy}>Lưu ghi chú</Button></div></form>}{(planReview || evaluationReview) && <Field><FieldLabel htmlFor="return-reason">Lý do trả lại</FieldLabel><Textarea id="return-reason" value={returnReason} onChange={(event) => setReturnReason(event.target.value)} placeholder="Bắt buộc khi trả lại"/></Field>}</CardContent></Card>;
 }
 
