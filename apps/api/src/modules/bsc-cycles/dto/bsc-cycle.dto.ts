@@ -5,8 +5,8 @@ import { BscCycleStatus, BscCycleType } from '../bsc-cycle.policy';
 const trim = ({ value }: { value: unknown }) => typeof value === 'string' ? value.trim() : value;
 
 export class CreateBscCycleDto {
-  @Transform(trim) @IsString() @MinLength(1) @MaxLength(50)
-  code!: string;
+  @Transform(trim) @IsOptional() @IsString() @MinLength(1) @MaxLength(50)
+  code?: string;
 
   @Transform(trim) @IsString() @MinLength(1) @MaxLength(255)
   name!: string;

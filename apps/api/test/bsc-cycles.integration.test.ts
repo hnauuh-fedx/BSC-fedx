@@ -10,7 +10,7 @@ import { BSC_PERMISSIONS } from '../src/modules/employee-bsc/policies/bsc-access
 const prisma = new PrismaClient();
 const marker = `BSCCYCLE_${Date.now()}_${randomUUID().replaceAll('-', '').slice(0, 6)}`.toUpperCase();
 const password = 'Cycle!Test#1';
-const tracked = { users: [] as string[], roles: [] as string[], permissions: [] as string[], rolePermissions: [] as Array<{ role_id: string; permission_id: string }> };
+const tracked = { users: [] as string[], cycles: [] as string[], roles: [] as string[], permissions: [] as string[], rolePermissions: [] as Array<{ role_id: string; permission_id: string }> };
 
 function safeDatabase(): boolean {
   try { return decodeURIComponent(new URL(process.env.TEST_DATABASE_URL ?? '').pathname.slice(1)).toLowerCase() === 'bsc_organization_test'; }
@@ -18,12 +18,15 @@ function safeDatabase(): boolean {
 }
 
 async function cleanup() {
-  if (tracked.users.length) await prisma.audit_logs.deleteMany({ where: { user_id: { in: tracked.users } } });
+  if (tracked.users.length || tracked.cycles.length) await prisma.audit_logs.deleteMany({ where: { OR: [
+    ...(tracked.users.length ? [{ user_id: { in: tracked.users } }] : []),
+    ...(tracked.cycles.length ? [{ entity_id: { in: tracked.cycles } }] : []),
+  ] } });
   await prisma.employee_bsc.deleteMany({ where: { OR: [
     { bsc_code: { startsWith: marker } },
     ...(tracked.users.length ? [{ employee_id: { in: tracked.users } }] : []),
   ] } });
-  await prisma.bsc_cycles.deleteMany({ where: { code: { startsWith: marker } } });
+  await prisma.bsc_cycles.deleteMany({ where: { OR: [{ code: { startsWith: marker } }, { id: { in: tracked.cycles } }] } });
   if (tracked.users.length) {
     await prisma.auth_refresh_tokens.deleteMany({ where: { user_id: { in: tracked.users } } });
     await prisma.manager_relationships.deleteMany({ where: { OR: [{ employee_id: { in: tracked.users } }, { manager_id: { in: tracked.users } }] } });
@@ -144,8 +147,15 @@ test('Phase 3D.2 BSC cycle administration and workflow enforcement', { skip: saf
 
     await t.test('create requires period identity but no planned end date or evaluation deadline', async () => {
       await request(server).post('/bsc-cycles').set(auth(tokens.manager)).send({ name: 'Thiếu dữ liệu' }).expect(400);
-      const created = await request(server).post('/bsc-cycles').set(auth(tokens.manager))
-        .send(cyclePayload(`${marker}_NO_DEADLINE`)).expect(201);
+      const created = await request(server).post('/bsc-cycles').set(auth(tokens.manager)).send({
+        name: 'Kỳ tự động cấp mã', cycleType: 'MONTH', year: Number(day(0).slice(0, 4)), month: Number(day(0).slice(5, 7)), startDate: day(-2),
+      }).expect(201);
+      tracked.cycles.push(created.body.id);
+      assert.match(created.body.code, /^KY\d{6}$/);
+      const reservedCode = await request(server).post('/bsc-cycles').set(auth(tokens.manager)).send({
+        code: created.body.code, name: 'Mã dành riêng', cycleType: 'MONTH', year: Number(day(1).slice(0, 4)), month: Number(day(1).slice(5, 7)), startDate: day(1),
+      }).expect(400);
+      assert.equal(reservedCode.body.code, 'BSC_CYCLE_CODE_RESERVED');
       assert.equal(created.body.endDate, null);
       assert.equal('evaluationSubmissionDeadline' in created.body, false);
     });

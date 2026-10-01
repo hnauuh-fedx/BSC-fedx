@@ -13,7 +13,7 @@ export type BscCycle = {
   createdBy?: { id: string; employeeCode: string; fullName: string }; summary?: BscCycleSummary;
 };
 export type CyclePayload = {
-  code: string; name: string; cycleType: CycleType; year: number; month: number;
+  code?: string; name: string; cycleType: CycleType; year: number; month: number;
   startDate: string;
 };
 export type CyclePage = { items: BscCycle[]; page: number; limit: number; total: number };

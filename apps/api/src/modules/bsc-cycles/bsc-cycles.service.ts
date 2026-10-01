@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Prisma } from '@prisma/client';
 import { AuthUser } from '../../common/types/auth-user.type';
 import { PrismaService } from '../../database/prisma.service';
+import { generateCode, isGeneratedCode } from '../../common/generated-code';
 import { AuditRequestMetadata } from '../employee-bsc/employee-bsc.types';
 import { BSC_PERMISSIONS } from '../employee-bsc/policies/bsc-access.policy';
 import { BSC_CYCLE_PERMISSIONS, BscCyclePolicy, BscCycleStatus } from './bsc-cycle.policy';
@@ -74,10 +75,13 @@ export class BscCyclesService {
   async create(actor: AuthUser, dto: CreateBscCycleDto, metadata: AuditRequestMetadata): Promise<BscCycleResponse> {
     this.policy.assertCanManageCycle(actor);
     this.assertPeriodShape(dto.cycleType, dto.month);
+    if (dto.code && isGeneratedCode('BSC_CYCLE', dto.code)) {
+      throw new BadRequestException({ code: 'BSC_CYCLE_CODE_RESERVED', message: 'Định dạng mã kỳ BSC này do hệ thống tự động cấp.' });
+    }
     try {
       return await this.prisma.$transaction(async (db) => {
         const cycle = await db.bsc_cycles.create({ data: {
-          code: dto.code.toUpperCase(), name: dto.name, cycle_type: dto.cycleType, year: dto.year,
+          code: dto.code?.toUpperCase() || await generateCode(db, 'BSC_CYCLE'), name: dto.name, cycle_type: dto.cycleType, year: dto.year,
           month: dto.month,
           quarter: null,
           start_date: this.dateOnly(dto.startDate), end_date: null,
@@ -105,6 +109,9 @@ export class BscCyclesService {
       return await this.prisma.$transaction(async (db) => {
         const current = await db.bsc_cycles.findUnique({ where: { id }, select: cycleSelect });
         if (!current) this.notFound();
+        if (dto.code !== undefined && dto.code.toUpperCase() !== current.code && isGeneratedCode('BSC_CYCLE', dto.code)) {
+          throw new BadRequestException({ code: 'BSC_CYCLE_CODE_RESERVED', message: 'Định dạng mã kỳ BSC này do hệ thống tự động cấp.' });
+        }
         if (!['DRAFT', 'OPEN'].includes(current.status)) {
           throw new ConflictException({ code: 'BSC_CYCLE_NOT_EDITABLE', message: 'Chỉ được sửa kỳ nháp hoặc kỳ đang mở.' });
         }

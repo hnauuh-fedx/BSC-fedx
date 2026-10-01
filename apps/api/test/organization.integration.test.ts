@@ -21,7 +21,7 @@ async function cleanup() {
     await prisma.users.deleteMany({ where: { id: { in: ids.users } } });
   }
   await prisma.audit_logs.deleteMany({ where: { OR: [{ entity_id: { in: [...ids.departments, ...ids.positions] } }, { new_data: { path: ['code'], string_starts_with: marker } }] } });
-  await prisma.departments.deleteMany({ where: { code: { startsWith: marker } } });
+  await prisma.departments.deleteMany({ where: { OR: [{ code: { startsWith: marker } }, { id: { in: ids.departments } }] } });
   await prisma.positions.deleteMany({ where: { code: { startsWith: marker } } });
   if (ids.roles.length) { await prisma.role_permissions.deleteMany({ where: { role_id: { in: ids.roles } } }); await prisma.roles.deleteMany({ where: { id: { in: ids.roles } } }); }
 }
@@ -55,8 +55,8 @@ test('Organization API integration', { skip: integrationEnabled ? false : 'TEST_
       await request(server).get('/departments').expect(401);
       await request(server).get('/departments').set(auth(noPermissionToken)).expect(403);
       const list = await request(server).get(`/departments?search=${marker}&status=ACTIVE&page=1&limit=2`).set(auth(adminToken)).expect(200); assert.equal(list.body.page, 1); assert.equal(list.body.limit, 2); assert.ok(list.body.total >= 2);
-      const created = await request(server).post('/departments').set(auth(adminToken)).send({ code: `${marker.toLowerCase()}_created`, name: 'Created' }).expect(201); ids.departments.push(created.body.id); assert.equal(created.body.code, `${marker}_CREATED`);
-      const duplicate = await request(server).post('/departments').set(auth(adminToken)).send({ code: `${marker}_CREATED`, name: 'Duplicate' }).expect(409); assert.equal(duplicate.body.code, 'DEPARTMENT_CODE_EXISTS');
+      const created = await request(server).post('/departments').set(auth(adminToken)).send({ name: 'Created' }).expect(201); ids.departments.push(created.body.id); assert.match(created.body.code, /^DV\d{6}$/);
+      const reserved = await request(server).post('/departments').set(auth(adminToken)).send({ code: created.body.code, name: 'Reserved' }).expect(400); assert.equal(reserved.body.code, 'DEPARTMENT_CODE_RESERVED');
       await request(server).post('/departments').set(auth(adminToken)).send({ code: `${marker}_BAD_PARENT`, name: 'Bad', parentId: randomUUID() }).expect(404);
       await request(server).post('/departments').set(auth(adminToken)).send({ code: `${marker}_INACTIVE_PARENT`, name: 'Bad', parentId: inactiveDepartment.id }).expect(400);
       const parent = await createDepartment('CYCLE_PARENT'), child = await createDepartment('CYCLE_CHILD', 'ACTIVE', parent.id), grandchild = await createDepartment('CYCLE_GRANDCHILD', 'ACTIVE', child.id);
@@ -112,8 +112,9 @@ test('Organization API integration', { skip: integrationEnabled ? false : 'TEST_
       const selfOptions = await request(server).get('/users/filter-options').set(auth(selfToken)).expect(200);
       assert.deepEqual(selfOptions.body.departments.map((item: { id: string }) => item.id), [departmentB.id]);
       await request(server).get(`/users/${otherUser.id}`).set(auth(departmentToken)).expect(403); const detail = await request(server).get(`/users/${departmentUser.id}`).set(auth(departmentToken)).expect(200); assert.equal(detail.body.department_id, departmentA.id); assert.equal(detail.body.password_hash, undefined);
-      const createBody = { employeeCode: `${marker}_API_USER`, username: `${marker}_API_USER`, fullName: 'API User', email: `${marker.toLowerCase()}_api@example.test`, password, departmentId: departmentA.id, positionId: positionA.id, directManagerId: departmentUser.id, roleId: employeeRole.id, roleScopeType: 'SELF' };
-      const created = await request(server).post('/users').set(auth(adminToken)).send(createBody).expect(201); ids.users.push(created.body.id); assert.equal(created.body.password_hash, undefined); assert.equal(created.body.username, createBody.username.toLowerCase()); const stored = await prisma.users.findUniqueOrThrow({ where: { id: created.body.id } }); assert.ok(await argon2.verify(stored.password_hash, password));
+      const createBody = { username: `${marker}_API_USER`, fullName: 'API User', email: `${marker.toLowerCase()}_api@example.test`, password, departmentId: departmentA.id, positionId: positionA.id, directManagerId: departmentUser.id, roleId: employeeRole.id, roleScopeType: 'SELF' };
+      const created = await request(server).post('/users').set(auth(adminToken)).send(createBody).expect(201); ids.users.push(created.body.id); assert.match(created.body.employee_code, /^NV\d{6}$/); assert.equal(created.body.password_hash, undefined); assert.equal(created.body.username, createBody.username.toLowerCase()); const stored = await prisma.users.findUniqueOrThrow({ where: { id: created.body.id } }); assert.ok(await argon2.verify(stored.password_hash, password));
+      const reservedCode = await request(server).post('/users').set(auth(adminToken)).send({ ...createBody, employeeCode: created.body.employee_code, username: `${marker}_reserved`.toLowerCase(), email: `${marker.toLowerCase()}_reserved@example.test` }).expect(400); assert.equal(reservedCode.body.code, 'USER_CODE_RESERVED');
       const assignment = await prisma.user_roles.findFirstOrThrow({ where: { user_id: created.body.id, role_id: employeeRole.id } }); assert.equal(assignment.scope_type, 'SELF'); assert.equal(assignment.scope_id, null); assert.equal(assignment.assigned_by, admin.id);
       const invalidDirector = await request(server).post('/users').set(auth(adminToken)).send({ ...createBody, employeeCode: `${marker}_DIRECTOR_DEPT`, fullName: 'Director Department Scope', email: `${marker.toLowerCase()}_director_dept@example.test`, directManagerId: null, roleId: directorRole.id, roleScopeType: 'DEPARTMENT' });
       if (invalidDirector.body.id) ids.users.push(invalidDirector.body.id);

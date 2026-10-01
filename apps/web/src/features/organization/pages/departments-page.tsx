@@ -24,7 +24,7 @@ export const DepartmentsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [form, setForm] = useState({ code: '', name: '', parentId: NONE });
+  const [form, setForm] = useState({ name: '', parentId: NONE });
 
   const load = useCallback(() => {
     setLoading(true);
@@ -41,19 +41,18 @@ export const DepartmentsPage: React.FC = () => {
   }, [search, status, page]);
   useEffect(() => { load(); }, [load]);
 
-  const invalid = !form.code.trim() || !form.name.trim();
+  const invalid = !form.name.trim();
   const create = async () => {
     if (invalid) {
-      setError('Mã và tên là bắt buộc.');
+      setError('Tên đơn vị là bắt buộc.');
       return;
     }
     try {
       await organizationApi.createDepartment({
-        code: form.code.toUpperCase(),
         name: form.name,
         parentId: form.parentId === NONE ? null : form.parentId,
       });
-      setForm({ code: '', name: '', parentId: NONE });
+      setForm({ name: '', parentId: NONE });
       setSuccess('Đã tạo đơn vị.');
       load();
     } catch (cause) {
@@ -71,9 +70,8 @@ export const DepartmentsPage: React.FC = () => {
     <PageHeader title="Đơn vị" description="Quản lý cấu trúc đơn vị và quan hệ đơn vị cha trong tổ chức."/>
     <PermissionGate permission="department.manage">
       <Card>
-        <CardHeader><CardTitle><h2>Thêm đơn vị</h2></CardTitle><CardDescription>Tạo đơn vị mới và đặt đúng vị trí trong cây tổ chức.</CardDescription></CardHeader>
+        <CardHeader><CardTitle><h2>Thêm đơn vị</h2></CardTitle><CardDescription>Tạo đơn vị mới và đặt đúng vị trí trong cây tổ chức. Mã đơn vị được hệ thống tự động cấp.</CardDescription></CardHeader>
         <CardContent><FieldGroup className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          <Field data-invalid={!form.code.trim()}><FieldLabel htmlFor="department-code">Mã</FieldLabel><Input id="department-code" aria-invalid={!form.code.trim()} value={form.code} onChange={event => setForm({ ...form, code: event.target.value.toUpperCase() })}/>{!form.code.trim() && <FieldDescription>Bắt buộc.</FieldDescription>}</Field>
           <Field data-invalid={!form.name.trim()}><FieldLabel htmlFor="department-name">Tên</FieldLabel><Input id="department-name" aria-invalid={!form.name.trim()} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })}/>{!form.name.trim() && <FieldDescription>Bắt buộc.</FieldDescription>}</Field>
           <Field><FieldLabel htmlFor="department-parent">Đơn vị cha</FieldLabel>
             <Select value={form.parentId} onValueChange={value => setForm({ ...form, parentId: value })}>

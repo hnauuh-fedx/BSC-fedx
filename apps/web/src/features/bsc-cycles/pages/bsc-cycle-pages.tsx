@@ -62,10 +62,10 @@ export const BscCyclesPage: React.FC = () => {
   </main>;
 };
 
-type FormState = Omit<CyclePayload, 'year' | 'month'> & { year: string; month: string };
+type FormState = Omit<CyclePayload, 'year' | 'month' | 'code'> & { code: string; year: string; month: string };
 const emptyForm = (): FormState => ({ code: '', name: '', cycleType: 'MONTH', year: String(new Date().getFullYear()), month: '', startDate: '' });
 const formFromCycle = (cycle: BscCycle): FormState => ({ code: cycle.code, name: cycle.name, cycleType: 'MONTH', year: String(cycle.year), month: cycle.month ? String(cycle.month) : '', startDate: cycle.startDate.slice(0, 10) });
-const payloadFromForm = (form: FormState): CyclePayload => ({ code: form.code.trim().toUpperCase(), name: form.name.trim(), cycleType: 'MONTH', year: Number(form.year), month: Number(form.month), startDate: form.startDate });
+const payloadFromForm = (form: FormState, includeCode: boolean): CyclePayload => ({ ...(includeCode ? { code: form.code.trim().toUpperCase() } : {}), name: form.name.trim(), cycleType: 'MONTH', year: Number(form.year), month: Number(form.month), startDate: form.startDate });
 
 export const BscCycleFormPage: React.FC = () => {
   const { id } = useParams(), navigate = useNavigate(), { user } = useAuth(), permissions = user?.permissions ?? [];
@@ -75,10 +75,10 @@ export const BscCycleFormPage: React.FC = () => {
   const set = (key: keyof FormState, value: string) => setForm(current => ({ ...current, [key]: value }));
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError('');
-    const required = [form.code, form.name, form.year, form.month, form.startDate];
+    const required = [form.name, form.year, form.month, form.startDate, ...(id ? [form.code] : [])];
     if (required.some(value => value === '') || Number.isNaN(new Date(`${form.startDate}T00:00:00+07:00`).getTime())) return setError('Vui lòng nhập đầy đủ thông tin kỳ BSC.');
     setSaving(true);
-    try { const saved = id && version ? await bscCyclesApi.update(id, { ...payloadFromForm(form), expectedVersion: version }) : await bscCyclesApi.create(payloadFromForm(form)); navigate(`/management/bsc-cycles/${saved.id}`); }
+    try { const saved = id && version ? await bscCyclesApi.update(id, { ...payloadFromForm(form, true), expectedVersion: version }) : await bscCyclesApi.create(payloadFromForm(form, false)); navigate(`/management/bsc-cycles/${saved.id}`); }
     catch (e) { setError(e instanceof Error ? e.message : 'Không thể lưu kỳ BSC.'); }
     finally { setSaving(false); }
   };
@@ -87,8 +87,8 @@ export const BscCycleFormPage: React.FC = () => {
     <PageHeader title={id ? 'Chỉnh sửa kỳ BSC' : 'Tạo kỳ BSC'} description="Kỳ không có deadline; quản trị viên chủ động kết thúc trên trang chi tiết." breadcrumb={<Link to="/management/bsc-cycles">Danh sách kỳ BSC</Link>} />
     {error && <ErrorState error={error} />}
     <form onSubmit={submit} className="flex flex-col gap-6">
-      <Card><CardHeader><CardTitle>Thông tin kỳ tháng</CardTitle><CardDescription>Tháng và ngày bắt đầu không thể đổi sau khi kỳ mở hoặc đã có BSC.</CardDescription></CardHeader><CardContent><FieldGroup className="grid md:grid-cols-2">
-        <Field><FieldLabel htmlFor="cycle-code">Mã kỳ</FieldLabel><Input id="cycle-code" value={form.code} onChange={e => set('code', e.target.value.toUpperCase())} required /></Field>
+      <Card><CardHeader><CardTitle>Thông tin kỳ tháng</CardTitle><CardDescription>Tháng và ngày bắt đầu không thể đổi sau khi kỳ mở hoặc đã có BSC. Mã kỳ được hệ thống tự động cấp khi tạo mới.</CardDescription></CardHeader><CardContent><FieldGroup className="grid md:grid-cols-2">
+        {id && <Field><FieldLabel htmlFor="cycle-code">Mã kỳ</FieldLabel><Input id="cycle-code" value={form.code} onChange={e => set('code', e.target.value.toUpperCase())} required /></Field>}
         <Field><FieldLabel htmlFor="cycle-name">Tên kỳ</FieldLabel><Input id="cycle-name" value={form.name} onChange={e => set('name', e.target.value)} required /></Field>
         <Field><FieldLabel htmlFor="cycle-form-year">Năm</FieldLabel><Input id="cycle-form-year" type="number" value={form.year} onChange={e => set('year', e.target.value)} required /></Field>
         <Field><FieldLabel htmlFor="cycle-month">Tháng</FieldLabel><Input id="cycle-month" type="number" min="1" max="12" value={form.month} onChange={e => set('month', e.target.value)} required /></Field>

@@ -14,7 +14,7 @@ import { ErrorState, FormField, LoadingState, PageHeader } from '../management-u
 type RoleScopeType = 'GLOBAL' | 'DEPARTMENT' | 'SELF';
 
 const EMPTY_FORM = {
-  employeeCode: '', username: '', fullName: '', email: '', password: '', departmentId: '', positionId: '', directManagerId: '', transferReason: '', roleId: '', roleScopeType: 'SELF' as RoleScopeType,
+  username: '', fullName: '', email: '', password: '', departmentId: '', positionId: '', directManagerId: '', transferReason: '', roleId: '', roleScopeType: 'SELF' as RoleScopeType,
 };
 
 type OrganizationSnapshot = Pick<typeof EMPTY_FORM, 'departmentId' | 'positionId' | 'directManagerId'>;
@@ -67,7 +67,7 @@ export const UserFormPage: React.FC = () => {
         const user = userResult.value;
         const organization = { departmentId: user.department_id, positionId: user.position_id, directManagerId: user.direct_manager_id ?? '' };
         setOriginalOrganization(organization);
-        setForm(current => ({ ...current, employeeCode: user.employee_code, username: user.username, fullName: user.full_name, email: user.email, ...organization }));
+        setForm(current => ({ ...current, username: user.username, fullName: user.full_name, email: user.email, ...organization }));
       }
       const rejected = [departmentResult, positionResult, managerResult, roleResult, userResult].find(result => result.status === 'rejected');
       if (rejected?.status === 'rejected') setError(rejected.reason instanceof Error ? rejected.reason.message : 'Không thể tải đầy đủ dữ liệu biểu mẫu.');
@@ -95,7 +95,7 @@ export const UserFormPage: React.FC = () => {
   ));
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!/^[a-zA-Z0-9._-]{3,50}$/.test(form.username) || !form.fullName.trim() || !/^\S+@\S+\.\S+$/.test(form.email) || (!edit && (!form.employeeCode.trim() || form.password.length < 12 || !form.roleId)) || !form.departmentId || !form.positionId) {
+    if (!/^[a-zA-Z0-9._-]{3,50}$/.test(form.username) || !form.fullName.trim() || !/^\S+@\S+\.\S+$/.test(form.email) || (!edit && (form.password.length < 12 || !form.roleId)) || !form.departmentId || !form.positionId) {
       setError('Vui lòng nhập đầy đủ dữ liệu hợp lệ; mật khẩu tối thiểu 12 ký tự và phải chọn vai trò.');
       return;
     }
@@ -108,7 +108,7 @@ export const UserFormPage: React.FC = () => {
     try {
       const common = { username: form.username, fullName: form.fullName, email: form.email, departmentId: form.departmentId, positionId: form.positionId, directManagerId: form.directManagerId || null };
       if (edit) await organizationApi.updateUser(id!, { ...common, ...(organizationChanged ? { transferReason: form.transferReason.trim() } : {}) });
-      else await organizationApi.createUser({ ...common, employeeCode: form.employeeCode, password: form.password, roleId: form.roleId, roleScopeType: form.roleScopeType });
+      else await organizationApi.createUser({ ...common, password: form.password, roleId: form.roleId, roleScopeType: form.roleScopeType });
       navigate('/management/users');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể lưu người dùng.');
@@ -121,9 +121,8 @@ export const UserFormPage: React.FC = () => {
     <PageHeader title={edit ? 'Sửa người dùng' : 'Tạo người dùng'} description={edit ? 'Cập nhật thông tin tổ chức của người dùng.' : 'Tạo tài khoản và gán vai trò, phạm vi quyền ngay trong một bước.'} />
     {loading ? <LoadingState /> : <form className="flex flex-col gap-6" onSubmit={event => void save(event)} noValidate>
       <Card>
-        <CardHeader><CardTitle><h2>Thông tin người dùng</h2></CardTitle><CardDescription>Thông tin nhận diện và đăng nhập của tài khoản.</CardDescription></CardHeader>
+        <CardHeader><CardTitle><h2>Thông tin người dùng</h2></CardTitle><CardDescription>Thông tin nhận diện và đăng nhập của tài khoản. Mã nhân viên được hệ thống tự động cấp khi tạo mới.</CardDescription></CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
-          {!edit && <FormField label="Mã nhân viên"><Input value={form.employeeCode} onChange={event => setForm({ ...form, employeeCode: event.target.value })} disabled={submitting} /></FormField>}
           <FormField label="Tên đăng nhập"><Input value={form.username} onChange={event => setForm({ ...form, username: event.target.value.toLowerCase() })} autoComplete="username" autoCapitalize="none" spellCheck={false} minLength={3} maxLength={50} pattern="[A-Za-z0-9._-]+" disabled={submitting} /></FormField>
           <FormField label="Họ tên"><Input value={form.fullName} onChange={event => setForm({ ...form, fullName: event.target.value })} disabled={submitting} /></FormField>
           <FormField label="Email"><Input type="email" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} disabled={submitting} /></FormField>

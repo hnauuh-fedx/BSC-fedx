@@ -76,7 +76,7 @@ describe('UserFormPage', () => {
     );
 
     await screen.findByRole('combobox', { name: 'Chức danh' });
-    await user.type(screen.getByRole('textbox', { name: 'Mã nhân viên' }), 'NV001');
+    expect(screen.queryByRole('textbox', { name: 'Mã nhân viên' })).not.toBeInTheDocument();
     await user.type(screen.getByRole('textbox', { name: 'Tên đăng nhập' }), 'NguyenVanA');
     await user.type(screen.getByRole('textbox', { name: 'Họ tên' }), 'Nguyễn Văn A');
     await user.type(screen.getByRole('textbox', { name: 'Email' }), 'a@example.test');
@@ -92,7 +92,7 @@ describe('UserFormPage', () => {
     await user.click(screen.getByRole('button', { name: 'Lưu người dùng' }));
 
     expect(organizationApi.createUser).toHaveBeenCalledWith({
-      employeeCode: 'NV001', username: 'nguyenvana', fullName: 'Nguyễn Văn A', email: 'a@example.test', password: 'Password!123', departmentId: 'department-1', positionId: 'position-1', directManagerId: null, roleId: 'role-1', roleScopeType: 'SELF',
+      username: 'nguyenvana', fullName: 'Nguyễn Văn A', email: 'a@example.test', password: 'Password!123', departmentId: 'department-1', positionId: 'position-1', directManagerId: null, roleId: 'role-1', roleScopeType: 'SELF',
     });
   });
 
