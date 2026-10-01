@@ -8,6 +8,9 @@ import { BSC_PRIMARY_GOAL_GROUP_CODE } from '../constants/employee-bsc.constants
 import { BscGoalGroup, BscItem, BscScoringPreview } from '../types/employee-bsc.types';
 import { BscItemTable } from './bsc-item-table';
 
+const toastError = vi.hoisted(() => vi.fn());
+vi.mock('sonner', () => ({ toast: { error: (...args: unknown[]) => toastError(...args) } }));
+
 const render = (ui: React.ReactElement) => testingRender(ui, { wrapper: SystemConfirmDialogProvider });
 
 vi.mock('../services/employee-bsc.service', () => ({
@@ -75,6 +78,27 @@ describe('BscItemTable', () => {
       sortOrder: 0,
     })));
     expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a popup and does not call the API when total weight would exceed 100%', async () => {
+    const user = userEvent.setup();
+    const existingItem = {
+      id: 'kpi-1', employee_bsc_id: 'bsc-1', goal_group_code: 'IMPORTANT_URGENT', kpi_code: 'KPI-1',
+      kpi_name: 'KPI hiện có', description: null, measurement_unit: '%', measurement_frequency: 'Tháng',
+      target_value: '100', target_text: null, actual_value: null, actual_text: null, employee_note: null,
+      weight: '90', calculation_method: 'ACTUAL_DIV_TARGET', sort_order: 0,
+    } satisfies BscItem;
+
+    render(<BscItemTable bscId="bsc-1" goalGroups={goalGroups} items={[existingItem]} scoring={null} canManage canUpdateActual={false} onChange={vi.fn()}/>);
+    await user.click(screen.getByRole('button', { name: 'Thêm KPI vào Nhóm mục tiêu thường xuyên' }));
+    const form = screen.getByRole('form', { name: 'Thêm KPI vào Nhóm mục tiêu thường xuyên' });
+    await user.type(within(form).getByRole('textbox', { name: 'Mục tiêu chiến lược (KPO)' }), 'KPO');
+    await user.type(within(form).getByRole('textbox', { name: 'Đo lường hiệu suất (KPI)' }), 'KPI mới');
+    await user.type(within(form).getByRole('spinbutton', { name: 'Tỷ trọng (%)' }), '20');
+    await user.click(within(form).getByRole('button', { name: 'Lưu KPI' }));
+
+    expect(toastError).toHaveBeenCalledWith('Tổng tỷ trọng sau khi lưu sẽ là 110%, không được vượt quá 100%.');
+    expect(employeeBscApi.createItem).not.toHaveBeenCalled();
   });
 
   it('numbers KPI rows hierarchically within groups 1, 2 and 3', () => {

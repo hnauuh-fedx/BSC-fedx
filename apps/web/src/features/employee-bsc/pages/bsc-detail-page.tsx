@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import { useAuthContext } from '../../../app/store/auth-store';
 import { SystemConfirmOptions, useSystemConfirm } from '../../../components/system-confirm-dialog';
 import { Alert, AlertDescription, AlertTitle } from '../../../components/ui/alert';
@@ -8,6 +9,7 @@ import { Spinner } from '../../../components/ui/spinner';
 import { Textarea } from '../../../components/ui/textarea';
 import { personalBscTitle } from '../../../lib/bsc-display';
 import { bscStageLabel } from '../../../lib/bsc-stage';
+import { planSubmissionError } from '../../../lib/bsc-validation';
 import { PermissionGate } from '../../auth/components/permission-gate';
 import { hasEmployeeBscReviewerPermission, hasGlobalDirectorReviewPermission } from '../../auth/permissions';
 import { AccessibleDialog, EmptyState, ErrorState, FormField, LoadingState, PageHeader } from '../../organization/management-ui';
@@ -58,7 +60,7 @@ export const BscDetailPage: React.FC = () => {
   const [scoring, setScoring] = useState<BscScoringPreview | null>(null), [scoringLoading, setScoringLoading] = useState(true), [scoringError, setScoringError] = useState('');
   const [versions, setVersions] = useState<BscVersionSummary[]>([]), [versionsLoading, setVersionsLoading] = useState(false), [versionsError, setVersionsError] = useState('');
   const [reopenRequests, setReopenRequests] = useState<BscReopenRequest[]>([]), [reopenError, setReopenError] = useState('');
-  const [action, setAction] = useState<WorkflowAction | null>(null), [actionError, setActionError] = useState('');
+  const [action, setAction] = useState<WorkflowAction | null>(null);
   const [returnStage, setReturnStage] = useState<Stage | null>(null), [returnReason, setReturnReason] = useState('');
   const [overrideApproveStage, setOverrideApproveStage] = useState<Stage | null>(null), [overrideApproveReason, setOverrideApproveReason] = useState('');
   const [reopenStage, setReopenStage] = useState<Stage | null>(null), [reopenReason, setReopenReason] = useState('');
@@ -125,9 +127,9 @@ export const BscDetailPage: React.FC = () => {
 
   const runAction = async (kind: WorkflowAction, approvalReason?: string, skipConfirm = false) => {
     if (mutationPending.current) return;
-    if (kind.startsWith('return') && !returnReason.trim()) { setActionError('Vui lòng nhập lý do trả lại.'); return; }
+    if (kind.startsWith('return') && !returnReason.trim()) { toast.error('Vui lòng nhập lý do trả lại.'); return; }
     if (!kind.startsWith('return') && !skipConfirm && !await confirm(workflowConfirmations[kind as keyof typeof workflowConfirmations])) return;
-    mutationPending.current = true; setAction(kind); setActionError('');
+    mutationPending.current = true; setAction(kind);
     try {
       if (kind === 'submitPlan') await employeeBscApi.submitPlan(id);
       else if (kind === 'approvePlan') await (approvalReason ? employeeBscApi.approvePlan(id, approvalReason) : employeeBscApi.approvePlan(id));
@@ -136,26 +138,26 @@ export const BscDetailPage: React.FC = () => {
       else if (kind === 'approveEvaluation') await (approvalReason ? employeeBscApi.approveEvaluation(id, approvalReason) : employeeBscApi.approveEvaluation(id));
       else await employeeBscApi.returnEvaluation(id, returnReason);
       setReturnStage(null); setReturnReason(''); setOverrideApproveStage(null); setOverrideApproveReason(''); await reloadAll();
-    } catch (cause) { setActionError(cause instanceof Error ? cause.message : 'Không thể xử lý BSC.'); }
+    } catch (cause) { toast.error(cause instanceof Error ? cause.message : 'Không thể xử lý BSC.'); }
     finally { mutationPending.current = false; setAction(null); }
   };
 
   const requestReopen = async () => {
     if (!reopenStage || !reopenReason.trim() || mutationPending.current) return;
-    mutationPending.current = true; setActionError('');
+    mutationPending.current = true;
     try { await employeeBscApi.requestReopen(id, reopenStage, reopenReason); setReopenStage(null); setReopenReason(''); await reloadAll(); }
-    catch (cause) { setActionError(cause instanceof Error ? cause.message : 'Không thể gửi yêu cầu mở lại.'); }
+    catch (cause) { toast.error(cause instanceof Error ? cause.message : 'Không thể gửi yêu cầu mở lại.'); }
     finally { mutationPending.current = false; }
   };
 
   const resetApproved = async () => {
     if (!resetStage || !resetReason.trim() || mutationPending.current) return;
-    mutationPending.current = true; setActionError('');
+    mutationPending.current = true;
     try {
       if (resetStage === 'PLAN') await employeeBscApi.resetApprovedPlan(id, resetReason.trim());
       else await employeeBscApi.resetApprovedEvaluation(id, resetReason.trim());
       setResetStage(null); setResetReason(''); await reloadAll();
-    } catch (cause) { setActionError(cause instanceof Error ? cause.message : 'Không thể mở lại BSC đã duyệt.'); }
+    } catch (cause) { toast.error(cause instanceof Error ? cause.message : 'Không thể mở lại BSC đã duyệt.'); }
     finally { mutationPending.current = false; }
   };
 
@@ -169,19 +171,19 @@ export const BscDetailPage: React.FC = () => {
       confirmLabel: 'Duyệt mở lại',
     });
     if (!accepted) return;
-    mutationPending.current = true; setReopenActionId(request.id); setActionError('');
+    mutationPending.current = true; setReopenActionId(request.id);
     try { await (approvalReason ? employeeBscApi.approveReopen(request.id, approvalReason) : employeeBscApi.approveReopen(request.id)); setApprovingReopen(null); setReopenApproveReason(''); await reloadAll(); }
-    catch (cause) { setActionError(cause instanceof Error ? cause.message : 'Không thể duyệt yêu cầu mở lại.'); }
+    catch (cause) { toast.error(cause instanceof Error ? cause.message : 'Không thể duyệt yêu cầu mở lại.'); }
     finally { mutationPending.current = false; setReopenActionId(''); }
   };
 
   const rejectReopen = async () => {
     if (!rejectingReopen || !reopenRejectReason.trim() || mutationPending.current) return;
-    mutationPending.current = true; setReopenActionId(rejectingReopen.id); setActionError('');
+    mutationPending.current = true; setReopenActionId(rejectingReopen.id);
     try {
       await employeeBscApi.rejectReopen(rejectingReopen.id, reopenRejectReason);
       setRejectingReopen(null); setReopenRejectReason(''); await reloadAll();
-    } catch (cause) { setActionError(cause instanceof Error ? cause.message : 'Không thể từ chối yêu cầu mở lại.'); }
+    } catch (cause) { toast.error(cause instanceof Error ? cause.message : 'Không thể từ chối yêu cầu mở lại.'); }
     finally { mutationPending.current = false; setReopenActionId(''); }
   };
 
@@ -242,9 +244,10 @@ export const BscDetailPage: React.FC = () => {
   const evaluationReturn = [...(bsc.bsc_status_histories ?? [])].reverse().find(value => value.stage === 'EVALUATION' && value.to_status === 'RETURNED');
   const visibleHistory = (bsc.bsc_status_histories ?? []).filter(value => value.stage === 'PLAN'
     ? permissions.includes(BSC_PERMISSIONS.VIEW_PLAN_HISTORY) : permissions.includes(BSC_PERMISSIONS.VIEW_EVALUATION_HISTORY));
-  const items = bsc.employee_bsc_items ?? [], totalWeight = items.reduce((sum, item) => sum + Number(item.weight), 0);
-  const planComplete = items.length > 0 && Math.abs(totalWeight - 100) < 0.000001 && items.every(item => item.kpi_name.trim()
+  const items = bsc.employee_bsc_items ?? [];
+  const definitionsComplete = items.every(item => item.kpi_name.trim()
     && (item.target_value !== null || Boolean(item.target_text?.trim())) && ['ACTUAL_DIV_TARGET', 'TARGET_DIV_ACTUAL', 'BINARY'].includes(item.calculation_method));
+  const planError = planSubmissionError(items, definitionsComplete);
   const remove = async () => {
     const accepted = await confirm({
       title: 'Xóa BSC các nhân?',
@@ -254,15 +257,15 @@ export const BscDetailPage: React.FC = () => {
     });
     if (!accepted) return;
     try { await employeeBscApi.delete(bsc.id); navigate('/employee-bsc'); }
-    catch (cause) { setActionError(cause instanceof Error ? cause.message : 'Không thể xóa BSC.'); }
+    catch (cause) { toast.error(cause instanceof Error ? cause.message : 'Không thể xóa BSC.'); }
   };
 
   const exportExcel = async () => {
-    setExporting(true); setActionError('');
+    setExporting(true);
     try {
       downloadBrowserFile(await employeeBscApi.exportExcel(bsc.employee_id, bsc.cycle_id));
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : 'Không thể xuất Excel.');
+      toast.error(cause instanceof Error ? cause.message : 'Không thể xuất Excel.');
     } finally { setExporting(false); }
   };
 
@@ -286,10 +289,10 @@ export const BscDetailPage: React.FC = () => {
     <div className="action-bar" aria-label="Thao tác BSC">{isOwner && <PermissionGate permission={BSC_PERMISSIONS.EXPORT}><Button variant="outline" type="button" disabled={exporting} onClick={() => void exportExcel()}>{exporting && <Spinner/>}{exporting ? 'Đang xuất…' : 'Xuất Excel'}</Button></PermissionGate>}
     {isOwner && cycleOpen && planEditable && <PermissionGate permission={BSC_PERMISSIONS.EDIT_OWN}><Button variant="outline" asChild><Link to={`/employee-bsc/${bsc.id}/edit`}>Sửa ghi chú</Link></Button></PermissionGate>}
     {isOwner && cycleOpen && bsc.plan_status === 'DRAFT' && bsc.evaluation_status === 'NOT_STARTED' && <PermissionGate permission={BSC_PERMISSIONS.DELETE_OWN}><Button variant="destructive" onClick={() => void remove()}>Xóa BSC</Button></PermissionGate>}
-    {canSubmitPlan && <Button disabled={Boolean(action) || !planComplete} title={!planComplete ? 'Tổng trọng số KPI phải bằng 100%' : undefined} onClick={() => void runAction('submitPlan')}>{action === 'submitPlan' && <Spinner/>}{action === 'submitPlan' ? 'Đang gửi…' : 'Gửi duyệt kế hoạch'}</Button>}
+    {canSubmitPlan && <Button disabled={Boolean(action)} onClick={() => planError ? toast.error(planError) : void runAction('submitPlan')}>{action === 'submitPlan' && <Spinner/>}{action === 'submitPlan' ? 'Đang gửi…' : 'Gửi duyệt kế hoạch'}</Button>}
     {canApprovePlan && <Button disabled={Boolean(action)} onClick={() => bsc.review_capabilities?.planDecisionSource === 'DIRECTOR_OVERRIDE' ? (setOverrideApproveStage('PLAN'), setOverrideApproveReason('')) : void runAction('approvePlan')}>{action === 'approvePlan' && <Spinner/>}{bsc.review_capabilities?.planDecisionSource === 'DIRECTOR_OVERRIDE' ? 'Giám đốc duyệt can thiệp kế hoạch' : 'Duyệt kế hoạch'}</Button>}
     {canReturnPlan && <Button variant="outline" disabled={Boolean(action)} onClick={() => setReturnStage('PLAN')}>Trả lại kế hoạch</Button>}
-    {canSubmitEvaluation && <Button disabled={Boolean(action) || !scoring?.isComplete} onClick={() => void runAction('submitEvaluation')}>{action === 'submitEvaluation' && <Spinner/>}{action === 'submitEvaluation' ? 'Đang gửi…' : 'Gửi duyệt đánh giá'}</Button>}
+    {canSubmitEvaluation && <Button disabled={Boolean(action)} onClick={() => scoring?.isComplete ? void runAction('submitEvaluation') : toast.error('Chưa thể gửi đánh giá: hãy nhập đầy đủ kết quả thực hiện cho tất cả KPI.')}>{action === 'submitEvaluation' && <Spinner/>}{action === 'submitEvaluation' ? 'Đang gửi…' : 'Gửi duyệt đánh giá'}</Button>}
     {canApproveEvaluation && <Button disabled={Boolean(action)} onClick={() => bsc.review_capabilities?.evaluationDecisionSource === 'DIRECTOR_OVERRIDE' ? (setOverrideApproveStage('EVALUATION'), setOverrideApproveReason('')) : void runAction('approveEvaluation')}>{action === 'approveEvaluation' && <Spinner/>}{bsc.review_capabilities?.evaluationDecisionSource === 'DIRECTOR_OVERRIDE' ? 'Giám đốc duyệt can thiệp đánh giá' : 'Duyệt đánh giá'}</Button>}
     {canReturnEvaluation && <Button variant="outline" disabled={Boolean(action)} onClick={() => setReturnStage('EVALUATION')}>Trả lại đánh giá</Button>}
     {canRequestPlan && <Button variant="outline" onClick={() => { setReopenStage('PLAN'); setReopenReason(''); }}>Yêu cầu sửa kế hoạch</Button>}
@@ -297,7 +300,7 @@ export const BscDetailPage: React.FC = () => {
     {canResetPlan && <Button variant="destructive" onClick={() => { setResetStage('PLAN'); setResetReason(''); }}>Mở lại kế hoạch đã duyệt</Button>}
     {canResetEvaluation && <Button variant="destructive" onClick={() => { setResetStage('EVALUATION'); setResetReason(''); }}>Mở lại đánh giá đã duyệt</Button>}
     {canDuplicate && <Button variant="outline" onClick={() => void openDuplicate()}>Sao chép BSC</Button>}</div>
-    {actionError && <ErrorState error={actionError}/>} {reopenError && <ErrorState error={reopenError}/>} {' '}
+    {reopenError && <ErrorState error={reopenError}/>} {' '}
     <AccessibleDialog open={Boolean(overrideApproveStage)} title={`Giám đốc duyệt can thiệp ${bscStageLabel(overrideApproveStage ?? '').toLowerCase()}`} description="Quyết định này thay cho tuyến duyệt của Trưởng phòng và được lưu riêng trong lịch sử kiểm toán." onClose={() => setOverrideApproveStage(null)} busy={Boolean(action)}><FormField label="Lý do can thiệp" error={!overrideApproveReason.trim() ? 'Vui lòng nhập lý do can thiệp.' : undefined}><Textarea aria-invalid={!overrideApproveReason.trim()} maxLength={2000} rows={5} value={overrideApproveReason} onChange={event => setOverrideApproveReason(event.target.value)} /></FormField><div className="dialog-actions"><Button disabled={Boolean(action) || !overrideApproveReason.trim()} onClick={() => void runAction(overrideApproveStage === 'PLAN' ? 'approvePlan' : 'approveEvaluation', overrideApproveReason.trim(), true)}>{action && <Spinner/>}Xác nhận duyệt can thiệp</Button><Button variant="outline" disabled={Boolean(action)} onClick={() => setOverrideApproveStage(null)}>Hủy</Button></div></AccessibleDialog>
     <AccessibleDialog open={Boolean(returnStage)} title={`Trả lại ${bscStageLabel(returnStage ?? '').toLowerCase()}`} description="BSC sẽ được mở lại đúng nhóm trường của giai đoạn này. Lý do sẽ được lưu trong lịch sử." onClose={() => setReturnStage(null)} busy={Boolean(action)}><FormField label="Lý do trả lại" error={!returnReason.trim() ? 'Vui lòng nhập lý do rõ ràng.' : undefined}><Textarea aria-invalid={!returnReason.trim()} maxLength={2000} rows={5} value={returnReason} onChange={event => setReturnReason(event.target.value)} /></FormField><div className="dialog-actions"><Button disabled={Boolean(action) || !returnReason.trim()} onClick={() => void runAction(returnStage === 'PLAN' ? 'returnPlan' : 'returnEvaluation')}>{action && <Spinner/>}Xác nhận trả lại</Button><Button variant="outline" disabled={Boolean(action)} onClick={() => setReturnStage(null)}>Hủy</Button></div></AccessibleDialog>
     <AccessibleDialog open={Boolean(reopenStage)} title={`Yêu cầu sửa ${bscStageLabel(reopenStage ?? '').toLowerCase()}`} description={reopenStage === 'PLAN' ? 'Khi được duyệt, dữ liệu đánh giá hiện tại sẽ được lưu vào lịch sử và đặt lại.' : 'Định nghĩa KPI vẫn khóa; điểm và xếp loại hiện tại sẽ chuyển vào lịch sử.'} onClose={() => setReopenStage(null)} busy={mutationPending.current}><FormField label="Lý do mở lại" error={!reopenReason.trim() ? 'Vui lòng nhập lý do mở lại.' : undefined}><Textarea aria-invalid={!reopenReason.trim()} maxLength={2000} rows={5} value={reopenReason} onChange={event => setReopenReason(event.target.value)} /></FormField><div className="dialog-actions"><Button disabled={!reopenReason.trim() || mutationPending.current} onClick={() => void requestReopen()}>{mutationPending.current && <Spinner/>}Gửi yêu cầu</Button><Button variant="outline" onClick={() => setReopenStage(null)}>Hủy</Button></div></AccessibleDialog>

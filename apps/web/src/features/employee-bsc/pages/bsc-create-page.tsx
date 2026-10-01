@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import { bscCyclesApi, BscCycle } from '../../bsc-cycles';
 import { EmptyState, ErrorState, FormField, LoadingState, PageHeader } from '../../organization/management-ui';
 import { employeeBscApi } from '../services/employee-bsc.service';
@@ -14,7 +15,6 @@ export const BscCreatePage: React.FC = () => {
   const [cycles, setCycles] = useState<BscCycle[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -36,9 +36,9 @@ export const BscCreatePage: React.FC = () => {
   useEffect(() => { void loadCycles(); }, [loadCycles]);
 
   const save = async () => {
-    setSaving(true); setSaveError('');
+    setSaving(true);
     try { const bsc = await employeeBscApi.create(cycleId); navigate(`/employee-bsc/${bsc.id}`); }
-    catch (cause) { setSaveError(cause instanceof Error ? cause.message : 'Không thể tạo BSC.'); }
+    catch (cause) { toast.error(cause instanceof Error ? cause.message : 'Không thể tạo BSC.'); }
     finally { setSaving(false); }
   };
 
@@ -47,7 +47,6 @@ export const BscCreatePage: React.FC = () => {
     {loading ? <LoadingState/> : loadError ? <><ErrorState error={loadError}/><button onClick={() => void loadCycles()}>Thử lại</button></> : cycles.length === 0 ? <EmptyState message="Hiện không có kỳ BSC đang mở."/> : <FormField label="Kỳ BSC">
       <select value={cycleId} onChange={(event) => setCycleId(event.target.value)}>{cycles.map((cycle) => <option key={cycle.id} value={cycle.id}>{cycleLabel(cycle)}</option>)}</select>
     </FormField>}
-    {saveError && <ErrorState error={saveError}/>}
     <button disabled={saving || loading || Boolean(loadError) || !cycleId} onClick={() => void save()}>{saving ? 'Đang tạo…' : 'Tạo BSC'}</button> <Link to="/employee-bsc">Hủy</Link>
   </main>;
 };

@@ -1,5 +1,6 @@
 import React, { FormEvent, useMemo, useState } from 'react';
 import { PencilIcon, PlusIcon, Trash2Icon, XIcon } from 'lucide-react';
+import { toast } from 'sonner';
 import { useSystemConfirm } from '../../../components/system-confirm-dialog';
 import { Badge } from '../../../components/ui/badge';
 import { Button } from '../../../components/ui/button';
@@ -7,6 +8,7 @@ import { Field, FieldGroup, FieldLabel } from '../../../components/ui/field';
 import { Input } from '../../../components/ui/input';
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { Textarea } from '../../../components/ui/textarea';
+import { validateKpiWeight } from '../../../lib/bsc-validation';
 import { ErrorState } from '../../organization/management-ui';
 import { BSC_PRIMARY_GOAL_GROUP_CODE } from '../constants/employee-bsc.constants';
 import { employeeBscApi } from '../services/employee-bsc.service';
@@ -18,6 +20,13 @@ const reasonMessage: Record<string, string> = {
   TARGET_NOT_PROVIDED: 'Chưa có chỉ tiêu',
   TARGET_ZERO_NOT_SCORABLE: 'Chỉ tiêu bằng 0 nên chưa thể tính',
   CALCULATION_METHOD_UNSUPPORTED: 'Cách tính điểm chưa được hỗ trợ',
+};
+
+const showWeightInputError = (event: React.InvalidEvent<HTMLInputElement>) => {
+  event.preventDefault();
+  toast.error(event.currentTarget.validity.valueMissing
+    ? 'Vui lòng nhập tỷ trọng KPI.'
+    : 'Tỷ trọng KPI phải lớn hơn 0% và không vượt quá 100%.');
 };
 
 type Props = {
@@ -35,7 +44,6 @@ type Editor = { mode: 'create'; groupCode: string } | { mode: 'edit'; groupCode:
 
 export const BscItemTable: React.FC<Props> = ({ bscId, goalGroups, items, scoring, canManage, canUpdateActual, isOfficial = false, onChange }) => {
   const confirm = useSystemConfirm();
-  const [error, setError] = useState('');
   const [savingId, setSavingId] = useState('');
   const [editor, setEditor] = useState<Editor | null>(null);
   const [actualItem, setActualItem] = useState<BscItem | null>(null);
@@ -66,7 +74,6 @@ export const BscItemTable: React.FC<Props> = ({ bscId, goalGroups, items, scorin
       : `Đang vượt ${Math.abs(remainingWeight)}%`;
 
   const run = async (id: string, action: () => Promise<unknown>) => {
-    setError('');
     setSavingId(id);
     try {
       await action();
@@ -74,7 +81,7 @@ export const BscItemTable: React.FC<Props> = ({ bscId, goalGroups, items, scorin
       setActualItem(null);
       await onChange();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không thể cập nhật KPI.');
+      toast.error(cause instanceof Error ? cause.message : 'Không thể cập nhật KPI.');
     } finally {
       setSavingId('');
     }
@@ -99,7 +106,6 @@ export const BscItemTable: React.FC<Props> = ({ bscId, goalGroups, items, scorin
         {canManage && <span className="text-muted-foreground">{weightMessage}</span>}
       </div>
     </div>
-    {error && <ErrorState error={error}/>}
     <div className="rounded-lg border">
       <Table className="min-w-[1450px] border-collapse [&_td]:border-r [&_th]:border-r [&_tr>*:last-child]:border-r-0">
         <TableHeader>
@@ -170,6 +176,8 @@ export const BscItemTable: React.FC<Props> = ({ bscId, goalGroups, items, scorin
                   </TableRow>
                   {editor?.mode === 'edit' && editor.item.id === item.id && (<KpiEditorRow group={group} item={item} busy={savingId === item.id} onCancel={() => setEditor(null)} onSubmit={(event) => {
                     const payload = definitionPayload(event, group.code, item.sort_order, item.kpi_code);
+                    const validationError = validateKpiWeight(items, payload.weight, item.id);
+                    if (validationError) { toast.error(validationError); return; }
                     void run(item.id, () => employeeBscApi.updateItem(bscId, item.id, payload));
                   }}/>)}
                   {actualItem?.id === item.id && (<ActualEditorRow item={item} busy={savingId === item.id} onCancel={() => setActualItem(null)} onSubmit={(event) => {
@@ -182,6 +190,8 @@ export const BscItemTable: React.FC<Props> = ({ bscId, goalGroups, items, scorin
               {editor?.mode === 'create' && editor.groupCode === group.code && (<KpiEditorRow group={group} busy={savingId === 'new'} onCancel={() => setEditor(null)} onSubmit={(event) => {
                 const nextSortOrder = items.length === 0 ? 0 : Math.max(...items.map(item => item.sort_order)) + 1;
                 const payload = definitionPayload(event, group.code, nextSortOrder, `KPI-${crypto.randomUUID().slice(0, 8).toUpperCase()}`);
+                const validationError = validateKpiWeight(items, payload.weight);
+                if (validationError) { toast.error(validationError); return; }
                 void run('new', () => employeeBscApi.createItem(bscId, payload));
               }}/>) }
             </React.Fragment>;
@@ -235,7 +245,7 @@ function KpiEditorRow({ group, item, busy, onCancel, onSubmit }: { group: BscGoa
           <Field className="xl:col-span-2"><FieldLabel htmlFor={`${prefix}-kpi`}>Đo lường hiệu suất (KPI)</FieldLabel><Textarea id={`${prefix}-kpi`} name="kpiName" rows={4} defaultValue={item?.kpi_name ?? ''} required/></Field>
           <Field data-disabled><FieldLabel htmlFor={`${prefix}-unit`}>Đơn vị tính</FieldLabel><Input id={`${prefix}-unit`} value="%" disabled/></Field>
           <Field><FieldLabel htmlFor={`${prefix}-target`}>Chỉ tiêu</FieldLabel><Input id={`${prefix}-target`} name="targetValue" type="number" step="any" defaultValue={item ? item.target_value ?? '' : 100} required/></Field>
-          <Field><FieldLabel htmlFor={`${prefix}-weight`}>Tỷ trọng (%)</FieldLabel><Input id={`${prefix}-weight`} name="weight" type="number" min="0" max="100" step="0.01" defaultValue={item?.weight ?? ''} required/></Field>
+          <Field><FieldLabel htmlFor={`${prefix}-weight`}>Tỷ trọng (%)</FieldLabel><Input id={`${prefix}-weight`} name="weight" type="number" min="0.01" max="100" step="0.01" defaultValue={item?.weight ?? ''} onInvalid={showWeightInputError} required/></Field>
           <Field data-disabled><FieldLabel htmlFor={`${prefix}-frequency`}>Tần suất đo</FieldLabel><Input id={`${prefix}-frequency`} value="Tháng" disabled/></Field>
         </FieldGroup>
         <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onCancel}><XIcon data-icon="inline-start"/>Hủy</Button><Button type="submit" disabled={busy}>{busy ? 'Đang lưu…' : 'Lưu KPI'}</Button></div>

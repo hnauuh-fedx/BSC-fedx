@@ -11,8 +11,10 @@ import { BscReopenRequest, BscScoringPreview, EmployeeBsc } from '../types/emplo
 import { BscDetailPage } from './bsc-detail-page';
 
 const render = (ui: React.ReactElement) => testingRender(ui, { wrapper: SystemConfirmDialogProvider });
+const toastError = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../app/store/auth-store', () => ({ useAuthContext: vi.fn() }));
+vi.mock('sonner', () => ({ toast: { error: (...args: unknown[]) => toastError(...args) } }));
 vi.mock('../services/employee-bsc.service', () => ({
   employeeBscApi: {
     detail: vi.fn(),
@@ -24,6 +26,7 @@ vi.mock('../services/employee-bsc.service', () => ({
     resetApprovedPlan: vi.fn(),
     resetApprovedEvaluation: vi.fn(),
     exportExcel: vi.fn(),
+    submitPlan: vi.fn(),
   },
 }));
 vi.mock('../components/bsc-item-table', () => ({
@@ -128,6 +131,27 @@ describe('BscDetailPage background refresh', () => {
     expect(click).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:employee-bsc');
     createObjectURL.mockRestore(); revokeObjectURL.mockRestore(); click.mockRestore();
+  });
+
+  it('shows a popup explaining invalid BSC data when submitting a plan', async () => {
+    vi.mocked(useAuthContext).mockReturnValue({
+      state: {
+        status: 'authenticated',
+        user: {
+          id: 'employee-1', employeeCode: 'E001', fullName: 'Nhân viên thử nghiệm', email: 'employee@example.com', status: 'ACTIVE', roles: [],
+          permissions: [BSC_PERMISSIONS.EDIT_OWN, BSC_PERMISSIONS.SUBMIT_PLAN_OWN],
+        },
+        accessToken: 'token', expiresAt: Date.now() + 60_000,
+      },
+      login: vi.fn(), logout: vi.fn(), getAccessToken: vi.fn(() => 'token'),
+    });
+    const user = userEvent.setup();
+    render(<MemoryRouter initialEntries={['/employee-bsc/bsc-1']}><Routes><Route path="/employee-bsc/:id" element={<BscDetailPage/>}/></Routes></MemoryRouter>);
+
+    await user.click(await screen.findByRole('button', { name: 'Gửi duyệt kế hoạch' }));
+
+    expect(toastError).toHaveBeenCalledWith('BSC phải có ít nhất một KPI trước khi gửi duyệt.');
+    expect(employeeBscApi.submitPlan).not.toHaveBeenCalled();
   });
 
   it('does not show personal export when the viewer is not the BSC owner', async () => {
