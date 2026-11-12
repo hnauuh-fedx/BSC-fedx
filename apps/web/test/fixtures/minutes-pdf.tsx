@@ -5,12 +5,14 @@ import { BscMinutesPrintDocument } from '../../src/features/bsc-minutes/componen
 import { exportMinutesToPdf } from '../../src/features/bsc-minutes/bsc-minutes-pdf';
 
 const names = ['Phạm Như Huỳnh', 'Bùi Thị Ngọc Trinh', 'Trương Thị Bích Duyên', 'Ngô Thị Thùy Duy', 'Lâm Thị Ngọc Yến', 'Châu Thị Hồng Trúc'];
-const rows = Array.from({ length: 25 }, (_, index) => ({
+const params = new URLSearchParams(location.search);
+const rows = Array.from({ length: Number(params.get('rows') || 25) }, (_, index) => ({
   id: `row-${index + 1}`,
   employeeName: index === 13 ? 'Lê Trúc Nhi' : names[index % names.length],
   departmentId: index < 8 ? 'cskh' : index < 10 ? 'kt' : 'mkt',
   departmentName: index < 8 ? 'Chăm sóc khách hàng' : index < 10 ? 'Kế toán' : 'Marketing',
-  selfScore: '108', selfGrade: 'A+', unitScore: '108', unitGrade: 'A+', explanation: '',
+  selfScore: '108', selfGrade: 'A+', unitScore: '108', unitGrade: 'A+',
+  explanation: params.has('long') && index === 13 ? 'Hoàn thành công việc đúng tiến độ và phối hợp với các phòng ban để xử lý yêu cầu phát sinh. '.repeat(10) : '',
 }));
 
 createRoot(document.getElementById('root')!).render(<main className="bsc-minutes-page">

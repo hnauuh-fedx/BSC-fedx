@@ -1,104 +1,79 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import html2canvas from 'html2canvas';
 import { exportMinutesToPdf } from './bsc-minutes-pdf';
+import { createMinutesPdfPages } from './bsc-minutes-pdf-pages';
 
-const pdfMocks = vi.hoisted(() => ({
-  addImage: vi.fn(),
-  addPage: vi.fn(),
-  drawImage: vi.fn(),
-  constructor: vi.fn(),
-  save: vi.fn(),
-}));
-
-vi.mock('html2canvas', () => ({
-  default: vi.fn().mockResolvedValue({
-    height: 297,
-    width: 210,
-    toDataURL: () => 'data:image/png;base64,pdf',
-  }),
-}));
-vi.mock('jspdf', () => ({
-  jsPDF: class JsPdfMock {
-    constructor(options: unknown) { pdfMocks.constructor(options); }
-    addImage = pdfMocks.addImage;
-    addPage = pdfMocks.addPage;
-    save = pdfMocks.save;
-  },
-}));
+const pdfMocks = vi.hoisted(() => ({ addImage: vi.fn(), addPage: vi.fn(), save: vi.fn() }));
+vi.mock('html2canvas', () => ({ default: vi.fn() }));
+vi.mock('jspdf', () => ({ jsPDF: class {
+  addImage = pdfMocks.addImage;
+  addPage = pdfMocks.addPage;
+  save = pdfMocks.save;
+} }));
 
 describe('exportMinutesToPdf', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-      callback(0);
-      return 1;
-    });
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
-      fillRect: vi.fn(), drawImage: pdfMocks.drawImage,
-    } as unknown as CanvasRenderingContext2D);
-    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,page');
+    vi.mocked(html2canvas).mockResolvedValue({ width: 340, height: 400, toDataURL: () => 'data:image/png;base64,page' } as HTMLCanvasElement);
   });
 
-  it('renders aligned HTML at the viewport origin and restores export state', async () => {
-    const element = document.createElement('article');
-    element.style.color = 'black';
-    document.body.append(element);
-    vi.mocked(html2canvas).mockImplementationOnce(async (target, options) => {
-      expect((target as HTMLElement).style.left).toBe('0px');
-      expect((target as HTMLElement).style.zIndex).toBe('-1');
-      expect(options?.foreignObjectRendering).toBe(true);
-      expect(options?.scrollX).toBe(0);
-      expect(options?.scrollY).toBe(0);
-      return {
-        height: 297,
-        width: 210,
-        toDataURL: () => 'data:image/png;base64,pdf',
-      } as unknown as HTMLCanvasElement;
+  it('renders whole HTML pages in an isolated document and preserves the editor', async () => {
+    const source = document.createElement('article');
+    source.className = 'minutes-print-document';
+    source.style.color = 'black';
+    source.innerHTML = '<p>Meeting content</p>';
+    document.body.append(source);
+    vi.mocked(html2canvas).mockImplementationOnce(async (page, options) => {
+      expect(page).not.toBe(source);
+      expect(page.ownerDocument).not.toBe(document);
+      expect(page.textContent).toContain('Meeting content');
+      expect(page.classList).toContain('minutes-pdf-page');
+      expect(options).toMatchObject({ foreignObjectRendering: true, scrollX: 0, scrollY: 0 });
+      return { width: 340, height: 400, toDataURL: () => 'data:image/png;base64,page' } as HTMLCanvasElement;
     });
 
-    await exportMinutesToPdf(element, 'bien-ban.pdf');
+    await exportMinutesToPdf(source, 'minutes.pdf');
 
-    expect(pdfMocks.constructor).toHaveBeenCalledWith(expect.objectContaining({ format: 'a4' }));
-    expect(pdfMocks.addImage).toHaveBeenCalled();
-    expect(pdfMocks.save).toHaveBeenCalledWith('bien-ban.pdf');
-    expect(document.documentElement).not.toHaveClass('minutes-pdf-export');
+    expect(pdfMocks.addImage).toHaveBeenCalledWith(expect.any(String), 'PNG', 20, 20, 170, 200, undefined, 'FAST');
+    expect(pdfMocks.save).toHaveBeenCalledWith('minutes.pdf');
+    expect(document.querySelector('iframe')).toBeNull();
     expect(document.body).not.toHaveClass('minutes-pdf-export');
-    expect(element.style.cssText).toBe('color: black;');
+    expect(source.style.cssText).toBe('color: black;');
+    expect(source.innerHTML).toBe('<p>Meeting content</p>');
   });
 
-  it('repeats table headings, preserves rows and leaves 20mm margins on every PDF page', async () => {
-    const element = document.createElement('article');
-    element.innerHTML = '<table class="minutes-print-table"><thead><tr><th>Header</th></tr></thead><tbody><tr class="minutes-print-group"><th>Department</th></tr>'
-      + Array.from({ length: 14 }, (_, i) => `<tr><td>Employee ${i + 1}</td></tr>`).join('') + '</tbody></table>';
-    document.body.append(element);
-    const rect = (top: number, height: number) => ({ top, bottom: top + height, left: 0, right: 170, width: 170, height }) as DOMRect;
-    vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(rect(0, 1000));
-    vi.spyOn(element.querySelector('table')!, 'getBoundingClientRect').mockReturnValue(rect(100, 900));
-    vi.spyOn(element.querySelector('thead')!, 'getBoundingClientRect').mockReturnValue(rect(100, 40));
-    const rows = [...element.querySelectorAll('tbody tr')];
-    vi.spyOn(rows[0], 'getBoundingClientRect').mockReturnValue(rect(140, 20));
-    rows.slice(1).forEach((row, i) => vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(rect(160 + i * 60, 60)));
-    const source = { width: 340, height: 2000, toDataURL: () => 'data:image/png;base64,source' } as HTMLCanvasElement;
-    vi.mocked(html2canvas).mockResolvedValueOnce(source);
+  it('removes the temporary document if rendering fails', async () => {
+    const source = document.createElement('article');
+    vi.mocked(html2canvas).mockRejectedValueOnce(new Error('Render failed'));
+    await expect(exportMinutesToPdf(source, 'minutes.pdf')).rejects.toThrow('Render failed');
+    expect(document.querySelector('iframe')).toBeNull();
+    expect(pdfMocks.save).not.toHaveBeenCalled();
+  });
 
-    await exportMinutesToPdf(element, 'multi-page.pdf');
+  it('moves whole rows and department headings, repeating the table header on each page', () => {
+    const source = document.createElement('article');
+    source.innerHTML = '<section><h2>Results</h2><table><colgroup><col /></colgroup><thead><tr><th>Employee</th></tr></thead><tbody>'
+      + '<tr class="minutes-print-group"><th>Marketing</th></tr>'
+      + Array.from({ length: 14 }, (_, i) => `<tr data-employee="${i}"><td>Employee ${i + 1}</td></tr>`).join('')
+      + '</tbody></table></section>';
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const height = this.classList.contains('minutes-pdf-page')
+        ? this.querySelectorAll('tbody tr').length * 100 + this.querySelectorAll('thead').length * 40 + this.querySelectorAll('h2').length * 20 : 0;
+      return { height, top: 0, bottom: height, left: 0, right: 640, width: 640 } as DOMRect;
+    });
 
-    expect(pdfMocks.addPage).toHaveBeenCalled();
-    for (const call of pdfMocks.addImage.mock.calls) {
-      expect(call.slice(2, 5)).toEqual([20, 20, 170]);
-      expect(call[5]).toBeLessThanOrEqual(257);
+    const pages = createMinutesPdfPages(source, document);
+
+    expect(pages).toHaveLength(2);
+    for (const page of pages) {
+      expect(page.querySelector('thead')).toHaveTextContent('Employee');
+      expect(page.querySelectorAll('colgroup')).toHaveLength(1);
+      expect(page.getBoundingClientRect().height).toBeLessThan(971);
+      const group = page.querySelector('.minutes-print-group');
+      if (group) expect(group.nextElementSibling).toHaveAttribute('data-employee');
     }
-    // First page ends before the employee row that would cross its bottom edge.
-    expect(pdfMocks.drawImage.mock.calls[0]).toEqual([source, 0, 0, 340, 440, 0, 0, 340, 440]);
-    // The second page starts with a copy of both table heading rows.
-    expect(pdfMocks.drawImage.mock.calls[1]).toEqual([source, 0, 200, 340, 80, 0, 0, 340, 80]);
-    expect(pdfMocks.drawImage.mock.calls[2]).toEqual([source, 0, 440, 340, 360, 0, 80, 340, 360]);
-    const contentSlices = pdfMocks.drawImage.mock.calls.filter((call) => call[2] !== 200);
-    let offset = 0;
-    for (const call of contentSlices) {
-      expect(call[2]).toBe(offset);
-      offset += call[4] as number;
-    }
-    expect(offset).toBe(source.height);
+    expect(pages.flatMap((page) => [...page.querySelectorAll('[data-employee]')].map((row) => row.getAttribute('data-employee'))))
+      .toEqual(Array.from({ length: 14 }, (_, i) => String(i)));
+    pages.forEach((page) => page.remove());
   });
 });
