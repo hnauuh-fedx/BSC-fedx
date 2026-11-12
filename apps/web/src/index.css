@@ -367,6 +367,9 @@ main > table { display: block; max-width: 100%; overflow-x: auto; border: 1px so
   top: 0;
   left: -10000px;
   display: block;
+  width: 170mm;
+  min-height: 0;
+  padding: 1px;
   background: white;
 }
 .minutes-pdf-export,
@@ -383,7 +386,7 @@ main > table { display: block; max-width: 100%; overflow-x: auto; border: 1px so
 .minutes-pdf-export .minutes-print-document { background-color: rgb(255 255 255) !important; }
 
 @media print {
-  @page { size: A4 portrait; margin: 0; }
+  @page { size: A4 portrait; margin: 20mm; }
   html, body { margin: 0; padding: 0; }
   body, .app-shell, .app-content { background: white; }
   .app-header, .skip-link, .minutes-editor { display: none !important; }
@@ -391,7 +394,14 @@ main > table { display: block; max-width: 100%; overflow-x: auto; border: 1px so
   .bsc-minutes-page { display: block; color: black; }
   .minutes-print-document {
     display: block;
-    -webkit-box-decoration-break: clone;
-    box-decoration-break: clone;
+    width: auto;
+    min-height: 0;
+    padding: 0;
   }
+  .minutes-print-table thead { display: table-header-group; }
+  .minutes-print-table tbody { break-inside: auto; }
+  .minutes-print-table thead, .minutes-print-table tr { break-inside: avoid; }
+  .minutes-print-document h2, .minutes-print-document h3 { break-after: avoid; }
+  .minutes-print-document > section:last-of-type { break-inside: avoid; }
+  .minutes-print-document p { orphans: 3; widows: 3; }
 }
