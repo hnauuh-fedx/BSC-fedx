@@ -289,7 +289,7 @@ describe('BscMinutesPage', () => {
     await user.click(screen.getByRole('button', { name: 'Lưu PDF' }));
 
     await waitFor(() => expect(exportMinutesToPdf).toHaveBeenCalledWith(
-      expect.any(HTMLElement),
+      expect.objectContaining({ number: '63', rows: expect.arrayContaining([expect.objectContaining({ employeeName: 'Nguyễn Văn A' })]) }),
       'bien-ban-T7-63.pdf',
     ));
     expect(bscMinutesApi.create).toHaveBeenCalled();

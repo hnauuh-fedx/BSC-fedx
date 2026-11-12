@@ -227,6 +227,7 @@ export const BscMinutesPage: React.FC = () => {
     unitGrade: row.unitGrade,
     explanation: row.explanation,
   }));
+  const printDocumentProps = { ...form, collectiveRows, rows: snapshotRows() };
 
   const saveInput = (): SaveBscMinutesInput => ({
     cycleId,
@@ -344,8 +345,6 @@ export const BscMinutesPage: React.FC = () => {
   };
   const savePdf = async () => {
     if (!minutesDataReady) return;
-    const documentElement = document.querySelector<HTMLElement>('.minutes-print-document');
-    if (!documentElement) return;
 
     setExportingPdf(true);
     setError('');
@@ -354,7 +353,7 @@ export const BscMinutesPage: React.FC = () => {
       const numberPart = form.number || 'nhap';
       const filename = `bien-ban-${cyclePart}-${numberPart}.pdf`.replace(/[^a-zA-Z0-9._-]+/g, '-');
       const persisted = dirty || !activeMinutes ? await persistMinutes() : activeMinutes;
-      await exportMinutesToPdf(documentElement, filename);
+      await exportMinutesToPdf(printDocumentProps, filename);
       const recorded = await bscMinutesApi.recordOutput(persisted.id, 'PDF');
       setActiveMinutes(recorded);
     } catch (cause) {
@@ -455,14 +454,7 @@ export const BscMinutesPage: React.FC = () => {
         </fieldset>
       </>}
       </div>
-      {!loadingOptions && minutesDataReady && <BscMinutesPrintDocument
-        number={form.number} issuePlace={form.issuePlace} date={form.date}
-        startTime={form.startTime} endTime={form.endTime} location={form.location} chairName={form.chairName}
-        secretaryName={form.secretaryName} absentCount={form.absentCount} subject={form.subject}
-        meetingContent={form.meetingContent} nextMonthAssignment={form.nextMonthAssignment} conclusion={form.conclusion}
-        collectiveRows={collectiveRows}
-        rows={snapshotRows()}
-      />}
+      {!loadingOptions && minutesDataReady && <BscMinutesPrintDocument {...printDocumentProps} />}
       <SavedMinutesDialog open={savedDialogOpen} loading={loadingSavedMinutes} items={savedMinutes} onOpenChange={setSavedDialogOpen} onSelect={openSavedMinutes}/>
     </main>
   </PermissionGate>;

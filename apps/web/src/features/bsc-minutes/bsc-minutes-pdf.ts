@@ -1,97 +1,139 @@
-import { createMinutesPdfPages } from './bsc-minutes-pdf-pages';
+import type { jsPDF } from 'jspdf';
+import type { RowInput, UserOptions } from 'jspdf-autotable';
+import type { MinutesPrintDocumentProps } from './components/bsc-minutes-print-document';
+import { groupMinutesRows } from './group-minutes-rows';
+import regularUrl from './fonts/NotoSerif-Regular.ttf?url';
+import boldUrl from './fonts/NotoSerif-Bold.ttf?url';
+import italicUrl from './fonts/NotoSerif-Italic.ttf?url';
+import boldItalicUrl from './fonts/NotoSerif-BoldItalic.ttf?url';
 
-const createPrintFrame = async () => {
-  const frame = document.createElement('iframe');
-  frame.title = 'Chuẩn bị biên bản PDF';
-  frame.setAttribute('aria-hidden', 'true');
-  frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:680px;height:1200px;border:0;pointer-events:none;';
-  const loaded = new Promise<void>((resolve) => { frame.onload = () => resolve(); });
-  document.body.append(frame);
-  const renderedWidth = frame.getBoundingClientRect().width;
-  // Cancel inherited CSS zoom before measuring the print document.
-  if (renderedWidth > 0) frame.style.zoom = String(frame.offsetWidth / renderedWidth);
-  await loaded;
-  return frame;
+type FontStyle = 'normal' | 'bold' | 'italic' | 'bolditalic';
+let fonts: Promise<Array<{ style: FontStyle; data: string }>> | undefined;
+const loadFonts = () => fonts ??= Promise.all(([
+  ['normal', regularUrl], ['bold', boldUrl], ['italic', italicUrl], ['bolditalic', boldItalicUrl],
+] as const).map(async ([style, url]) => {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('Không thể tải font tiếng Việt cho PDF. Vui lòng thử lại.');
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 16384) binary += String.fromCharCode(...bytes.subarray(offset, offset + 16384));
+  return { style, data: btoa(binary) };
+})).catch((error) => { fonts = undefined; throw error; });
+
+const longTime = (value: string) => {
+  const [hour, minute] = value.split(':');
+  return hour && minute !== undefined ? `${Number(hour)} giờ ${minute.padStart(2, '0')} phút` : value;
 };
 
-export const exportMinutesToPdf = async (element: HTMLElement, filename: string) => {
-  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-    import('html2canvas'),
-    import('jspdf'),
-  ]);
-  // A separate document isolates PDF layout from editor scroll, zoom and sticky headings.
-  const frame = await createPrintFrame();
-  try {
-    const target = frame.contentDocument!;
-    target.documentElement.className = 'minutes-pdf-export';
-    target.body.className = 'minutes-pdf-export';
-    const styles = [...document.querySelectorAll('style, link[rel="stylesheet"]')].map((node) => {
-      const copy = target.importNode(node, true);
-      const ready = copy instanceof target.defaultView!.HTMLLinkElement
-        ? new Promise<void>((resolve, reject) => {
-          copy.href = (node as HTMLLinkElement).href;
-          copy.onload = () => resolve();
-          copy.onerror = () => reject(new Error('Không thể tải định dạng biên bản PDF.'));
-        }) : Promise.resolve();
-      target.head.append(copy);
-      return ready;
-    });
-    const reset = target.createElement('style');
-    reset.textContent = `
-      html { font-size: 16px; zoom: 1; }
-      body { margin: 0; padding: 0; overflow: hidden; }
-      .minutes-print-document {
-        position: static !important; display: flow-root !important;
-        width: 170mm; min-height: 0; margin: 0; padding: 1px;
-      }
-      .minutes-print-table th { position: static; }
-      .minutes-print-table {
-        border-collapse: separate; border-spacing: 0;
-        border-top: 1px solid black; border-left: 1px solid black;
-      }
-      .minutes-print-table th, .minutes-print-table td {
-        border: 0; border-right: 1px solid black; border-bottom: 1px solid black;
-      }
-    `;
-    target.head.append(reset);
-    await Promise.all(styles);
-    const source = target.importNode(element, true);
-    target.body.append(source);
-    if ('fonts' in target) await target.fonts.ready;
-    const pages = createMinutesPdfPages(source, target);
-    source.remove();
-    pages.forEach((page) => { page.style.setProperty('display', 'none', 'important'); });
-
-    const pdf = new jsPDF({ format: 'a4', orientation: 'portrait', unit: 'mm' });
-    for (const [index, page] of pages.entries()) {
-      page.style.setProperty('display', 'flow-root', 'important');
-      const canvas = await html2canvas(page, {
-        backgroundColor: '#ffffff', foreignObjectRendering: true, logging: false,
-        scale: 2, scrollX: 0, scrollY: 0, useCORS: true,
-      });
-      const pageBounds = page.getBoundingClientRect();
-      for (const table of page.querySelectorAll('.minutes-print-table')) {
-        const rect = table.getBoundingClientRect();
-        const context = canvas.getContext('2d');
-        if (!context) throw new Error('Không thể tạo trang PDF.');
-        // Keep the outer right border, which SVG capture can omit.
-        context.save();
-        context.setTransform(1, 0, 0, 1, 0, 0);
-        context.fillStyle = '#000000';
-        context.fillRect(Math.round((rect.right - pageBounds.left) * 2) - 2,
-          Math.round((rect.top - pageBounds.top) * 2), 2, Math.round(rect.height * 2));
-        context.restore();
-      }
-      page.style.setProperty('display', 'none', 'important');
-      // An exceptional row taller than one page is scaled as a whole, never clipped.
-      const scale = Math.min(170 / canvas.width, 257 / canvas.height);
-      const width = canvas.width * scale;
-      const height = canvas.height * scale;
-      if (index > 0) pdf.addPage();
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 20 + (170 - width) / 2, 20, width, height, undefined, 'FAST');
-    }
-    pdf.save(filename);
-  } finally {
-    frame.remove();
+// Text and table cells are written directly to PDF. No DOM measurement or bitmap cropping.
+export const buildMinutesPdf = async (props: MinutesPrintDocumentProps): Promise<jsPDF> => {
+  const [{ jsPDF }, { autoTable }, fontData] = await Promise.all([import('jspdf'), import('jspdf-autotable'), loadFonts()]);
+  const pdf = new jsPDF({ format: 'a4', orientation: 'portrait', unit: 'mm', putOnlyUsedFonts: true, compress: true });
+  for (const { style, data } of fontData) {
+    const file = `NotoSerif-${style}.ttf`;
+    pdf.addFileToVFS(file, data);
+    pdf.addFont(file, 'NotoSerif', style);
   }
+  pdf.setProperties({ title: `Biên bản ${props.number} - ${props.subject}`, creator: 'BSC Management' });
+  pdf.setLineHeightFactor(1.35);
+  pdf.setTextColor(0);
+  const left = 20;
+  const width = 170;
+  const bottom = 277;
+  let y = 21;
+  const ensureSpace = (height: number) => {
+    if (y + height > bottom) { pdf.addPage(); y = 21; }
+  };
+  const write = (text: string, style: FontStyle = 'normal', gap = 1.5) => {
+    pdf.setFont('NotoSerif', style).setFontSize(11);
+    const lines = pdf.splitTextToSize(text || ' ', width) as string[];
+    for (const line of lines) {
+      ensureSpace(5.5);
+      pdf.text(line, left, y, { baseline: 'top' });
+      y += 5.5;
+    }
+    y += gap;
+  };
+  const centered = (text: string, x: number, top: number, size: number, style: FontStyle = 'bold', maxWidth = 83) => {
+    pdf.setFont('NotoSerif', style).setFontSize(size);
+    const actualSize = Math.min(size, size * maxWidth / Math.max(1, pdf.getTextWidth(text)));
+    pdf.setFontSize(actualSize).text(text, x, top, { align: 'center', baseline: 'top' });
+  };
+  const [year, month, day] = props.date.split('-');
+  centered('CÔNG TY TNHH MTV CÔNG NGHỆ FEDX', 62.5, y, 9);
+  centered('CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM', 147.5, y, 9);
+  centered(`Số: ${props.number || '…'} / BB-FEDX`, 62.5, y + 6, 11, 'normal');
+  centered('Độc lập - Tự do - Hạnh phúc', 147.5, y + 5, 10);
+  centered(`${props.issuePlace || '……'}, ngày ${Number(day)} tháng ${Number(month)} năm ${year}`, 147.5, y + 12, 10, 'italic');
+  y += 25;
+  centered('BIÊN BẢN', 105, y, 17);
+  y += 10;
+  pdf.setFont('NotoSerif', 'normal').setFontSize(11);
+  const subject = pdf.splitTextToSize(props.subject, 150) as string[];
+  for (const line of subject) { ensureSpace(5.5); centered(line, 105, y, 11, 'normal', 150); y += 5.5; }
+  pdf.setLineWidth(0.2).line(85, y + 1, 125, y + 1);
+  y += 10;
+  write('I. Thời gian, địa điểm:', 'bold');
+  write(`- Vào lúc ${longTime(props.startTime)} ngày ${day}/${month}/${year}`);
+  write(`- Tại ${props.location || '…………………………………………'}`);
+  write('II. Thành phần:', 'bold');
+  write(`1. Ông/bà: ${props.chairName || '………………………………'} - Chủ trì;`, 'bolditalic');
+  write(`2. Ông/bà: ${props.secretaryName || '………………………………'} - Thư ký;`, 'bolditalic');
+  write('Cùng với các viên chức, người lao động đang công tác tại đơn vị.');
+  write(`Vắng: ${props.absentCount || '0'}`);
+  write(`III. Nội dung: ${props.meetingContent}`);
+  ensureSpace(30);
+  write('1. Kết quả đánh giá', 'bold');
+
+  const group = (title: string): RowInput => [{ content: title, colSpan: 7, styles: { fontStyle: 'bold', halign: 'left' } }];
+  const body: RowInput[] = [group('A. Cá nhân')];
+  const departmentHeads = new Map<object, string>();
+  const departmentHeadingHeight = 7;
+  for (const department of groupMinutesRows(props.rows)) {
+    department.rows.forEach((row, index) => {
+      const values = [String(department.startIndex + index + 1), row.employeeName, row.selfScore ?? '', row.selfGrade ?? '', row.unitScore, row.unitGrade, row.explanation];
+      // Reserve the department title inside its first employee's row, so they move together.
+      const cells = index === 0 ? values.map((content) => ({ content, styles: { cellPadding: { top: departmentHeadingHeight + 1.2, bottom: 1.2, left: 1.2, right: 1.2 } } })) : values;
+      body.push(cells);
+      if (index === 0) departmentHeads.set(cells, department.departmentName);
+    });
+  }
+  body.push(group('B. Tập thể'));
+  props.collectiveRows.forEach((row, index) => body.push([
+    `B.${index + 1}`, row.departmentName, row.selfScore, row.selfGrade, row.unitScore, row.unitGrade, row.explanation,
+  ]));
+  const options: UserOptions = {
+    startY: y, margin: { top: 20, bottom: 20, left: 20, right: 20 }, tableWidth: width,
+    theme: 'grid', showHead: 'everyPage', rowPageBreak: 'avoid',
+    styles: { font: 'NotoSerif', fontStyle: 'normal', fontSize: 10.5, cellPadding: 1.2, lineWidth: 0.2, lineColor: 0, textColor: 0, valign: 'middle', overflow: 'linebreak' },
+    headStyles: { fontStyle: 'bold', fillColor: 255, textColor: 0, halign: 'center' },
+    columnStyles: { 0: { cellWidth: 9.35, halign: 'center' }, 1: { cellWidth: 51.85 }, 2: { cellWidth: 15.3 }, 3: { cellWidth: 15.3 }, 4: { cellWidth: 15.3 }, 5: { cellWidth: 15.3 }, 6: { cellWidth: 47.6 } },
+    head: [
+      [{ content: 'TT', rowSpan: 2 }, { content: 'Họ và tên', rowSpan: 2 }, { content: 'Tự đánh giá', colSpan: 2 }, { content: 'Đơn vị đánh giá', colSpan: 2 }, { content: 'Thuyết minh (nếu tăng hoặc hạ bậc xếp loại)', rowSpan: 2 }],
+      ['Điểm', 'Xếp loại', 'Điểm', 'Xếp loại'],
+    ],
+    body,
+    didDrawCell: (data) => {
+      const title = departmentHeads.get(data.row.raw);
+      if (data.section === 'body' && data.column.index === 6 && title) {
+        pdf.setFillColor('#ffffff').setDrawColor('#000000').setLineWidth(0.2);
+        pdf.rect(left, data.cell.y, width, departmentHeadingHeight, 'FD');
+        pdf.setFont('NotoSerif', 'bold').setFontSize(10.5);
+        pdf.text(title, left + 1.2, data.cell.y + 1.2, { baseline: 'top' });
+      }
+    },
+  };
+  autoTable(pdf, options);
+  y = (pdf as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 4;
+  ensureSpace(25);
+  write(`2. Giao chỉ tiêu tháng tới: ${props.nextMonthAssignment}`);
+  write('IV. Kết luận:', 'bold');
+  write(props.conclusion || '- Nội dung Biên bản đã được thông qua và các thành viên dự họp thống nhất.');
+  write(`Cuộc họp kết thúc lúc ${longTime(props.endTime)} cùng ngày./.`);
+  return pdf;
+};
+
+export const exportMinutesToPdf = async (props: MinutesPrintDocumentProps, filename: string) => {
+  const pdf = await buildMinutesPdf(props);
+  pdf.save(filename);
 };

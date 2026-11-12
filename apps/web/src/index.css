@@ -387,7 +387,7 @@ main > table { display: block; max-width: 100%; overflow-x: auto; border: 1px so
 
 @media print {
   @page { size: A4 portrait; margin: 20mm; }
-  html, body { margin: 0; padding: 0; }
+  html, body { margin: 0; padding: 0; zoom: 1 !important; }
   body, .app-shell, .app-content { background: white; }
   .app-header, .skip-link, .minutes-editor { display: none !important; }
   .app-content { max-width: none; padding: 0; }
@@ -399,6 +399,7 @@ main > table { display: block; max-width: 100%; overflow-x: auto; border: 1px so
     padding: 0;
   }
   .minutes-print-table thead { display: table-header-group; }
+  .minutes-print-table th { position: static; }
   .minutes-print-table tbody { break-inside: auto; }
   .minutes-print-table thead, .minutes-print-table tr { break-inside: avoid; }
   .minutes-print-document h2, .minutes-print-document h3 { break-after: avoid; }
