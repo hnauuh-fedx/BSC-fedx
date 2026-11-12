@@ -129,6 +129,7 @@ export class BscMinutesService {
     const [employeeBscs, departmentBscs] = await Promise.all([
       db.employee_bsc.findMany({ where: { id: { in: employeeIds }, cycle_id: dto.cycleId, evaluation_status: 'APPROVED' }, select: {
         id: true, final_score: true, final_grade: true,
+        departments: { select: { id: true, name: true } },
         users_employee_bsc_employee_idTousers: { select: { full_name: true } },
       } }),
       db.department_bsc.findMany({ where: { id: { in: departmentIds }, cycle_id: dto.cycleId, evaluation_status: 'APPROVED' }, select: {
@@ -145,6 +146,7 @@ export class BscMinutesService {
         const bsc = employeeById.get(row.id)!;
         return {
           id: row.id, employeeName: bsc.users_employee_bsc_employee_idTousers.full_name,
+          departmentId: bsc.departments.id, departmentName: bsc.departments.name,
           selfScore: bsc.final_score?.toString() ?? null, selfGrade: bsc.final_grade,
           unitScore: row.unitScore, unitGrade: row.unitGrade, explanation: row.explanation,
         };

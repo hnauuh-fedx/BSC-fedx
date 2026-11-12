@@ -8,6 +8,8 @@ const assignableGrades = ['', 'D', 'C', 'B', 'A', 'A+'] as const;
 export class BscMinutesIndividualRowDto {
   @IsUUID() id!: string;
   @Transform(trim) @IsString() @MaxLength(255) employeeName!: string;
+  @IsOptional() @IsUUID() departmentId?: string;
+  @IsOptional() @Transform(trim) @IsString() @MaxLength(255) departmentName?: string;
   @IsOptional() @IsString() @MaxLength(50) selfScore!: string | null;
   @IsOptional() @IsString() @MaxLength(20) selfGrade!: string | null;
   @IsString() @Matches(optionalScore) unitScore!: string;

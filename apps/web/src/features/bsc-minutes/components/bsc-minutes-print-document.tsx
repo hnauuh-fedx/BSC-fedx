@@ -1,8 +1,11 @@
 import React from 'react';
+import { groupMinutesRows } from '../group-minutes-rows';
 
 export type MinutesPrintRow = {
   id: string;
   employeeName: string;
+  departmentId?: string;
+  departmentName?: string;
   selfScore: string | null;
   selfGrade: string | null;
   unitScore: string;
@@ -115,10 +118,15 @@ export const BscMinutesPrintDocument: React.FC<MinutesPrintDocumentProps> = (pro
         </thead>
         <tbody>
           <tr className="minutes-print-group"><th>A</th><th colSpan={5}>Cá nhân</th><td /></tr>
-          {props.rows.map((row, index) => <tr key={row.id}>
-            <td>{index + 1}</td><td>{row.employeeName}</td><td>{valueOrBlank(row.selfScore)}</td>
+        </tbody>
+        {groupMinutesRows(props.rows).map((group) => <tbody key={group.key}>
+          <tr className="minutes-print-group minutes-print-department"><th colSpan={7} scope="rowgroup">{group.departmentName}</th></tr>
+          {group.rows.map((row, index) => <tr key={row.id}>
+            <td>{group.startIndex + index + 1}</td><td>{row.employeeName}</td><td>{valueOrBlank(row.selfScore)}</td>
             <td>{valueOrBlank(row.selfGrade)}</td><td>{row.unitScore}</td><td>{row.unitGrade}</td><td>{row.explanation}</td>
           </tr>)}
+        </tbody>)}
+        <tbody>
           <tr className="minutes-print-group"><th>B</th><th colSpan={5}>Tập thể</th><td /></tr>
           {props.collectiveRows.map((row, index) => <tr key={row.id}>
             <td>{`B.${index + 1}`}</td><td>{row.departmentName}</td><td>{row.selfScore}</td><td>{row.selfGrade}</td>

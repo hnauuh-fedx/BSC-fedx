@@ -359,6 +359,7 @@ main > table { display: block; max-width: 100%; overflow-x: auto; border: 1px so
 .minutes-print-table td:first-child { width: 2rem; text-align: center; }
 .minutes-print-table tr { break-inside: avoid; }
 .minutes-print-group th { text-align: left; }
+.minutes-print-department { break-after: avoid; }
 .minutes-print-multiline { white-space: pre-line; }
 
 .minutes-pdf-export .minutes-print-document {

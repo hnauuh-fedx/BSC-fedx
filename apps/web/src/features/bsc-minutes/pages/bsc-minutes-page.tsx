@@ -21,6 +21,7 @@ import { bscMinutesApi } from '../bsc-minutes-api';
 import type { BscMinutes, BscMinutesSummary, SaveBscMinutesInput } from '../bsc-minutes.types';
 import { BscMinutesPrintDocument, type MinutesPrintCollectiveRow } from '../components/bsc-minutes-print-document';
 import { SavedMinutesDialog } from '../components/saved-minutes-dialog';
+import { groupMinutesRows } from '../group-minutes-rows';
 
 const MINUTES_CREATE_PERMISSION = 'bsc.minutes.create';
 const MINUTES_VIEW_PERMISSION = 'bsc.minutes.view';
@@ -46,6 +47,8 @@ type MeetingForm = {
 };
 
 type MinutesRow = Pick<ReportRow, 'id' | 'employeeName' | 'officialScore' | 'officialGrade'> & {
+  departmentId?: string;
+  departmentName?: string;
   unitScore: string;
   unitGrade: string;
   explanation: string;
@@ -185,6 +188,7 @@ export const BscMinutesPage: React.FC = () => {
   useEffect(() => { void loadRows(); }, [loadRows]);
 
   const selectedCycle = options?.cycles.find((cycle) => cycle.id === cycleId);
+  const departmentGroups = groupMinutesRows(rows);
   const updateForm = (field: keyof MeetingForm) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (!canCreateMinutes) return;
     setForm((current) => ({ ...current, [field]: event.target.value }));
@@ -215,6 +219,8 @@ export const BscMinutesPage: React.FC = () => {
   const snapshotRows = () => rows.map((row) => ({
     id: row.id,
     employeeName: row.employeeName,
+    departmentId: row.departmentId,
+    departmentName: row.departmentName,
     selfScore: row.officialScore,
     selfGrade: row.officialGrade,
     unitScore: row.unitScore,
@@ -306,6 +312,8 @@ export const BscMinutesPage: React.FC = () => {
     setRows(minutes.snapshot.rows.map((row) => ({
       id: row.id,
       employeeName: row.employeeName,
+      departmentId: row.departmentId,
+      departmentName: row.departmentName,
       officialScore: row.selfScore,
       officialGrade: row.selfGrade,
       unitScore: row.unitScore,
@@ -412,16 +420,18 @@ export const BscMinutesPage: React.FC = () => {
           </CardHeader>
           <CardContent>
             {loadingRows ? <LoadingState message="Đang tải kết quả BSC…" /> : rows.length === 0 && collectiveRows.length === 0 ? <EmptyState message="Chưa có BSC đã duyệt đánh giá trong kỳ này." /> : <div className="overflow-x-auto rounded-lg border">
-              <Table className="min-w-[1100px] border-collapse [&_td]:border-r [&_th]:border-r [&_tr>*:last-child]:border-r-0">
+              <Table className="min-w-275 border-collapse [&_td]:border-r [&_th]:border-r [&_tr>*:last-child]:border-r-0">
                 <TableHeader><TableRow><TableHead>Họ và tên</TableHead><TableHead>Điểm tự đánh giá</TableHead><TableHead>Xếp loại tự đánh giá</TableHead><TableHead>Điểm đơn vị đánh giá</TableHead><TableHead>Xếp loại đơn vị đánh giá</TableHead><TableHead className="min-w-64">Thuyết minh</TableHead></TableRow></TableHeader>
-                <TableBody>{rows.map((row) => <TableRow key={row.id}>
+                {departmentGroups.map((group) => <TableBody key={group.key}>
+                  <TableRow><TableHead colSpan={6} scope="rowgroup">{group.departmentName}</TableHead></TableRow>
+                  {group.rows.map((row) => <TableRow key={row.id}>
                   <TableCell>{row.employeeName}</TableCell>
                   <TableCell>{row.officialScore ?? '—'}</TableCell>
                   <TableCell>{row.officialGrade ?? '—'}</TableCell>
                   <TableCell><Input type="number" step="0.01" min="0" aria-label={`Điểm đơn vị đánh giá ${row.employeeName}`} value={row.unitScore} onChange={(event) => updateRow(row.id, { unitScore: event.target.value })} /></TableCell>
                   <TableCell><Select value={row.unitGrade} onValueChange={(value) => updateRow(row.id, { unitGrade: value })}><SelectTrigger className="w-full" aria-label={`Xếp loại đơn vị đánh giá ${row.employeeName}`}><SelectValue placeholder="Chọn loại" /></SelectTrigger><SelectContent><SelectGroup>{(options?.grades ?? []).filter((grade) => grade.assignable).map((grade) => <SelectItem key={grade.value} value={grade.value}>{grade.label}</SelectItem>)}</SelectGroup></SelectContent></Select></TableCell>
                   <TableCell><Textarea rows={2} aria-label={`Thuyết minh ${row.employeeName}`} value={row.explanation} onChange={(event) => updateRow(row.id, { explanation: event.target.value })} placeholder="Nhập thuyết minh" /></TableCell>
-                </TableRow>)}</TableBody>
+                </TableRow>)}</TableBody>)}
                 <TableFooter>{collectiveRows.length > 0 ? collectiveRows.map((row) => <TableRow key={row.id}>
                   <TableHead scope="row">{`Tập thể · ${row.departmentName}`}</TableHead>
                   <TableCell>{row.selfScore || '—'}</TableCell>
@@ -451,7 +461,7 @@ export const BscMinutesPage: React.FC = () => {
         secretaryName={form.secretaryName} absentCount={form.absentCount} subject={form.subject}
         meetingContent={form.meetingContent} nextMonthAssignment={form.nextMonthAssignment} conclusion={form.conclusion}
         collectiveRows={collectiveRows}
-        rows={rows.map((row) => ({ id: row.id, employeeName: row.employeeName, selfScore: row.officialScore, selfGrade: row.officialGrade, unitScore: row.unitScore, unitGrade: row.unitGrade, explanation: row.explanation }))}
+        rows={snapshotRows()}
       />}
       <SavedMinutesDialog open={savedDialogOpen} loading={loadingSavedMinutes} items={savedMinutes} onOpenChange={setSavedDialogOpen} onSelect={openSavedMinutes}/>
     </main>
