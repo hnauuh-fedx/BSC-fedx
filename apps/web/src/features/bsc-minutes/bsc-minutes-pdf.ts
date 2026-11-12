@@ -22,6 +22,9 @@ export const exportMinutesToPdf = async (element: HTMLElement, filename: string)
       foreignObjectRendering: true,
       logging: false,
       scale,
+      // The print document is fixed at the viewport origin, independent of editor scroll.
+      scrollX: 0,
+      scrollY: 0,
       useCORS: true,
     });
     const pdf = new jsPDF({ format: 'a4', orientation: 'portrait', unit: 'mm' });

@@ -47,6 +47,8 @@ describe('exportMinutesToPdf', () => {
       expect((target as HTMLElement).style.left).toBe('0px');
       expect((target as HTMLElement).style.zIndex).toBe('-1');
       expect(options?.foreignObjectRendering).toBe(true);
+      expect(options?.scrollX).toBe(0);
+      expect(options?.scrollY).toBe(0);
       return {
         height: 297,
         width: 210,
