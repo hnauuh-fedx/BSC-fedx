@@ -18,7 +18,7 @@ vi.mock('../../department-bsc/department-bsc.service', () => ({
   DEPARTMENT_BSC_PERMISSIONS: { VIEW: 'bsc.department.view' },
 }));
 vi.mock('../../reports/reports-api', () => ({ reportsApi: { options: vi.fn(), list: vi.fn() } }));
-vi.mock('../bsc-minutes-api', () => ({ bscMinutesApi: { list: vi.fn(), detail: vi.fn(), create: vi.fn(), update: vi.fn(), recordOutput: vi.fn() } }));
+vi.mock('../bsc-minutes-api', () => ({ bscMinutesApi: { list: vi.fn(), detail: vi.fn(), byCycle: vi.fn(), create: vi.fn(), update: vi.fn(), recordOutput: vi.fn() } }));
 vi.mock('../bsc-minutes-pdf', () => ({ exportMinutesToPdf: vi.fn().mockResolvedValue(undefined) }));
 
 const storedMinutes = (input: SaveBscMinutesInput, overrides: Partial<BscMinutes> = {}): BscMinutes => ({
@@ -86,6 +86,7 @@ describe('BscMinutesPage', () => {
       page: 1, limit: 100, total: 1,
     });
     vi.mocked(bscMinutesApi.create).mockImplementation(async (input) => storedMinutes(input));
+    vi.mocked(bscMinutesApi.byCycle).mockResolvedValue(null);
     vi.mocked(bscMinutesApi.detail).mockImplementation(async () => { throw new Error('Biên bản không tồn tại trong test này.'); });
     vi.mocked(bscMinutesApi.update).mockImplementation(async (_id, input) => storedMinutes(input));
     vi.mocked(bscMinutesApi.recordOutput).mockImplementation(async (_id, type) => storedMinutes({
@@ -294,5 +295,111 @@ describe('BscMinutesPage', () => {
     ));
     expect(bscMinutesApi.create).toHaveBeenCalled();
     await waitFor(() => expect(bscMinutesApi.recordOutput).toHaveBeenCalledWith('minutes-1', 'PDF'));
+  });
+
+  it('blocks saving, printing and PDF export without a minutes number', async () => {
+    const user = userEvent.setup();
+    const print = vi.spyOn(window, 'print').mockImplementation(() => undefined);
+    render(<BscMinutesPage />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Lưu biên bản' })).toBeEnabled());
+    for (const name of ['Lưu biên bản', 'In biên bản', 'Lưu PDF']) {
+      await user.click(screen.getByRole('button', { name }));
+      expect(screen.getByRole('spinbutton', { name: 'Số biên bản' })).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByRole('spinbutton', { name: 'Số biên bản' })).toHaveFocus();
+    }
+    expect(bscMinutesApi.create).not.toHaveBeenCalled();
+    expect(bscMinutesApi.recordOutput).not.toHaveBeenCalled();
+    expect(exportMinutesToPdf).not.toHaveBeenCalled();
+    expect(print).not.toHaveBeenCalled();
+    await user.type(screen.getByRole('spinbutton', { name: 'Số biên bản' }), '85');
+    await user.click(screen.getByRole('button', { name: 'Lưu biên bản' }));
+    await waitFor(() => expect(bscMinutesApi.create).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('spinbutton', { name: 'Số biên bản' })).toHaveAttribute('aria-invalid', 'false');
+  });
+
+  it('automatically opens the cycle minutes and keeps updating the same record after reload and restore', async () => {
+    const user = userEvent.setup();
+    const saved = storedMinutes({
+      cycleId: 'cycle-1', number: '85', issuePlace: 'Vĩnh Long', date: '2026-07-31', startTime: '09:00', endTime: '11:00',
+      location: 'Phòng họp A', chairName: 'Hồ Minh Hải', secretaryName: 'Huỳnh Phương Linh', absentCount: 0,
+      subject: 'Đã lưu', meetingContent: 'Nội dung đã lưu', nextMonthAssignment: '', conclusion: 'Kết luận gốc',
+      snapshot: { rows: [], collectiveRows: [] }, expectedVersion: 3,
+    });
+    vi.mocked(bscMinutesApi.byCycle).mockResolvedValue(saved);
+    const view = render(<BscMinutesPage />);
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: 'Số biên bản' })).toHaveValue(85));
+    expect(screen.queryByRole('button', { name: 'Biên bản mới' })).not.toBeInTheDocument();
+    expect(reportsApi.list).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Kết luận' }), { target: { value: 'Thay đổi chưa lưu' } });
+    await user.click(screen.getByRole('button', { name: 'Khôi phục bản đã lưu' }));
+    expect(screen.getByRole('textbox', { name: 'Kết luận' })).toHaveValue('Kết luận gốc');
+    await user.click(screen.getByRole('button', { name: 'Lưu biên bản' }));
+    await waitFor(() => expect(bscMinutesApi.update).toHaveBeenCalledWith(saved.id, expect.objectContaining({ expectedVersion: 4 })));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Lưu biên bản' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Lưu biên bản' }));
+    await waitFor(() => expect(bscMinutesApi.update).toHaveBeenLastCalledWith(saved.id, expect.objectContaining({ expectedVersion: 5 })));
+    view.unmount();
+    render(<BscMinutesPage />);
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: 'Số biên bản' })).toHaveValue(85));
+    await user.click(screen.getByRole('button', { name: 'Lưu biên bản' }));
+    await waitFor(() => expect(bscMinutesApi.update).toHaveBeenCalledTimes(3));
+    expect(bscMinutesApi.create).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the cycle minutes lookup fails', async () => {
+    vi.mocked(bscMinutesApi.byCycle).mockRejectedValueOnce(new Error('Không thể tải biên bản của kỳ'));
+    render(<BscMinutesPage />);
+    expect(await screen.findByText('Không thể tải biên bản của kỳ')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Lưu biên bản' })).toBeDisabled();
+    expect(reportsApi.list).not.toHaveBeenCalled();
+  });
+
+  it('opens the correct saved minutes when changing cycles and returning to the first cycle', async () => {
+    const user = userEvent.setup();
+    const options = await reportsApi.options();
+    vi.mocked(reportsApi.options).mockResolvedValue({ ...options, cycles: [...options.cycles,
+      { id: 'cycle-2', code: 'T8', name: 'Tháng 8/2026', year: 2026, month: 8, status: 'OPEN' },
+    ] });
+    vi.mocked(bscMinutesApi.byCycle).mockImplementation(async (cycleId) => storedMinutes({
+      cycleId, number: cycleId === 'cycle-1' ? '85' : '86', issuePlace: 'Vĩnh Long', date: '2026-07-31',
+      startTime: '08:00', endTime: '10:00', location: 'B11.204', chairName: 'Hồ Minh Hải', secretaryName: 'Huỳnh Phương Linh',
+      absentCount: 0, subject: cycleId, meetingContent: '', nextMonthAssignment: '', conclusion: '',
+      snapshot: { rows: [], collectiveRows: [] },
+    }, { id: `minutes-${cycleId}` }));
+    render(<BscMinutesPage />);
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: 'Số biên bản' })).toHaveValue(85));
+    await user.click(screen.getByRole('combobox', { name: 'Kỳ BSC' }));
+    await user.click(screen.getByRole('option', { name: 'Tháng 8/2026' }));
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: 'Số biên bản' })).toHaveValue(86));
+    await user.click(screen.getByRole('button', { name: 'Lưu biên bản' }));
+    await waitFor(() => expect(bscMinutesApi.update).toHaveBeenCalledWith('minutes-cycle-2', expect.objectContaining({ cycleId: 'cycle-2', number: '86' })));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Lưu biên bản' })).toBeEnabled());
+    await user.click(screen.getByRole('combobox', { name: 'Kỳ BSC' }));
+    await user.click(screen.getByRole('option', { name: 'Tháng 7/2026' }));
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: 'Số biên bản' })).toHaveValue(85));
+    await user.click(screen.getByRole('button', { name: 'Lưu biên bản' }));
+    await waitFor(() => expect(bscMinutesApi.update).toHaveBeenLastCalledWith('minutes-cycle-1', expect.objectContaining({ cycleId: 'cycle-1', number: '85' })));
+    expect(bscMinutesApi.create).not.toHaveBeenCalled();
+  });
+
+  it('reloads the existing cycle minutes after a concurrent create conflict', async () => {
+    const user = userEvent.setup();
+    render(<BscMinutesPage />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Lưu biên bản' })).toBeEnabled());
+    await user.type(screen.getByRole('spinbutton', { name: 'Số biên bản' }), '85');
+    vi.mocked(bscMinutesApi.create).mockRejectedValueOnce(new Error('Kỳ BSC này đã có biên bản.'));
+    vi.mocked(bscMinutesApi.byCycle).mockResolvedValue(storedMinutes({
+      cycleId: 'cycle-1', number: '86', issuePlace: 'Vĩnh Long', date: '2026-07-31', startTime: '08:00', endTime: '10:00',
+      location: 'B11.204', chairName: 'Hồ Minh Hải', secretaryName: 'Huỳnh Phương Linh', absentCount: 0,
+      subject: '', meetingContent: '', nextMonthAssignment: '', conclusion: 'Đã lưu ở phiên khác',
+      snapshot: { rows: [], collectiveRows: [] },
+    }));
+    await user.click(screen.getByRole('button', { name: 'Lưu biên bản' }));
+    expect(await screen.findByText('Kỳ BSC này đã có biên bản.')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Thử lại' }));
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: 'Số biên bản' })).toHaveValue(86));
+    await user.click(screen.getByRole('button', { name: 'Lưu biên bản' }));
+    await waitFor(() => expect(bscMinutesApi.update).toHaveBeenCalledTimes(1));
+    expect(bscMinutesApi.create).toHaveBeenCalledTimes(1);
   });
 });

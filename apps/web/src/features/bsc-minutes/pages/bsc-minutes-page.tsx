@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { FileDownIcon, FolderOpenIcon, LoaderCircleIcon, PlusIcon, PrinterIcon, RotateCcwIcon, SaveIcon } from 'lucide-react';
+import { FileDownIcon, FolderOpenIcon, LoaderCircleIcon, PrinterIcon, RotateCcwIcon, SaveIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '../../../components/ui/badge';
 import { Button } from '../../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Field, FieldGroup, FieldLabel, FieldSet, FieldLegend } from '../../../components/ui/field';
+import { Field, FieldError, FieldGroup, FieldLabel, FieldSet, FieldLegend } from '../../../components/ui/field';
 import { Input } from '../../../components/ui/input';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
@@ -119,7 +119,29 @@ export const BscMinutesPage: React.FC = () => {
   const [savedDialogOpen, setSavedDialogOpen] = useState(false);
   const [loadingSavedMinutes, setLoadingSavedMinutes] = useState(false);
   const [error, setError] = useState('');
+  const [numberError, setNumberError] = useState('');
   const loadGeneration = useRef(0);
+
+  const applyMinutes = useCallback((minutes: BscMinutes) => {
+    setActiveMinutes(minutes);
+    setCycleId(minutes.cycle_id);
+    setForm({
+      number: minutes.minutes_number, issuePlace: minutes.issue_place, date: minutes.meeting_date.slice(0, 10),
+      startTime: minutes.start_time, endTime: minutes.end_time, location: minutes.meeting_location,
+      chairName: minutes.chair_name, secretaryName: minutes.secretary_name, absentCount: String(minutes.absent_count),
+      subject: minutes.subject, meetingContent: minutes.meeting_content,
+      nextMonthAssignment: minutes.next_month_assignment, conclusion: minutes.conclusion,
+    });
+    setRows(minutes.snapshot.rows.map((row) => ({
+      id: row.id, employeeName: row.employeeName, departmentId: row.departmentId, departmentName: row.departmentName,
+      officialScore: row.selfScore, officialGrade: row.selfGrade,
+      unitScore: row.unitScore, unitGrade: row.unitGrade, explanation: row.explanation,
+    })));
+    setCollectiveRows(minutes.snapshot.collectiveRows);
+    setMinutesDataReady(true);
+    setDirty(false);
+    setNumberError('');
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -149,8 +171,9 @@ export const BscMinutesPage: React.FC = () => {
     return () => { active = false; };
   }, [canCreateMinutes]);
 
-  const loadRows = useCallback(async () => {
-    if (activeMinutes?.cycle_id === cycleId) {
+  const loadRows = useCallback(async (reloadSaved = false) => {
+    if (!canCreateMinutes) return;
+    if (!reloadSaved && activeMinutes?.cycle_id === cycleId) {
       setMinutesDataReady(true);
       setLoadingRows(false);
       return;
@@ -161,6 +184,12 @@ export const BscMinutesPage: React.FC = () => {
     setMinutesDataReady(false);
     setError('');
     try {
+      const existing = await bscMinutesApi.byCycle(cycleId);
+      if (generation !== loadGeneration.current) return;
+      if (existing) {
+        applyMinutes(existing);
+        return;
+      }
       const individualRequest = loadAllPages((page) => reportsApi.list({
           cycleId,
           evaluationStatus: 'APPROVED',
@@ -180,18 +209,26 @@ export const BscMinutesPage: React.FC = () => {
       const failure = individualResult.status === 'rejected' ? individualResult.reason
         : collectiveResult.status === 'rejected' ? collectiveResult.reason : null;
       if (failure) setError(failure instanceof Error ? failure.message : 'Không thể tải đầy đủ kết quả BSC đã duyệt.');
+    } catch (cause) {
+      if (generation === loadGeneration.current) {
+        setError(cause instanceof Error ? cause.message : 'Không thể tải biên bản của kỳ.');
+      }
     } finally {
       if (generation === loadGeneration.current) setLoadingRows(false);
     }
-  }, [activeMinutes, canViewDepartmentBsc, cycleId]);
+  }, [activeMinutes, applyMinutes, canCreateMinutes, canViewDepartmentBsc, cycleId]);
 
-  useEffect(() => { void loadRows(); }, [loadRows]);
+  useEffect(() => {
+    void loadRows();
+    return () => { loadGeneration.current += 1; };
+  }, [loadRows]);
 
   const selectedCycle = options?.cycles.find((cycle) => cycle.id === cycleId);
   const departmentGroups = groupMinutesRows(rows);
   const updateForm = (field: keyof MeetingForm) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (!canCreateMinutes) return;
     setForm((current) => ({ ...current, [field]: event.target.value }));
+    if (field === 'number') setNumberError('');
     setDirty(true);
   };
   const updateRow = (id: string, values: Partial<Pick<MinutesRow, 'unitScore' | 'unitGrade' | 'explanation'>>) => {
@@ -205,15 +242,25 @@ export const BscMinutesPage: React.FC = () => {
     loadGeneration.current += 1;
     setMinutesDataReady(false);
     setActiveMinutes(null);
+    setNumberError('');
+    setError('');
+    setRows([]);
+    setCollectiveRows([]);
     setDirty(true);
     setCycleId(value);
-    setForm((current) => ({ ...current, ...cycleDefaults(cycle) }));
+    setForm({ ...initialForm(), ...cycleDefaults(cycle) });
   };
   const reset = () => {
-    setActiveMinutes(null);
+    setError('');
+    setNumberError('');
+    if (activeMinutes) {
+      applyMinutes(activeMinutes);
+      return;
+    }
     setDirty(true);
     setForm({ ...initialForm(), ...cycleDefaults(selectedCycle) });
     setRows((current) => current.map((row) => ({ ...row, unitScore: row.officialScore ?? '', unitGrade: row.officialGrade ?? '', explanation: '' })));
+    void loadRows();
   };
 
   const snapshotRows = () => rows.map((row) => ({
@@ -231,7 +278,7 @@ export const BscMinutesPage: React.FC = () => {
 
   const saveInput = (): SaveBscMinutesInput => ({
     cycleId,
-    number: form.number,
+    number: form.number.trim(),
     issuePlace: form.issuePlace,
     date: form.date,
     startTime: form.startTime,
@@ -248,8 +295,17 @@ export const BscMinutesPage: React.FC = () => {
     expectedVersion: activeMinutes?.version,
   });
 
+  const validateNumber = () => {
+    if (!form.number.trim()) {
+      setNumberError('Vui lòng nhập số biên bản.');
+      document.getElementById('minutes-number')?.focus();
+      throw new Error('Vui lòng nhập số biên bản.');
+    }
+  };
+
   const persistMinutes = async () => {
     if (!minutesDataReady || !cycleId) throw new Error('Dữ liệu biên bản chưa sẵn sàng để lưu.');
+    validateNumber();
     setSaving(true);
     try {
       const minutes = activeMinutes
@@ -289,42 +345,14 @@ export const BscMinutesPage: React.FC = () => {
   };
 
   const openSavedMinutes = async (summary: BscMinutesSummary) => {
+    const generation = ++loadGeneration.current;
     setLoadingSavedMinutes(true);
     setError('');
     try {
       const minutes = await bscMinutesApi.detail(summary.id);
-    setActiveMinutes(minutes);
-    setCycleId(minutes.cycle_id);
-    setForm({
-      number: minutes.minutes_number,
-      issuePlace: minutes.issue_place,
-      date: minutes.meeting_date.slice(0, 10),
-      startTime: minutes.start_time,
-      endTime: minutes.end_time,
-      location: minutes.meeting_location,
-      chairName: minutes.chair_name,
-      secretaryName: minutes.secretary_name,
-      absentCount: String(minutes.absent_count),
-      subject: minutes.subject,
-      meetingContent: minutes.meeting_content,
-      nextMonthAssignment: minutes.next_month_assignment,
-      conclusion: minutes.conclusion,
-    });
-    setRows(minutes.snapshot.rows.map((row) => ({
-      id: row.id,
-      employeeName: row.employeeName,
-      departmentId: row.departmentId,
-      departmentName: row.departmentName,
-      officialScore: row.selfScore,
-      officialGrade: row.selfGrade,
-      unitScore: row.unitScore,
-      unitGrade: row.unitGrade,
-      explanation: row.explanation,
-    })));
-    setCollectiveRows(minutes.snapshot.collectiveRows);
-    setMinutesDataReady(true);
-    setDirty(false);
-    setSavedDialogOpen(false);
+      if (generation !== loadGeneration.current) return;
+      applyMinutes(minutes);
+      setSavedDialogOpen(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể mở biên bản đã lưu.');
     } finally {
@@ -335,6 +363,7 @@ export const BscMinutesPage: React.FC = () => {
   const printMinutes = async () => {
     setError('');
     try {
+      validateNumber();
       const persisted = dirty || !activeMinutes ? await persistMinutes() : activeMinutes;
       const recorded = await bscMinutesApi.recordOutput(persisted.id, 'PRINT');
       setActiveMinutes(recorded);
@@ -349,6 +378,7 @@ export const BscMinutesPage: React.FC = () => {
     setExportingPdf(true);
     setError('');
     try {
+      validateNumber();
       const cyclePart = selectedCycle?.code || selectedCycle?.name || 'BSC';
       const numberPart = form.number || 'nhap';
       const filename = `bien-ban-${cyclePart}-${numberPart}.pdf`.replace(/[^a-zA-Z0-9._-]+/g, '-');
@@ -370,22 +400,21 @@ export const BscMinutesPage: React.FC = () => {
         title="Biên bản họp đánh giá BSC"
         description="Mẫu biên bản được tự động điền từ toàn bộ BSC đã duyệt đánh giá trong kỳ của công ty."
         action={<div className="flex flex-wrap gap-2 print:hidden">
-          <Button type="button" variant="outline" onClick={() => void loadSavedMinutes()}><FolderOpenIcon data-icon="inline-start" />Biên bản đã lưu</Button>
+          <Button type="button" variant="outline" disabled={saving || exportingPdf || loadingSavedMinutes} onClick={() => void loadSavedMinutes()}><FolderOpenIcon data-icon="inline-start" />Biên bản đã lưu</Button>
           {canCreateMinutes && <>
-            <Button type="button" variant="outline" onClick={reset}><PlusIcon data-icon="inline-start" />Biên bản mới</Button>
-            <Button type="button" variant="outline" onClick={reset}><RotateCcwIcon data-icon="inline-start" />Làm lại</Button>
-            <Button type="button" variant="outline" disabled={saving || !minutesDataReady} onClick={() => void save()}>{saving ? <LoaderCircleIcon data-icon="inline-start" className="animate-spin" /> : <SaveIcon data-icon="inline-start" />}{saving ? 'Đang lưu…' : 'Lưu biên bản'}</Button>
-            <Button type="button" variant="outline" disabled={exportingPdf || !minutesDataReady} onClick={() => void savePdf()}>{exportingPdf ? <LoaderCircleIcon data-icon="inline-start" className="animate-spin" /> : <FileDownIcon data-icon="inline-start" />}{exportingPdf ? 'Đang tạo PDF…' : 'Lưu PDF'}</Button>
-            <Button type="button" disabled={saving || !minutesDataReady} onClick={() => void printMinutes()}><PrinterIcon data-icon="inline-start" />In biên bản</Button>
+            <Button type="button" variant="outline" disabled={saving || exportingPdf || loadingRows || loadingSavedMinutes} onClick={reset}><RotateCcwIcon data-icon="inline-start" />{activeMinutes ? 'Khôi phục bản đã lưu' : 'Làm lại'}</Button>
+            <Button type="button" variant="outline" disabled={saving || exportingPdf || loadingSavedMinutes || !minutesDataReady} onClick={() => void save()}>{saving ? <LoaderCircleIcon data-icon="inline-start" className="animate-spin" /> : <SaveIcon data-icon="inline-start" />}{saving ? 'Đang lưu…' : 'Lưu biên bản'}</Button>
+            <Button type="button" variant="outline" disabled={saving || exportingPdf || loadingSavedMinutes || !minutesDataReady} onClick={() => void savePdf()}>{exportingPdf ? <LoaderCircleIcon data-icon="inline-start" className="animate-spin" /> : <FileDownIcon data-icon="inline-start" />}{exportingPdf ? 'Đang tạo PDF…' : 'Lưu PDF'}</Button>
+            <Button type="button" disabled={saving || exportingPdf || loadingSavedMinutes || !minutesDataReady} onClick={() => void printMinutes()}><PrinterIcon data-icon="inline-start" />In biên bản</Button>
           </>}
         </div>}
       >
         <div className="mt-2 flex flex-wrap items-center gap-2"><p className="font-semibold uppercase text-primary">{selectedCycle ? `${activeMinutes ? 'Biên bản' : 'Tạo biên bản họp đánh giá BSC mới'} ${selectedCycle.name}` : 'Chọn kỳ BSC để tạo biên bản'}</p>{activeMinutes && <Badge variant={dirty ? 'outline' : 'secondary'}>{dirty ? 'Có thay đổi chưa lưu' : 'Đã lưu'}</Badge>}</div>
       </PageHeader>
 
-      {error && <ErrorState error={error} onRetry={() => void loadRows()} />}
+      {error && <ErrorState error={error} onRetry={() => void loadRows(true)} />}
       {loadingOptions ? <LoadingState message="Đang chuẩn bị mẫu biên bản…" /> : <>
-        <fieldset disabled={!canCreateMinutes} className="contents">
+        <fieldset disabled={!canCreateMinutes || saving || exportingPdf || loadingSavedMinutes} className="contents">
         <Card className="minutes-information-card">
           <CardHeader>
             <CardTitle>Thông tin biên bản</CardTitle>
@@ -396,7 +425,7 @@ export const BscMinutesPage: React.FC = () => {
               <FieldLegend className="sr-only">Thông tin cuộc họp</FieldLegend>
               <FieldGroup className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 <Field><FieldLabel htmlFor="minutes-cycle">Kỳ BSC</FieldLabel><Select value={cycleId} onValueChange={changeCycle}><SelectTrigger id="minutes-cycle" className="w-full"><SelectValue placeholder="Chọn kỳ BSC" /></SelectTrigger><SelectContent><SelectGroup>{options?.cycles.map((cycle) => <SelectItem key={cycle.id} value={cycle.id}>{cycle.name}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
-                <Field><FieldLabel htmlFor="minutes-number">Số biên bản</FieldLabel><Input id="minutes-number" type="number" min="1" step="1" inputMode="numeric" value={form.number} onChange={updateForm('number')} placeholder="Ví dụ: 63" /></Field>
+                <Field data-invalid={!!numberError}><FieldLabel htmlFor="minutes-number">Số biên bản <span aria-hidden="true">*</span></FieldLabel><Input id="minutes-number" type="number" min="1" step="1" inputMode="numeric" required aria-invalid={!!numberError} aria-describedby={numberError ? 'minutes-number-error' : undefined} value={form.number} onChange={updateForm('number')} placeholder="Ví dụ: 63" />{numberError && <FieldError id="minutes-number-error">{numberError}</FieldError>}</Field>
                 <Field><FieldLabel htmlFor="minutes-issue-place">Địa điểm lập biên bản</FieldLabel><Input id="minutes-issue-place" value={form.issuePlace} onChange={updateForm('issuePlace')} /></Field>
                 <Field><FieldLabel htmlFor="minutes-date">Ngày họp</FieldLabel><Input id="minutes-date" type="date" value={form.date} onChange={updateForm('date')} /></Field>
                 <Field><FieldLabel htmlFor="minutes-start">Giờ bắt đầu</FieldLabel><Input id="minutes-start" type="time" value={form.startTime} onChange={updateForm('startTime')} /></Field>

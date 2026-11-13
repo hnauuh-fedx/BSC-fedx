@@ -9,6 +9,7 @@ const query = (params: Record<string, string | number | undefined>) => {
 export const bscMinutesApi = {
   list: (params: Record<string, string | number | undefined> = {}) => httpClient.get<BscMinutesPage>(`/bsc-minutes${query(params)}`),
   detail: (id: string) => httpClient.get<BscMinutes>(`/bsc-minutes/${id}`),
+  byCycle: (cycleId: string) => httpClient.get<BscMinutes | null>(`/bsc-minutes/by-cycle/${cycleId}`),
   create: (input: SaveBscMinutesInput) => httpClient.post<BscMinutes>('/bsc-minutes', input),
   update: (id: string, input: SaveBscMinutesInput) => httpClient.patch<BscMinutes>(`/bsc-minutes/${id}`, input),
   recordOutput: (id: string, type: 'PRINT' | 'PDF') => httpClient.post<BscMinutes>(`/bsc-minutes/${id}/output`, { type }),

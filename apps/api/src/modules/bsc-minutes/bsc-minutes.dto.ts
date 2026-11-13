@@ -1,5 +1,5 @@
 import { Transform, Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 
 const trim = ({ value }: { value: unknown }) => typeof value === 'string' ? value.trim() : value;
 const optionalScore = /^(?:|\d+(?:\.\d{1,4})?)$/;
@@ -37,7 +37,7 @@ export class BscMinutesSnapshotDto {
 
 export class SaveBscMinutesDto {
   @IsUUID() cycleId!: string;
-  @Transform(trim) @IsString() @MaxLength(50) number!: string;
+  @Transform(trim) @IsString() @IsNotEmpty({ message: 'Vui lòng nhập số biên bản.' }) @MaxLength(50) number!: string;
   @Transform(trim) @IsString() @MaxLength(255) issuePlace!: string;
   @Matches(/^\d{4}-\d{2}-\d{2}$/) date!: string;
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/) startTime!: string;

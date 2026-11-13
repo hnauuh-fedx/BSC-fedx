@@ -578,11 +578,13 @@ model bsc_minutes {
   updated_by            String   @db.Uuid
   created_at            DateTime @default(now()) @db.Timestamptz(6)
   updated_at            DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  archived_at           DateTime? @db.Timestamptz(6)
   bsc_cycles            bsc_cycles @relation(fields: [cycle_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "bsc_minutes_cycle_fk")
   creator               users @relation("bsc_minutes_created_by", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "bsc_minutes_created_by_fk")
   updater               users @relation("bsc_minutes_updated_by", fields: [updated_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "bsc_minutes_updated_by_fk")
   events                bsc_minutes_events[]
 
+  // One current minutes per cycle: partial unique index bsc_minutes_active_cycle_key in SQL migration.
   @@index([cycle_id, updated_at], map: "bsc_minutes_cycle_updated_idx")
   @@index([created_by], map: "bsc_minutes_created_by_idx")
 }

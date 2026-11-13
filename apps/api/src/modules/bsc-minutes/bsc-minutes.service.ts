@@ -28,7 +28,7 @@ export class BscMinutesService {
 
   async list(actor: AuthUser, query: QueryBscMinutesDto) {
     this.assertGlobalPermission(actor, BSC_MINUTES_PERMISSIONS.VIEW);
-    const filters: Prisma.bsc_minutesWhereInput[] = [];
+    const filters: Prisma.bsc_minutesWhereInput[] = [{ archived_at: null }];
     if (query.cycleId) filters.push({ cycle_id: query.cycleId });
     if (query.search) filters.push({ OR: [
       { minutes_number: { contains: query.search, mode: 'insensitive' } },
@@ -48,34 +48,53 @@ export class BscMinutesService {
     return this.requireMinutes(this.prisma, id);
   }
 
+  async byCycle(actor: AuthUser, cycleId: string) {
+    this.assertGlobalPermission(actor, BSC_MINUTES_PERMISSIONS.CREATE);
+    return this.prisma.bsc_minutes.findFirst({ where: { cycle_id: cycleId, archived_at: null }, include: detailInclude });
+  }
+
   async create(actor: AuthUser, dto: SaveBscMinutesDto, metadata: AuditRequestMetadata) {
     this.assertGlobalPermission(actor, BSC_MINUTES_PERMISSIONS.CREATE);
-    return this.prisma.$transaction(async (db) => {
-      const snapshot = await this.canonicalSnapshot(db, dto);
-      const minutes = await db.bsc_minutes.create({ data: { ...this.data(actor, dto, snapshot), created_by: actor.id }, include: detailInclude });
-      await this.audit(db, actor, 'BSC_MINUTES_CREATED', minutes.id, null, this.auditData(minutes), metadata);
-      return minutes;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    try {
+      return await this.prisma.$transaction(async (db) => {
+        const snapshot = await this.canonicalSnapshot(db, dto);
+        const minutes = await db.bsc_minutes.create({ data: { ...this.data(actor, dto, snapshot), created_by: actor.id }, include: detailInclude });
+        await this.audit(db, actor, 'BSC_MINUTES_CREATED', minutes.id, null, this.auditData(minutes), metadata);
+        return minutes;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (['P2002', 'P2034'].includes((error as { code?: string }).code ?? '')) {
+        throw new ConflictException({ code: 'BSC_MINUTES_ALREADY_EXISTS', message: 'Kỳ BSC này đã có biên bản hoặc vừa được cập nhật. Vui lòng tải lại biên bản của kỳ để chỉnh sửa.' });
+      }
+      throw error;
+    }
   }
 
   async update(actor: AuthUser, id: string, dto: SaveBscMinutesDto, metadata: AuditRequestMetadata) {
     this.assertGlobalPermission(actor, BSC_MINUTES_PERMISSIONS.CREATE);
     if (!dto.expectedVersion) throw new BadRequestException({ code: 'BSC_MINUTES_EXPECTED_VERSION_REQUIRED', message: 'Thiếu phiên bản biên bản cần cập nhật.' });
-    return this.prisma.$transaction(async (db) => {
-      const old = await this.requireMinutes(db, id);
-      if (dto.cycleId !== old.cycle_id) {
-        throw new BadRequestException({ code: 'BSC_MINUTES_CYCLE_IMMUTABLE', message: 'Không được đổi kỳ BSC của biên bản đã lưu.' });
+    try {
+      return await this.prisma.$transaction(async (db) => {
+        const old = await this.requireMinutes(db, id);
+        if (dto.cycleId !== old.cycle_id) {
+          throw new BadRequestException({ code: 'BSC_MINUTES_CYCLE_IMMUTABLE', message: 'Không được đổi kỳ BSC của biên bản đã lưu.' });
+        }
+        const snapshot = this.updatedSnapshot(old.snapshot, dto);
+        const changed = await db.bsc_minutes.updateMany({
+          where: { id, version: dto.expectedVersion, archived_at: null },
+          data: { ...this.data(actor, dto, snapshot), version: { increment: 1 }, updated_at: new Date() },
+        });
+        if (changed.count !== 1) throw new ConflictException({ code: 'BSC_MINUTES_VERSION_CONFLICT', message: 'Biên bản đã được cập nhật ở phiên làm việc khác. Vui lòng tải lại.' });
+        const minutes = await this.requireMinutes(db, id);
+        await this.audit(db, actor, 'BSC_MINUTES_UPDATED', id, this.auditData(old), this.auditData(minutes), metadata);
+        return minutes;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2034') {
+        throw new ConflictException({ code: 'BSC_MINUTES_VERSION_CONFLICT', message: 'Biên bản đã được cập nhật ở phiên làm việc khác. Vui lòng tải lại.' });
       }
-      const snapshot = this.updatedSnapshot(old.snapshot, dto);
-      const changed = await db.bsc_minutes.updateMany({
-        where: { id, version: dto.expectedVersion },
-        data: { ...this.data(actor, dto, snapshot), version: { increment: 1 }, updated_at: new Date() },
-      });
-      if (changed.count !== 1) throw new ConflictException({ code: 'BSC_MINUTES_VERSION_CONFLICT', message: 'Biên bản đã được cập nhật ở phiên làm việc khác. Vui lòng tải lại.' });
-      const minutes = await this.requireMinutes(db, id);
-      await this.audit(db, actor, 'BSC_MINUTES_UPDATED', id, this.auditData(old), this.auditData(minutes), metadata);
-      return minutes;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      throw error;
+    }
   }
 
   async recordOutput(actor: AuthUser, id: string, type: 'PRINT' | 'PDF', metadata: AuditRequestMetadata) {
@@ -83,6 +102,9 @@ export class BscMinutesService {
     const now = new Date();
     return this.prisma.$transaction(async (db) => {
       const old = await this.requireMinutes(db, id);
+      if (!old.minutes_number.trim()) {
+        throw new BadRequestException({ code: 'BSC_MINUTES_NUMBER_REQUIRED', message: 'Vui lòng nhập số biên bản.' });
+      }
       const minutes = await db.bsc_minutes.update({
         where: { id },
         data: type === 'PRINT'
@@ -186,7 +208,7 @@ export class BscMinutesService {
   }
 
   private async requireMinutes(db: Db, id: string) {
-    const minutes = await db.bsc_minutes.findUnique({ where: { id }, include: detailInclude });
+    const minutes = await db.bsc_minutes.findFirst({ where: { id, archived_at: null }, include: detailInclude });
     if (!minutes) throw new NotFoundException({ code: 'BSC_MINUTES_NOT_FOUND', message: 'Không tìm thấy biên bản.' });
     return minutes;
   }

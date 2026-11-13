@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
@@ -17,6 +17,11 @@ export class BscMinutesController {
 
   @Get() @RequirePermissions(P.VIEW)
   list(@CurrentUser() actor: AuthUser, @Query() query: QueryBscMinutesDto) { return this.service.list(actor, query); }
+
+  @Get('by-cycle/:cycleId') @RequirePermissions(P.CREATE)
+  byCycle(@CurrentUser() actor: AuthUser, @Param('cycleId', ParseUUIDPipe) cycleId: string) {
+    return this.service.byCycle(actor, cycleId);
+  }
 
   @Get(':id') @RequirePermissions(P.VIEW)
   detail(@CurrentUser() actor: AuthUser, @Param('id') id: string) { return this.service.detail(actor, id); }

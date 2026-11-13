@@ -20,7 +20,7 @@ export const SavedMinutesDialog: React.FC<Props> = ({ open, loading, items, onOp
     <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-4xl">
       <DialogHeader>
         <DialogTitle>Biên bản đã lưu</DialogTitle>
-        <DialogDescription>Mở lại đúng snapshot đã lưu để chỉnh sửa, in hoặc xuất PDF.</DialogDescription>
+        <DialogDescription>Mỗi kỳ BSC có một biên bản. Mở để chỉnh sửa, in hoặc xuất PDF.</DialogDescription>
       </DialogHeader>
       {loading ? <LoadingState message="Đang tải biên bản đã lưu…"/> : items.length === 0 ? (
         <EmptyState message="Chưa có biên bản nào được lưu."/>
@@ -30,7 +30,7 @@ export const SavedMinutesDialog: React.FC<Props> = ({ open, loading, items, onOp
             <TableHeader><TableRow><TableHead>Số</TableHead><TableHead>Kỳ BSC</TableHead><TableHead>Thư ký</TableHead><TableHead>Cập nhật</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader>
             <TableBody>{items.map((item) => <TableRow key={item.id}>
               <TableCell>{item.minutes_number || 'Chưa đánh số'}</TableCell>
-              <TableCell>{item.bsc_cycles.name}</TableCell>
+              <TableCell>{item.bsc_cycles.month ? `Tháng ${item.bsc_cycles.month}/${item.bsc_cycles.year}` : `${item.bsc_cycles.name} (${item.bsc_cycles.year})`}</TableCell>
               <TableCell>{item.secretary_name}</TableCell>
               <TableCell>{dateLabel(item.updated_at)}</TableCell>
               <TableCell className="text-right"><Button type="button" variant="outline" size="sm" onClick={() => onSelect(item)}>Mở</Button></TableCell>
